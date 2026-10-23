@@ -91,13 +91,18 @@ function fixture(over = {}) {
   menu.appendChild(make("projsep"));
   const fresh = menu.appendChild(make("projnew", "button", "projrow"));
   body.appendChild(make("npstart", "button"));   // the new tab's own folder button
-  // the home page's list, which the pill's code paints in the same pass
+  // the home page's list, which the pill's code paints in the same pass: the
+  // glass box holding the rows and the words for none, then the folder row
   const homeBox = body.appendChild(make("homelistbox"));
-  const homeRows = homeBox.appendChild(make("homerows"));
+  const homeGlass = homeBox.appendChild(make("homeglass", "div", "qn-glass"));
+  const homeRows = homeGlass.appendChild(make("homerows"));
+  const homeEmpty = homeGlass.appendChild(make("homeempty", "p"));
+  homeEmpty.hidden = true;
   const homeNew = homeBox.appendChild(make("homenew", "button", "homerow"));
   ids.projpill.rect = () => box(48, 7, 120, 32);
   menu.rect = () => box(48, 45, 220, 12 + 32 * (list.children.length + 1) + 9);
-  homeBox.rect = () => box(1040, 200, 360, 40 * (homeRows.children.length + 1) + 10);
+  homeGlass.rect = () => box(1040, 200, 360, 600);
+  homeBox.rect = () => box(1040, 200, 360, 660);
   const now = Date.now() / 1000, day = 86400;
   const card = (id, owner, extra = {}) => ({ id, owner, bucket: "must", title: id, ball: "you", replies: 0, ts: now - 30 * day, agentTs: 0, ...extra });
   const state = over.state || {
@@ -168,7 +173,7 @@ function fixture(over = {}) {
   };
   place();
   const win = (type, extra = {}) => { for (const fn of windowListeners[type] || []) fn({ buttons: 1, button: 0, preventDefault() {}, stopImmediatePropagation() {}, ...extra }); };
-  return { context, state, ids, body, menu, list, fresh, homeBox, homeRows, homeNew, homeRow, writes, opens, fetches, calls, pickers, store, rows, row, place, win,
+  return { context, state, ids, body, menu, list, fresh, homeBox, homeGlass, homeRows, homeEmpty, homeNew, homeRow, writes, opens, fetches, calls, pickers, store, rows, row, place, win,
     homeNames: () => homeRows.children.map(r => r.dataset.owner),
     homeNumbers: () => homeRows.children.map(r => r.querySelector(".homenum").textContent),
     get: code => vm.runInContext(code, context),
@@ -560,7 +565,7 @@ test("\"Open a new folder\" opens the board's folder picker and lands on the new
   assert.equal(f.context.homeOpen, false); assert.equal(f.store.get("projleft"), "marlow");
 });
 
-// ---- the home page's list (m1336): the pill's list without its box -----------
+// ---- the home page's list: the pill's list's rows in a glass box -------------
 test("home's list holds the pill list's projects in its order and numbers, and a carry on either list moves both", () => {
   const f = fixture({ homeOpen: true });
   assert.deepEqual(f.homeNames(), f.names());
@@ -580,12 +585,12 @@ test("home's list holds the pill list's projects in its order and numbers, and a
   held.fire("mousedown", { clientX: 1100, clientY: 220 });
   f.win("mousemove", { clientX: 1100, clientY: 223 }); assert.equal(held.classes.has("lifted"), false, "under 5px is still a click");
   f.win("mousemove", { clientX: 1100, clientY: 305 });
-  assert.equal(held.classes.has("lifted"), true); assert.equal(f.homeBox.classes.has("carrying"), true);
+  assert.equal(held.classes.has("lifted"), true); assert.equal(f.homeGlass.classes.has("carrying"), true);
   assert.equal(f.homeRow("moonbase").style.transform, "translateY(-40px)");
   f.win("mouseup", { clientX: 1100, clientY: 305 }); held.fire("click");
   assert.deepEqual(f.writes.at(-1).order, ["moonbase", "alder-workshop", "facilitator", "wayside", "marlow"]);
   assert.equal(f.context.homeOpen, true, "the release is not a choice");
-  assert.equal(f.homeBox.classes.has("carrying"), false);
+  assert.equal(f.homeGlass.classes.has("carrying"), false);
   assert.deepEqual(f.homeNames(), ["moonbase", "alder-workshop", "facilitator", "wayside", "marlow"]);
   assert.deepEqual(f.names(), f.homeNames(), "the pill's list follows");
   assert.deepEqual(f.homeNumbers(), ["1", "2", "3", "4", "5"], "renumbered");
@@ -622,7 +627,7 @@ test("a click on a home row opens its project, a row carried out opens its own w
   const f = fixture({ homeOpen: true });
   f.homeRow("wayside").querySelector(".homename").fire("click");
   assert.equal(f.context.activeOwner, "wayside"); assert.equal(f.context.homeOpen, false, "home is left for the project");
-  // carried out past the list's edge it fades, and let go there it opens in a window of its own
+  // carried out past the glass box's edge it fades, and let go there it opens in a window of its own
   const t = fixture({ homeOpen: true });
   const held = t.homeRow("moonbase");
   held.fire("mousedown", { clientX: 1100, clientY: 260 });
@@ -721,8 +726,8 @@ test("the open list dims the board exactly as the settings page does, and the di
 });
 
 test("the list's top edge is one line: it wears the bar's rim, not the glass's doubled top", () => {
-  const head = "body.focus :is(.bar .qn-glass, #projmenu){";
-  assert.ok(sheet.includes(head), "the bar and the list share one stack");
+  const head = "body.focus :is(.bar .qn-glass, #projmenu, #homeglass){";
+  assert.ok(sheet.includes(head), "the bar, the list and home's box share one stack");
   const rim = sheet.slice(sheet.indexOf(head));
   const stack = rim.slice(0, rim.indexOf("}"));
   assert.doesNotMatch(stack, /inset 0 1px 0 rgba\(255,255,255/, "the white first row over the ring");
@@ -732,11 +737,20 @@ test("the list's top edge is one line: it wears the bar's rim, not the glass's d
   assert.match(tokens, /\.qn-glass\{\s*border:none;[^}]*inset 0 2px 0 rgba\(0,0,0,\.045\)/);
 });
 
-test("home's project list stands on the page with no box, and the new tab keeps its white well", () => {
-  // the pill's list's rows without its glass (m1336): no box, fill, shadow or edge
+test("home's projects stand in a rounded box of the board's glass with the update pop-up's rim, and the new tab keeps its white well", () => {
+  // one piece of glass, the box; the rows and the folder row wear none of their own
   const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
-  assert.ok(markup.includes('<div id="homerows"></div>'));
-  assert.doesNotMatch(markup, /qn-glass/);
+  assert.match(markup, /<div id="homeglass" class="qn-glass">\s*<div id="homerows"><\/div>\s*<p id="homeempty" hidden>No active projects just yet \.\.\.<\/p>\s*<\/div>/);
+  assert.equal(markup.match(/qn-glass/g).length, 1, "only the box is glass");
+  // the glass's own material (.qn-glass), with the one line rim and shadows the bar, the pill's list and the update pop-up wear
+  const rim = rule(sheet, "body.focus :is(.bar .qn-glass, #projmenu, #homeglass)");
+  assert.equal(decl(rim, "box-shadow"), decl(rule(tokens, ".up-box"), "box-shadow"));
+  assert.match(tokens, /\.qn-glass\{\s*border:none;[^}]*backdrop-filter:blur\(var\(--qn-blur\)\) saturate\(var\(--qn-sat\)\)/);
+  // well rounded, 32px at the reference window, with the rows cut at its corners
+  const glass = rule(sheet, "#homeglass");
+  assert.equal(decl(glass, "border-radius"), "var(--home-round)");
+  assert.equal(decl(glass, "overflow"), "hidden");
+  assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "--home-round"), "calc(32px * var(--home-u, 1))");
   for (const selector of ["#homelistbox", "#homelist .homerow"]) {
     const r = rule(sheet, selector);
     assert.ok([undefined, "none"].includes(decl(r, "background")), selector + " has a fill");
@@ -749,125 +763,190 @@ test("home's project list stands on the page with no box, and the new tab keeps 
   assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
 
-test("home's list holds its projects, a line and the folder row with no heading, its room grows with the projects up to ten rows or the room the logo and the limits leave, and it stands centred on their middle", () => {
-  // the rows, the line and the folder row, in that order, and no heading or
-  // line over the rows
+test("home's box holds the projects or the words for none with the folder row under it, and the two stand as one block centred on the left part's content at every count", () => {
+  // the glass box, then the folder row; inside the box the rows and the
+  // words for none, and no heading or line anywhere
   const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
-  const order = ['<div id="homelistbox">', '<div id="homerows"></div>', '<div id="homelistsep"></div>', '<button id="homenew"']
-    .map(s => markup.indexOf(s));
-  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), "rows, line, folder row: " + order);
-  assert.equal(markup.slice(order[0], order[1]).replace(/\s+/g, ""), '<divid="homelistbox">', "nothing stands over the rows");
-  assert.doesNotMatch(html, /id="homehead|#homehead|"homehead/, "the heading and its line are gone");
+  let at = 0;
+  for (const piece of ['<div id="homelistbox">', '<div id="homeglass"', '<div id="homerows"></div>', '<p id="homeempty"', "</div>", '<button id="homenew"']) {
+    const next = markup.indexOf(piece, at);
+    assert.ok(next >= at, "in order: " + piece);
+    at = next + piece.length;
+  }
+  assert.doesNotMatch(html, /homelistsep|id="homehead|#homehead|"homehead/, "no line and no heading");
   // the rows in the box's face and size
-  const row = rule(sheet, "#homelist .homerow");
   assert.equal(decl(rule(sheet, "#homelistbox"), "font"), "400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)");
-  assert.equal(decl(row, "font"), "inherit");
-  // the line the charts' line, 1px of the line colour at the group's scale
-  assert.match(sheet, /#homelimits:not\(\[hidden\]\)::before\{[^}]*height:1px; background:var\(--line\)/);
-  const lines = rule(sheet, "#homelistsep");
-  assert.equal(decl(lines, "height"), "calc(1px * var(--home-t, 1))");
-  assert.equal(decl(lines, "background"), "var(--line)");
-  // 3.35 to 14 of the names' size clear above and below it
-  assert.equal(decl(lines, "margin"), "calc(var(--home-font) * 3.35 / 14) var(--home-cross) calc(var(--home-font) * 3.35 / 14) 0");
-  // the box is as tall as what it holds, not capped itself, and centred
-  // between the top and foot homeFit sets, which it fills once the room is
-  // full; the rows take their own height, with no floor, up to ten of them,
-  // and shrink to the room left between the two, where they scroll
-  const box = rule(sheet, "#homelistbox"), rows = rule(sheet, "#homerows");
-  assert.equal(decl(box, "flex"), "0 1 auto");
-  assert.equal(decl(box, "min-height"), "0");
-  assert.match(decl(box, "margin"), /^var\(--home-list-top, 0px\) .* var\(--home-list-foot, 0px\) 0$/);
-  assert.equal(decl(box, "max-height"), undefined, "the box itself is not capped");
-  assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "flex-direction"), "column");
-  assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "justify-content"), "center", "the list is centred up and down");
-  assert.equal(decl(rows, "flex"), "0 1 auto");
-  assert.equal(decl(rows, "min-height"), "0", "no floor under the rows' own height");
-  assert.equal(decl(rows, "max-height"), "var(--home-room-max, none)", "the rows' room capped at what homeFit sets");
+  assert.equal(decl(rule(sheet, "#homelist .homerow"), "font"), "inherit");
+  // the box is one height whatever the count, set by homeFit from the look, and
+  // stands where homeFit puts its top; the rows fill the glass and scroll
+  // inside it, with no cap
+  const part = rule(sheet, "body.focus.home #homelist"), box = rule(sheet, "#homelistbox");
+  const glass = rule(sheet, "#homeglass"), rows = rule(sheet, "#homerows");
+  assert.equal(decl(part, "flex-direction"), "column");
+  assert.equal(decl(part, "justify-content"), undefined, "homeFit places the block, the sheet does not centre it");
+  assert.equal(decl(box, "flex"), "none");
+  assert.equal(decl(box, "width"), "var(--home-box-w)");
+  assert.equal(decl(box, "margin"), "var(--home-list-top, 0px) var(--home-box-right) 0 0");
+  assert.equal(decl(glass, "flex"), "none");
+  assert.equal(decl(glass, "height"), "var(--home-box-h)");
+  assert.doesNotMatch(html, /--home-list-foot/, "the foot is not set: the block is placed by its top");
+  assert.equal(decl(rows, "flex"), "1 1 auto");
   assert.equal(decl(rows, "overflow-y"), "auto");
-  for (const id of ["#homelistsep", "#homelist .homerow"])
-    assert.equal(decl(rule(sheet, id), "flex"), "none", id + " keeps its height");
-  // homeFit sets the top from the logo's word and the foot from the last "Last
-  // updated" line, both as drawn, each less the box's own room past the ink, so
-  // the box centred between them centres the ink on the middle of those two.
-  // the first name's ink stands as far down its row as the folder row's does
-  // down its own, whatever leads the list and however far it is scrolled
+  assert.equal(decl(rows, "max-height"), undefined, "the rows are not capped");
+  assert.doesNotMatch(html, /HOME_ROWS_MAX|--home-room-max|--home-room-min/, "no cap and no floor on the rows");
+  assert.equal(decl(rule(sheet, "#homelist .homerow"), "flex"), "none", "a row keeps its height");
+  // the first number, the words for none and the folder row's plus start
+  // --home-pad in from the box's left edge, the folder row with no room for a cross
+  assert.match(decl(rows, "padding"), / var\(--home-pad\)$/);
+  const empty = rule(sheet, "#homeempty");
+  assert.equal(decl(empty, "position"), "absolute");
+  assert.equal(decl(empty, "left"), "var(--home-pad)");
+  assert.equal(decl(empty, "font"), "inherit");
+  assert.equal(decl(empty, "color"), "color-mix(in srgb, var(--sub) 14%, transparent)", "the words for none are fainter than the names");
+  // the folder row: its plus and words one line centred across the box, in the
+  // folder row's own size, the plus and the gap following that size
+  const folder = rule(sheet, "#homelist #homenew");
+  assert.equal(decl(folder, "padding-left"), "0");
+  assert.equal(decl(folder, "padding-right"), "0");
+  assert.equal(decl(folder, "justify-content"), "center");
+  assert.equal(decl(folder, "--home-font"), "var(--home-folder-font)");
+  assert.equal(decl(folder, "font"), "400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)");
+  assert.equal(decl(rule(sheet, "#homelist #homenew .homenum"), "width"), "auto", "the plus is no wider than itself, so the line centres");
+  // the sizes at the reference window, the same in the sheet's defaults and the
+  // fit, each times --home-u as the charts' own sizes are: names 24, the folder
+  // row 30, rows 21 apart, the box 375 wide and 526 tall
+  assert.match(html, /font: 24, folder: 30, rows: 21 \/ 24, box: 375, boxH: 526, boxGap: 215, pad: 34 \/ 28,/);
+  assert.equal(decl(part, "--home-font"), "calc(24px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-folder-font"), "calc(30px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-rows"), "calc(var(--home-font) * 21 / 24)");
+  assert.equal(decl(part, "--home-box-w"), "calc(375px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-box-h"), "calc(526px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-box-right"), "calc(135px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-pad"), "calc(var(--home-font) * 34 / 28)");
+  // homeFit stands the block, the box's top to the folder row's ink foot,
+  // centred on the middle of the logo's top (its mark or its word, whichever
+  // stands higher) and the ink of the last "Last updated" line, moving it by
+  // the difference of the middles from where it stands, its height unchanged
   const fit = between("function homeFit(){", "// fitted on the frame");
-  assert.match(fit, /homeSet\(homeListPart, "--home-t", t, ""\)/);
   assert.match(fit, /homeInk\(document\.getElementById\("homebrandname"\), t\)/);
   assert.match(fit, /homePair\.querySelectorAll\("\.tk-updated, \.lm-updated"\)\]\.map\(el => homeInk\(el, t\)\)\.filter\(Boolean\)\.pop\(\)/);
-  assert.match(fit, /const first = folder && homeRows\.getBoundingClientRect\(\)\.top \+ folder\.top - homeNewName\.parentElement\.getBoundingClientRect\(\)\.top;/);
-  assert.match(fit, /homeSet\(homeListPart, "--home-list-top", Math\.max\(0, headAt - \(first - box\.top\) - list\.top\)\)/);
-  assert.match(fit, /homeSet\(homeListPart, "--home-list-foot", Math\.max\(0, list\.bottom - footAt - \(box\.bottom - folder\.bottom\)\)\)/);
-  // the cap is ten rows at a row's own height as laid out, rounded up to the
-  // thousandth, so exactly ten stand whole with no fade, and a taller window
-  // shows no more of them
-  assert.match(html, /\nconst HOME_ROWS_MAX = 10;\n/);
-  assert.match(fit, /const row = homeRows\.querySelector\("\.homerow"\);/);
-  assert.match(fit, /if \(row\) homeSet\(homeListPart, "--home-room-max", Math\.ceil\(row\.getBoundingClientRect\(\)\.height \* HOME_ROWS_MAX \* 1000\) \/ 1000\);/);
-  assert.equal(html.match(/--home-room-max/g).length, 3, "set in homeFit, read by #homerows, named in the sheet's note");
-  // and nothing sets a floor under the room
-  assert.doesNotMatch(html, /--home-room-min/);
+  assert.match(fit, /const logoAt = word \? \(mark\.height > 0 \? Math\.min\(word\.top, mark\.top\) : word\.top\) : shown\?\.top;/);
+  assert.match(fit, /const lastAt = updated\?\.bottom \?\? shown\?\.bottom;/);
+  assert.match(fit, /const standsAt = parseFloat\(getComputedStyle\(homeListBox\)\.marginTop\) \|\| 0;/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-list-top", Math\.max\(0, standsAt \+ \(logoAt \+ lastAt\) \/ 2 - \(box\.top \+ folder\.bottom\) \/ 2\)\)/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-box-w", boxW\)/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-box-h", L\.boxH \* k\)/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-folder-font", Math\.max\(L\.fontMin, L\.folder \* k\)\)/);
+  // and stands the look's gap from where the left half's ink ends, not a fixed way in from the frame's edge, so the
+  // two halves keep their proportion wherever the left half lands in a wider or taller window
+  assert.match(fit, /if \(shown\) homeSet\(homeListPart, "--home-box-right", Math\.max\(0, list\.right - \(shown\.right \+ L\.boxGap \* k \+ boxW\)\)\)/);
+  assert.match(fit, /shown = \{ top: top \+ dy, bottom: bottom \+ dy, right: right \+ dx \};/);
+  assert.doesNotMatch(fit, /L\.boxRight|boxRight =/, "no fixed margin from the frame's right edge");
+  assert.match(fit, /homeSet\(homeListPart, "--home-rows", font \* L\.rows\)/);
+  // every length of the right half is the look's times k, how large the left half is drawn as a share of the look's
+  // (u unless the part's room took from it), so the two halves keep one proportion on any screen, and the left half's
+  // own sizes are the board's as before
+  assert.match(fit, /const k = u \* t \/ t0;/);
+  assert.doesNotMatch(fit, /L\.(box|boxH|folder|font) \* (u\b|frame|innerWidth|innerHeight)/);
+  assert.match(fit, /const width = L\.chartW \* refW \* L\.scale \* u, chartH = L\.chartH \* refH \* L\.scale \* u;/, "the charts' size is untouched");
 });
 
-test("home's list shows from three open projects; under that the logo and charts stand on the frame's middle, and a count crossing three glides them", () => {
-  // under three the wide part moves right by half the list's part, the list's
-  // own width, so its middle is the frame's; nothing about the group's size
-  // changes with it
-  const side = rule(sheet, "body.focus.home #homeside"), part = rule(sheet, "body.focus.home #homelist");
-  const listW = decl(part, "width");
-  assert.equal(listW, "calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333))");
-  assert.equal(decl(side, "right"), "calc(var(--app-inset) + (100vw - 2 * var(--app-inset)) * var(--home-split, .33333))");
-  assert.equal(rule(sheet, "body.focus.home.homefew #homeside"), "translate:" + listW.replace(/\)$/, " / 2) 0"));
-  assert.doesNotMatch(sheet, /homefew[^{]*#homepair/, "the group keeps its size");
-  // the list clear and taking no pointer while hidden
-  const gone = rule(sheet, "body.focus.home.homefew #homelistbox");
-  assert.equal(decl(gone, "opacity"), "0");
-  assert.equal(decl(gone, "pointer-events"), "none");
-  // the glide and the fade only while homeglide is on: the board's gentle
-  // curve, half a second each; at rest nothing in either eases, so a load or a
-  // resize places them at once
-  assert.match(tokens, /--gentle:cubic-bezier\(/);
-  assert.equal(decl(rule(sheet, "body.focus.home.homeglide #homeside"), "transition"), "translate .5s var(--gentle)");
-  assert.equal(decl(rule(sheet, "body.focus.home.homeglide #homelistbox"), "transition"), "opacity .5s var(--gentle)");
-  assert.equal(decl(side, "transition"), undefined);
-  assert.equal(decl(rule(sheet, "#homelistbox"), "transition"), undefined);
+test("home's box keeps one width and its names one size whatever the names are, and a name too long for it fades at its end", () => {
+  // the box, the names and the split come from the window alone
+  const fit = between("function homeFit(){", "// fitted on the frame");
+  assert.match(fit, /const split = L\.split;/);
+  assert.match(fit, /const font = Math\.max\(L\.fontMin, L\.font \* k\), boxW = L\.box \* k;/);
+  assert.match(html, /const HOME_LOOK = \{ split: 1 \/ 3, /);
+  // nothing measures the names to widen the box, shrink the names or move the split
+  assert.doesNotMatch(fit, /scrollWidth \+|widest|need|room\(\)|splitMax|L\.inner/, "no name moves the box");
+  assert.doesNotMatch(html, /splitMax/);
+  // a name wider than its room is cut there and fades, never in dots
+  assert.match(fit, /name\.classList\.toggle\("cut", name\.scrollWidth > name\.clientWidth\)/);
+  const name = rule(sheet, "#homelist .homename"), cut = rule(sheet, "#homelist .homename.cut");
+  assert.equal(decl(name, "overflow"), "hidden");
+  assert.equal(decl(name, "text-overflow"), "clip", "no dots");
+  assert.equal(decl(name, "min-width"), "0", "a long name gives way inside its row");
+  // its end fades one name's height long while its start is in view, and the
+  // fade follows the slide: --lead at the start, --trail at the end
+  assert.equal(decl(cut, "mask-image").replace(/\s+/g, " "), "linear-gradient(to right, transparent 0, #000 var(--lead, 0px), #000 calc(100% - var(--trail, var(--home-font))), transparent 100%)");
+  assert.equal(decl(cut, "-webkit-mask-image"), decl(cut, "mask-image"));
+});
 
-  // the count, live: five open on home, then two, one, three and four, then
-  // two with home not up
+test("a name too long for its box slides while the pointer rests on its row, and a name that fits never moves", () => {
+  // the look: 40px a second at the reference window times u, after 0.4 seconds, holding 0.8 at each end
+  assert.match(html, /slide: 40, slideWait: \.4, slideHold: \.8 \};/);
+  const slide = between("const HOME_EASE", "const homeNameOf");
+  assert.match(slide, /const ms = far \/ \(HOME_LOOK\.slide \* homeUnit \* \(1 - r\)\) \* 1000;/);
+  assert.match(slide, /if \(!name\?\.classList\.contains\("cut"\)\) return;/, "only a cut name slides");
+  assert.match(slide, /hold\(HOME_LOOK\.slideWait, run\)/);
+  assert.match(slide, /homeSlideTo\(name, room, \(\) => hold\(HOME_LOOK\.slideHold, \(\) =>\s*homeSlideTo\(name, 0, \(\) => hold\(HOME_LOOK\.slideHold, run\)\)\)\)/);
+  assert.match(html, /homeUnit = k;/, "the speed follows the size of the page as the sizes do");
+  // the pointer's coming and going on a row start and end it; a press stops it
+  for (const type of ["pointerover", "pointerout", "pointerdown"]) assert.match(html, new RegExp('homeRows\\.addEventListener\\("' + type + '"'));
+  assert.match(slide, /name\.style\.removeProperty\("--lead"\);\s*name\.style\.removeProperty\("--trail"\)/, "back at rest the sheet's own fade stands");
+  // the speed holds through the middle of a slide and climbs and falls over HOME_EASE at each end
+  const done = k => { const r = .3; return k < r ? k * k / (2 * r * (1 - r)) : k > 1 - r ? 1 - (1 - k) ** 2 / (2 * r * (1 - r)) : (k - r / 2) / (1 - r); };
+  assert.equal(done(0), 0); assert.ok(Math.abs(done(1) - 1) < 1e-12);
+  assert.ok(Math.abs(done(.3) - (.3 / 2) / .7) < 1e-12, "the two pieces meet");
+  assert.ok(Math.abs((done(.6) - done(.5)) / .1 - 1 / .7) < 1e-9, "a steady 1 / (1 - r) of the average speed through the middle");
+  assert.match(slide, /const done = k < r \? k \* k \/ \(2 \* r \* \(1 - r\)\) : k > 1 - r \? 1 - \(1 - k\) \*\* 2 \/ \(2 \* r \* \(1 - r\)\) : \(k - r \/ 2\) \/ \(1 - r\);/);
+});
+
+test("home's box shows at every count from none up, says so when there is none, and the logo and charts never move with the count", () => {
+  // nothing hides the box or moves the wide part for the count
+  assert.doesNotMatch(html, /homefew|homeglide|HOME_LIST_FROM|homeFewSet/);
+  assert.doesNotMatch(sheet, /#homeside\{[^}]*translate/, "the wide part stays where it stands");
+  assert.equal(decl(rule(sheet, "body.focus.home #homeside"), "transition"), undefined);
+  // the count, live: five open on home, then two, one, three and four
   const f = fixture({ homeOpen: true });
-  const timers = [];
-  f.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
-  const has = c => f.body.classes.has(c);
   const openOnly = n => {
     f.state.tabs.closed = f.state.tabs.order.filter(ow => ow !== "marlow").slice(n - 1);
     f.context.renderTabs(f.state);
     assert.equal(f.homeNames().length, n);
   };
-  assert.equal(has("homefew"), false); assert.equal(f.homeBox.inert, false);
-  assert.equal(has("homeglide"), false, "the first count after a load places them at once");
-  openOnly(2);
-  assert.equal(has("homefew"), true); assert.equal(f.homeBox.inert, true, "no click and no key reach the hidden list");
-  assert.equal(has("homeglide"), true, "two projects: the column glides to the middle");
-  assert.equal(timers.length, 1); assert.equal(timers[0].ms, 600);
-  timers[0].fn(); assert.equal(has("homeglide"), false, "the glide ends");
-  openOnly(1);
-  assert.equal(has("homefew"), true); assert.equal(has("homeglide"), false, "one project is hidden as two are, with nothing to glide");
-  assert.equal(timers.length, 1);
-  openOnly(3);
-  assert.equal(has("homefew"), false); assert.equal(f.homeBox.inert, false);
-  assert.equal(has("homeglide"), true, "three projects: the column glides left as the list fades in");
-  // a resize during the glide places them at once
-  f.win("resize"); assert.equal(has("homeglide"), false);
-  openOnly(4); assert.equal(has("homeglide"), false, "past three nothing changes");
-  // a count crossing three while home is not up places them at once
-  f.context.homeOpen = false; f.context.renderTabs(f.state);
-  openOnly(2); assert.equal(has("homefew"), true); assert.equal(has("homeglide"), false);
-  // a board that loads with two open starts hidden, with no glide
-  const g = fixture({ homeOpen: true, state: { boxes: f.state.boxes, projects: [],
-    tabs: { order: [...f.state.tabs.order], closed: ["facilitator", "moonbase", "alder-workshop"] } } });
-  assert.deepEqual(g.homeNames(), ["wayside", "marlow"]);
-  assert.equal(g.body.classes.has("homefew"), true); assert.equal(g.body.classes.has("homeglide"), false);
-  assert.equal(g.homeBox.inert, true);
+  for (const n of [5, 2, 1, 3, 4]) {
+    if (n !== 5) openOnly(n);
+    assert.equal(f.homeEmpty.hidden, true, n + " open: no words for none");
+    assert.ok(!f.homeBox.inert && !f.homeGlass.inert, n + " open: the box takes clicks and keys");
+    assert.ok(!f.body.classes.has("homefew") && !f.body.classes.has("homeglide"), n + " open");
+  }
+  // a board with no project: the box stands and says so, and the first
+  // project to arrive takes the words away
+  const none = fixture({ homeOpen: true, state: { boxes: [], projects: [], tabs: { order: [], closed: [] } } });
+  assert.deepEqual(none.homeNames(), []);
+  assert.equal(none.homeEmpty.hidden, false, "none open: the box says so");
+  assert.match(html, /<p id="homeempty" hidden>No active projects just yet \.\.\.<\/p>/);
+  none.state.boxes.push({ id: "g1", owner: "garden", bucket: "must", title: "g1", ball: "you", replies: 0, ts: 0, agentTs: 0 });
+  none.state.tabs.order.push("garden"); none.context.validActiveOwnerIds.add("garden");
+  none.context.renderTabs(none.state);
+  assert.deepEqual(none.homeNames(), ["garden"]);
+  assert.equal(none.homeEmpty.hidden, true);
+});
+
+test("home's rows fade at the box's top and bottom edges under the ticket list's ramp, only where there is more to scroll", () => {
+  // the very mask the ticket list's sections wear, fed the same two bands
+  const rows = rule(sheet, "#homerows"), pane = rule(sheet, ".tikpane");
+  assert.ok(decl(rows, "mask-image"), "the rows wear a mask");
+  assert.equal(decl(rows, "mask-image"), decl(pane, "mask-image"));
+  assert.equal(decl(rows, "-webkit-mask-image"), decl(pane, "-webkit-mask-image"));
+  assert.equal(decl(rows, "scroll-padding-block"), "calc(var(--home-font) * 1.6)", "a row scrolled into view stands clear of both ramps");
+  assert.doesNotMatch(html, /more-up|more-down|--home-fade-top|--home-fade-bot/, "the old fade is gone");
+  // the bands: how far the rows have scrolled and how far they still can,
+  // capped at the ramp's depth, which homeFit sets at 1.6 names' height
+  assert.match(between("function homeFit(){", "// fitted on the frame"), /homeFadeDepth = Math\.round\(font \* 1\.6\);/);
+  const f = fixture({ homeOpen: true });
+  assert.ok(f.homeRows.listeners.scroll?.length, "read on every scroll");
+  f.get("homeFadeDepth = 45");
+  const bands = (scrollTop, scrollHeight = 1700) => {
+    Object.assign(f.homeRows, { scrollTop, scrollHeight, clientHeight: 600 });
+    f.get("homeFades()");
+    return [f.homeRows.style["--upband"], f.homeRows.style["--downband"]];
+  };
+  assert.deepEqual(bands(0), ["0px", "45px"], "at the top only the foot fades");
+  assert.deepEqual(bands(20), ["20px", "45px"], "the head's band follows the scroll in");
+  assert.deepEqual(bands(550), ["45px", "45px"], "in the middle both fade");
+  assert.deepEqual(bands(1100), ["45px", "0px"], "at the end only the head fades");
+  assert.deepEqual(bands(0, 600), ["0px", "0px"], "a list that fits wears no fade");
 });
 
 // ---- rounds 3 and 4 (20261010): spacing, numbers and weights ------------------
@@ -960,4 +1039,53 @@ test("the magnifier, the speaker, the bug and the squid stand the house's gap to
   assert.ok(bar.lastIndexOf('id="setbtn"') > bar.lastIndexOf('id="chimebtn"'));
   assert.ok(bar.lastIndexOf('id="chimebtn"') > bar.lastIndexOf('id="searchbtn"'));
   assert.equal(decl(rule(sheet, "body.focus .bar #searchbtn"), "margin-left"), "auto");
+});
+
+// ---- the onboarding's sample project ---------------------------------------------
+// a board holding the sample project the onboarding made (sample on its record):
+// it has an unread reply, a folder and a place in the board's saved order, and
+// still no list names it
+function sampleBoard({ mark = true, others = ["orchard", "quarry", "rookery"] } = {}) {
+  const now = Date.now() / 1000;
+  const card = (id, owner, extra = {}) => ({ id, owner, bucket: "must", title: id, ball: "you", replies: 0, ts: now - 60, agentTs: 0, ...extra });
+  const lane = ow => ({ id: ow, name: ow, dir: "/Users/me/" + ow, ...(mark && ow === "facilitator-sample" ? { sample: true } : {}) });
+  const all = ["facilitator-sample", ...others];
+  return {
+    boxes: [card("s1", "facilitator-sample", { replies: 1, agentTs: now - 30 }), ...others.map((ow, i) => card("o" + i, ow))],
+    projects: all.map(lane), pwds: Object.fromEntries(all.map(ow => [ow, "/Users/me/" + ow])),
+    tabs: { order: all, closed: [] },
+  };
+}
+
+test("the onboarding's sample project is in no list: not the pill's, Home's or the faint names, and its reply bolds nothing", () => {
+  for (const homeOpen of [false, true]) {
+    const f = fixture({ state: sampleBoard(), activeOwner: "orchard", homeOpen });
+    assert.deepEqual(f.names(), ["orchard", "quarry", "rookery"]);
+    assert.deepEqual(f.homeNames(), ["orchard", "quarry", "rookery"]);
+    assert.deepEqual(f.homeNumbers(), ["1", "2", "3"], "the sample still takes a number");
+    assert.deepEqual(f.suggestions(), ["quarry", "rookery"]);
+    assert.equal(f.pill(), "orchard");
+    assert.doesNotMatch(f.ids.projpill.attributes["aria-label"], /unread replies elsewhere/, "the sample's reply counted");
+    assert.equal(f.body.classes.has("homefew"), false, "three projects and the sample are not four");
+  }
+  // one project beside the sample is the last one open, its cross pale
+  const one = fixture({ state: sampleBoard({ others: ["orchard"] }), activeOwner: "orchard" });
+  assert.deepEqual(one.names(), ["orchard"]);
+  assert.equal(one.row("orchard").querySelector(".projx").dataset.tip, "Stays Open");
+  // the same board without the mark lists it as any project, first in the saved order
+  const plain = fixture({ state: sampleBoard({ mark: false }), activeOwner: "orchard" });
+  assert.deepEqual(plain.names(), ["facilitator-sample", "orchard", "quarry", "rookery"]);
+  assert.deepEqual(plain.homeNames(), ["facilitator-sample", "orchard", "quarry", "rookery"]);
+  assert.equal(plain.suggestions()[0], "facilitator-sample");
+});
+
+test("a board whose saved project was the sample opens on Home once, and a board without the sample as it did", () => {
+  for (const [left, home] of [[true, true], [false, false]]) {
+    const f = fixture({ state: sampleBoard(), activeOwner: "orchard" });
+    f.context.homeChecked = false; f.context.sampleLeft = left;
+    f.context.renderTabs(f.state);
+    assert.equal(f.context.homeOpen, home);
+    f.context.homeOpen = false; f.context.renderTabs(f.state);
+    assert.equal(f.context.homeOpen, false, "home was put up again on a later paint");
+  }
 });

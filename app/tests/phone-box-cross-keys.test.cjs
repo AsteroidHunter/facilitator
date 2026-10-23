@@ -73,3 +73,7 @@ test("a tap on the cross still puts the box away", () => {
   p.cross.listeners.click();
   assert.equal(p.closes.length, 1);
 });
+
+test("the page asks for the playback audio session, so the box pages' sounds play through silent mode", () => {
+  assert.match(html, /if \(navigator\.audioSession\) navigator\.audioSession\.type = "playback";/);
+});

@@ -1271,16 +1271,34 @@
   /* expanded (phoneMagicBig), the box stands in the browser's top layer, over
      everything on the page whatever moves or clips the drawer it lives in,
      with nothing of it moved, so a page in it keeps running as it was:
-     95% of the screen's width and height in its middle, kept inside the safe
-     areas, clear of the notch and the home bar (MagicBox.grow). the browser's
-     own look for that layer is set aside. under it the whole page is dimmed
-     by the board's ink at 24%, as the board dims for its settings, in a shade
-     of its own in the same layer (#mbshade), which takes the tap that puts the
-     box back. on its way back to the drawer (.moving) it stays up there, over
-     the shade, until it lands */
+     the whole screen, edge to edge, from under the status bar to the screen's
+     foot. the browser's own look for that layer is set aside. under it the
+     whole page is dimmed by the board's ink at 24%, as the board dims for its
+     settings, in a shade of its own in the same layer (#mbshade), which takes
+     the tap that puts the box back. on its way back to the drawer (.moving)
+     it stays up there, over the shade, until it lands */
   #mbface:is(.big, .moving){position:fixed; inset:auto; margin:0; padding:0; color:inherit; max-width:none; max-height:none}
   #mbshade{position:fixed; inset:0; width:auto; height:auto; margin:0; padding:0; border:0;
     background:color-mix(in srgb, var(--ink) 24%, transparent); -webkit-tap-highlight-color:transparent}
+  /* on its way out and back (phoneMagicMove) the box is laid out inside as it
+     is in the drawer, and what it holds is cut to its own corners (.magicbox's
+     overflow), so its corners alone ease to square */
+  #mbface:is(.big, .moving) :is(.mbbody, .mbbar){border-radius:0}
+  /* landed (.full), the whole screen is the box: square corners, no edge line
+     and no shadow. its buttons stand where they stood when it was 95% of the
+     screen inside the safe areas, clear of the notch and the home bar
+     (MagicBox.grow): the bar pads out from the screen's sides and foot to
+     there (--mb-big-l, --mb-big-r and --mb-big-b, which phoneMagicPlaceBig
+     writes with the edge line it had counted in), and stands that much taller.
+     words, a page and a site start under the status bar; a picture fills the
+     box to its top. the move's last frame is drawn the same (phoneMagicTravel) */
+  #mbface.full{--mb-round:0px; border-width:0; box-shadow:none}
+  #mbface.full .mbbar{height:calc(var(--mb-bar) + var(--mb-big-b, 0px));
+    padding:var(--edge-drawn) calc(var(--mb-gap) - var(--edge-drawn) / 2 + var(--mb-big-r, 0px))
+      var(--mb-big-b, 0px) calc(var(--mb-gap) - var(--edge-drawn) / 2 + var(--mb-big-l, 0px))}
+  #mbface.full .mbbody{margin-top:calc(var(--mb-air) + env(safe-area-inset-top, 0px))}
+  #mbface.full .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin-top:env(safe-area-inset-top, 0px)}
+  #mbface.full .mbbody:is([data-kind="image"], .alone){margin-top:0}
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
   #mbface .mbbody:is([data-kind="image"], .alone){margin:0}
   #mbface .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}
@@ -2031,6 +2049,8 @@ for (const type of ["gesturestart", "gesturechange"])
 <script src="/home-widgets.js"></script>
 <script src="/m-splash.js"></script>
 <script>
+// sounds from the box pages play through silent mode (iOS 17 and later)
+try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (_) {}
 // THE PAGE DOES NOT START WITHOUT ITS CODE, AND DOES NOT SIT ON THE GLOBE
 // WITHOUT IT. The three shared files named below are what the rest of this
 // script is written in (the others are only used when a feature is opened, or
@@ -5858,7 +5878,8 @@ function appNameFor(title){
   return title === "facilitator" ? "Facilitator" : title;
 }
 function validateOwners(state){
-  validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat"));
+  // the onboarding's sample project is never opened (sampleLane in card-logic.js)
+  validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat" && !sampleLane(state, ow)));
   if (!validOwners.has(activeOwner)){
     localStorage.removeItem("activeproj");
     activeOwner = validOwners.has("facilitator") ? "facilitator" : ([...validOwners][0] || "facilitator");
@@ -8386,28 +8407,68 @@ function phoneMagicFrame(want){
 function phoneMagicFoot(){
   return PB.view.big || PB.move ? PB.foot : PB.el.offsetHeight;
 }
-// the green button: the box expanded over the dimmed page, 95% of the screen in
-// its middle, inside the safe areas (MagicBox.grow), a site that will not be
-// framed a square. the box is lifted into the browser's top layer where it
-// stands in the drawer, with nothing of it moved, so a page in it keeps
-// running and lays itself out again at the new width; the shade goes up
-// first, under it, and fades in as the box grows out of its place in the
-// drawer (phoneMagicMove). the drawer stays out behind them, its pulls held
-// off (below). from: what held the focus as it was asked for, which has it
+// the green button: the box expanded over the dimmed page to the whole
+// screen, whatever it holds. its bar's buttons stay where they stood at 95%
+// of the screen in its middle, inside the safe areas (MagicBox.grow): the
+// bar is padded out to there from each side and the foot, with the box's
+// edge line, which it no longer draws, counted in at the width it was drawn
+// at (read off the probe, which wears one). the box is lifted into the
+// browser's top layer where it stands in the drawer, with nothing of it
+// moved, so a page in it keeps running and lays itself out again at the new
+// width; the shade goes up first, under it, and fades in as the box grows
+// out of its place in the drawer (phoneMagicMove), where it stands as the
+// move's last frame draws it (phoneMagicTravel) until it lands on the whole
+// screen (.full). the drawer stays out behind them, its pulls held off
+// (below). from: what held the focus as it was asked for, which has it
 // again as the box goes back
 let phoneSafe = null;
-function phoneMagicPlaceBig(){
+function phoneMagicSafe(){
   if (!phoneSafe){
     phoneSafe = document.createElement("div");
     phoneSafe.style.cssText = "position:fixed; top:env(safe-area-inset-top, 0px); right:env(safe-area-inset-right, 0px);" +
-      " bottom:env(safe-area-inset-bottom, 0px); left:env(safe-area-inset-left, 0px); visibility:hidden; pointer-events:none";
+      " bottom:env(safe-area-inset-bottom, 0px); left:env(safe-area-inset-left, 0px); visibility:hidden; pointer-events:none;" +
+      " border-top:var(--edge) solid transparent";
     document.body.append(phoneSafe);
   }
-  const safe = phoneSafe.getBoundingClientRect();
-  const at = MagicBox.grow({ left: 0, top: 0, width: innerWidth, height: innerHeight }, MagicBox.BIG.phone,
-    !!PB.view.body.querySelector(".mbaway"), { left: safe.left, top: safe.top, width: safe.width, height: safe.height });
-  Object.assign(PB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px", height: at.height + "px",
-    visibility: PB.view.waiting() ? "hidden" : "" });
+  return { safe: phoneSafe.getBoundingClientRect(), edge: parseFloat(getComputedStyle(phoneSafe).borderTopWidth) || 0 };
+}
+function phoneMagicPlaceBig(){
+  const { safe, edge } = phoneMagicSafe();
+  const was = MagicBox.grow({ left: 0, top: 0, width: innerWidth, height: innerHeight }, MagicBox.BIG.phone,
+    false, { left: safe.left, top: safe.top, width: safe.width, height: safe.height });
+  const s = PB.el.style;
+  s.setProperty("--mb-big-l", was.left + edge + "px");
+  s.setProperty("--mb-big-r", innerWidth - was.left - was.width + edge + "px");
+  s.setProperty("--mb-big-b", innerHeight - was.top - was.height + edge + "px");
+  const at = PB.el.classList.contains("full") ? { left: "0px", top: "0px", width: innerWidth + "px", height: innerHeight + "px" }
+    : phoneMagicTravel().box;
+  Object.assign(s, { left: at.left, top: at.top, width: at.width, height: at.height, visibility: PB.view.waiting() ? "hidden" : "" });
+}
+// where the move out ends and the move back sets off: the whole screen,
+// drawn as the box is on its way, laid out inside as it is in the drawer
+// (#mbface:is(.big, .moving)). its edge line just past the screen's edges,
+// clear, and its corners square; the white of its padding standing in for
+// the status bar's height over words, a page or a site, and for the bar's
+// extra height under the buttons, so what it holds ends where it ends once
+// it has landed. its buttons moved on their own left, from the bar's ends to
+// where they stand once it has landed. so the last frame is the whole screen
+// as it stands landed (.full), and nothing moves as it lands
+const PB_HOME = { left: "0px" };
+function phoneMagicTravel(){
+  const { safe, edge } = phoneMagicSafe(), big = n => parseFloat(PB.el.style.getPropertyValue("--mb-big-" + n)) || 0;
+  return { box: { left: -edge + "px", top: -edge + "px", width: innerWidth + 2 * edge + "px", height: innerHeight + 2 * edge + "px",
+      borderRadius: "0px", borderColor: "transparent",
+      paddingTop: PB.view.body.matches('[data-kind="image"], .alone') ? "0px" : safe.top + "px", paddingBottom: big("b") + "px" },
+    grow: { left: big("l") + "px" }, close: { left: -big("r") + "px" } };
+}
+// how the box is drawn now, wherever a move has got: its rectangle on the
+// screen, its corner, its edge line's colour and its padding, and where its
+// buttons have been moved to
+function phoneMagicNow(){
+  const r = PB.el.getBoundingClientRect(), c = getComputedStyle(PB.el);
+  return { box: { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px",
+    borderRadius: c.borderTopLeftRadius, borderColor: c.borderTopColor, paddingTop: c.paddingTop, paddingBottom: c.paddingBottom },
+    grow: { left: getComputedStyle(PB_GROW).left }, close: { left: getComputedStyle(PB_CROSS).left } };
 }
 function phoneMagicShade(){
   if (PB.shade) return PB.shade;
@@ -8425,6 +8486,11 @@ function phoneMagicShade(){
 // zooms out of its card (CARD_PICTURE_MS, CARD_PICTURE_EASE): its own left,
 // top, width and height on the screen, eased from where it was drawn (from) to
 // where it now stands, what it holds laid out again at every size on the way.
+// with them, and nothing else laid out again, its corner, its edge line's
+// colour and its padding, and its two buttons, each moved on its own left
+// only (phoneMagicTravel). all of it is worked out on each frame with the
+// box's own rectangle, never on a layer of its own, so nothing drifts off the
+// box; held at the last frame until it lands, which draws the same.
 // turned round on its way, it goes back in the time it had spent, as the
 // picture does. it travels in the top layer both ways, over the shade, and
 // lands back in the drawer once it is there. with reduced motion it does not
@@ -8436,22 +8502,30 @@ function phoneMagicMove(from){
   const s = PB.el.style;
   if (s.visibility === "hidden") return;
   if (cardPictureStill(window)){ PB.el.animate([{ opacity: 0 }, { opacity: 1 }], phoneMagicTime()); return; }
-  if (!from) return;
-  if (!PB.view.big){
+  if (!from || PB.el.classList.contains("full")) return;
+  let to;
+  if (PB.view.big) to = phoneMagicTravel();
+  else {
     // on its way back: where it stands in the drawer, then up over the shade again to get there
     PB.foot = PB.el.offsetHeight;
-    const r = PB.el.getBoundingClientRect();
+    const r = PB.el.getBoundingClientRect(), c = getComputedStyle(PB.el);
     PB.el.setAttribute("popover", "manual");
     PB.el.classList.add("moving");
     PB.el.showPopover();
     Object.assign(s, { left: r.left + "px", top: r.top + "px" });
+    to = { box: { left: s.left, top: s.top, width: s.width, height: s.height, borderRadius: c.borderTopLeftRadius,
+      borderColor: c.borderTopColor, paddingTop: "0px", paddingBottom: "0px" }, grow: PB_HOME, close: PB_HOME };
   }
-  const move = PB.move = PB.el.animate([from.at, { left: s.left, top: s.top, width: s.width, height: s.height }], phoneMagicTime(from.part));
+  const time = { ...phoneMagicTime(from.part), fill: "forwards" };
+  const move = PB.move = PB.el.animate([from.box, to.box], time);
+  const parts = PB.moveParts = [PB_GROW.animate([from.grow, to.grow], time), PB_CROSS.animate([from.close, to.close], time)];
   move.onfinish = () => {
     if (PB.move !== move) return;
     PB.move = null;
-    if (!PB.view.big) phoneMagicLand();
+    if (PB.view.big) PB.el.classList.add("full");
+    else phoneMagicLand();
     phoneMagicFit();
+    for (const a of [move, ...parts]) a.cancel();
   };
 }
 // out of the top layer and back in its place in the drawer, a picture from
@@ -8463,19 +8537,21 @@ function phoneMagicLand(){
   Object.assign(PB.el.style, { left: "", top: "" });
   PB.view.solo(null);
 }
-// where the box is drawn now on the screen, however far a move has got,
-// which stops there (at): one on its way back lands in the drawer at once. and
-// the share of the whole time the next move and the shade take (part), the
-// time a move turned round had spent (cardPictureTurn). null with reduced
-// motion, where it never travels
+// how the box is drawn now, however far a move has got, which stops there
+// (at): one on its way back lands in the drawer at once. in the drawer its
+// buttons stand where it lays them out, and landed on the whole screen it is
+// drawn as the move out's last frame (phoneMagicTravel). and the share of the
+// whole time the next move and the shade take (part), the time a move turned
+// round had spent (cardPictureTurn). null with reduced motion, where it never
+// travels, and for a box not drawn
 function phoneMagicMoveStop(){
-  const r = cardPictureStill(window) ? null : PB.el.getBoundingClientRect();
-  const at = r && r.width ? { at: { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" },
-    part: cardPictureTurn(PB.move) } : null;
-  const move = PB.move;
+  const move = PB.move, still = cardPictureStill(window);
+  const at = still ? null : move ? phoneMagicNow() : PB.el.classList.contains("full") ? phoneMagicTravel()
+    : PB.el.getBoundingClientRect().width ? { ...phoneMagicNow(), grow: PB_HOME, close: PB_HOME } : null;
+  if (at) at.part = cardPictureTurn(move);
   if (!move) return at;
   PB.move = null;
-  move.cancel();
+  for (const a of [move, ...PB.moveParts]) a.cancel();
   if (!PB.view.big) phoneMagicLand();
   return at;
 }
@@ -8492,6 +8568,8 @@ function phoneMagicBig(from){
   PB.el.setAttribute("popover", "manual");
   PB.view.expand(true);
   PB.el.showPopover();
+  // one that does not travel (reduced motion, or not drawn or not yet seen) is the whole screen at once
+  if (!was || PB.view.waiting()) PB.el.classList.add("full");
   phoneMagicPlaceBig();
   shade.animate([{ opacity: 0 }, { opacity: 1 }], phoneMagicTime(was ? was.part : 1));
   phoneMagicMove(was);
@@ -8507,6 +8585,7 @@ function phoneMagicSmall(glide){
   if (!PB.view.big){ if (!glide && PB.move) phoneMagicMoveStop(); return; }
   const was = phoneMagicMoveStop();
   PB.view.expand(false);
+  PB.el.classList.remove("full");
   try { PB.el.hidePopover(); } catch (e) {}
   PB.el.removeAttribute("popover");
   Object.assign(PB.el.style, { left: "", top: "", width: "", height: "" });

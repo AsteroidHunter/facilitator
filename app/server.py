@@ -485,7 +485,10 @@ Endpoints:
                                page uses until a bgcolor is saved. While the
                                profile is not complete (GET /profile) it ends
                                with globalThis.BOARD_ONBOARDING=true, which the
-                               board reads to put the onboarding up
+                               board reads to put the onboarding up, after
+                               globalThis.BOARD_STARTUP_SOUND=true while the
+                               first run's startup sound has not come yet
+                               (POST /startup-sound)
   GET  /settings            -> {rev, values}: the same settings, for a page
                                whose /state says settingsRev has moved
   POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
@@ -612,13 +615,26 @@ Endpoints:
                                complete, with the board's version written into
                                it. Local only, and the one page besides /m that
                                the board's own origin may frame
-  POST /onboarding/sample   -> makes the sample project the onboarding opens,
+  POST /onboarding/sample   -> makes the onboarding's sample project,
                                ~/facilitator-sample, holding its internal folder
                                and its wiki with one short example in each, the
                                first time it is missing; one that exists, as a
-                               folder or anything else, is never touched.
-                               Answers {ok, path, made}; a 409 when something
-                               that is not a folder holds the name. Local only
+                               folder or anything else, is never touched. Its
+                               lane is made with it the first time, as POST
+                               /project makes one, and marked sample, which no
+                               list of projects shows and nothing opens.
+                               Answers {ok, path, made, id}; a 409 when
+                               something that is not a folder holds the name.
+                               Local only
+  POST /startup-sound       -> body = page or mac: the first run's startup
+                               sound is starting, played by the page itself or,
+                               for mac, by this Mac with afplay
+                               (assets/startup-sound.wav). Plays and keeps its
+                               note in data/startup-sound.json only while the
+                               profile is not complete and no note is kept, so
+                               it comes once on a board; otherwise {ok,
+                               played: false}. Answers {ok, played, by}. Local
+                               only, and a 403 unless Origin is the page's own
   GET  /assets/phone_app_on_stand.webp
                             -> the onboarding's picture of the phone app, the
                                first line of its 101: Phone App card. Local
@@ -913,7 +929,7 @@ Endpoints:
                                becomes the newest message the claim covers, so
                                it is the one that decides /reply's 100 word cap,
                                and the agent has to be able to see it. Nothing
-                               new is handed over until 7 seconds after the
+                               new is handed over until 3.5 seconds after the
                                reader's last change in the card's typing box or
                                last message on it, so the held card comes back
                                with an empty list until then, and a reply before
@@ -941,7 +957,7 @@ Endpoints:
                                none) for a message an agent sent for the reader
                                (/send by=agent), null for the reader's own. Also returns
                                {"idle":true} on timeout.
-                               A card is not handed out until 7 seconds after
+                               A card is not handed out until 3.5 seconds after
                                the reader's last change in its typing box or
                                last message on it, except a card sent a voice
                                message (via=voice), which goes out at once.
@@ -2136,7 +2152,7 @@ ACK_GRACE = 90.0
 # handed to an agent: the typing hold's one clock, kept here and nowhere else.
 # The pages only say that a change happened, so a tab closed or a phone asleep
 # mid-reply simply stops saying it and its last change runs out here
-TYPING_HOLD = 7.0
+TYPING_HOLD = 3.5
 # Version 1 removes the old convention that treated a line containing only ---
 # as a hidden short/full delimiter. Existing state is split once in _migrate;
 # every new reply has explicit fields and the Markdown renderer is never asked
@@ -3106,6 +3122,16 @@ def _migrate() -> None:
     for field in ("order", "closed"):
         if not isinstance(_state["tabs"].get(field), list):
             _state["tabs"][field] = []
+    # the onboarding's sample project (2026-10-23) is marked sample on its
+    # record and never listed or opened. a board from before the mark holds the
+    # lane the onboarding opened on the sample's folder, marked here once; a
+    # lane opened on that folder by hand after this is an ordinary project
+    if _state.get("sample_flag_version", 0) < SAMPLE_FLAG_VERSION:
+        folder = _sample_folder()
+        for p in _state["projects"]:
+            if isinstance(p, dict) and not p.get("server") and p.get("dir") == folder:
+                p["sample"] = True
+        _state["sample_flag_version"] = SAMPLE_FLAG_VERSION
     for b in _state["boxes"]:
         b.setdefault("ws", ws[b.get("owner", "facilitator")][0]["id"])
         b.setdefault("task", None)
@@ -8157,18 +8183,20 @@ def _post_project_route(q: Query, text: str):
 FIRST_OMNI_REPLY = (
     "To start working on this project, connect an agent to it. The agent runs in your "
     "terminal and answers every card in this project.\n\n"
+    "To connect:\n\n"
     "1. Open the project's folder in the terminal\n"
     "2. Start Claude Code or Codex\n"
     "3. Type `/facilitator onboard` in Claude Code, or `$facilitator onboard` in Codex\n\n"
     "Once done, start interacting with the agent via the Facilitator!")
 
 
-def _post_project(q: Query, text: str, found: dict | None = None):
+def _post_project(q: Query, text: str, found: dict | None = None, sample: bool = False):
     # a new project lane from the page's plus tab: slug the name,
     # store {id, name, dir} so restarts keep it, give the lane its
     # per-owner slots; the tab appears with its one general-purpose Omni card.
     # found is a server's folder as _post_project_route read it, kept with
-    # the server's id and its repository
+    # the server's id and its repository. sample marks the onboarding's
+    # sample project (_sample_lane), which gets no tab
     name = q.one("name").strip()
     slug = "".join(c if c.isalnum() else "-" for c in name.lower())
     while "--" in slug:
@@ -8207,6 +8235,8 @@ def _post_project(q: Query, text: str, found: dict | None = None):
             record = {"id": slug, "name": name, "dir": found["dir"], "server": found["server"],
                       **({"git": found["git"]} if found.get("git") else {})}
             d = found["dir"]
+        if sample:
+            record["sample"] = True
         _state.setdefault("projects", []).append(record)
         _state["busy"].setdefault(slug, None)
         _state["claimed"].setdefault(slug, [])
@@ -8784,8 +8814,11 @@ def _get_board_settings_js(q: Query, _):
     if BACKGROUND_DEFAULT:
         lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
     # whether the board still has to put the onboarding up, and nothing of the
-    # profile itself: a board somebody has been through it on gets no word here
+    # profile itself: a board somebody has been through it on gets no word here.
+    # its first run's startup sound is still to come while no note says it came
     if _profile_needed():
+        if _startup_sound_due():
+            lead += "globalThis.BOARD_STARTUP_SOUND=true;"
         lead += "globalThis.BOARD_ONBOARDING=true;"
     return _packed(q, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8")
 
@@ -9218,8 +9251,8 @@ def _post_profile(q: Query, text: str):
 # What a Mac board shows first while its profile is not complete: the mock's
 # run of real cards (onboarding.html), laid over the whole board in a frame of
 # its own until the closing card is marked done and the profile is saved. It
-# opens the sample project below as its project, and the board lands on that
-# project's tab when it ends.
+# makes the sample project below, which the board keeps unlisted, and the
+# board lands on its home page when it ends.
 ONBOARDING_PAGE = HERE / "onboarding.html"
 ONBOARDING_VERSION_SLOT = b'<meta name="facilitator-version" content="">'
 BOARD_VERSION = re.compile(rb'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
@@ -9249,7 +9282,14 @@ def _get_onboarding(q: Query, _):
 # with one short example. Made the first time the onboarding asks and it is
 # missing, and never touched again: a folder, a file or a link already holding
 # the name is left exactly as it is.
+# Its lane is made with it, as POST /project makes any, and marked sample on
+# its record: the board keeps it, with its Omni Ticket #1, but no list of
+# projects shows it and nothing opens it (sampleLane in card-logic.js). A lane
+# an older board made on the folder before the mark is marked once by _migrate
+# (SAMPLE_FLAG_VERSION); one opened on the folder by hand after that is an
+# ordinary project.
 SAMPLE_NAME = "facilitator-sample"
+SAMPLE_FLAG_VERSION = 1
 SAMPLE_FILES = {
     f"{SAMPLE_NAME}-internal/example-note.md": (
         "# Example note\n\n"
@@ -9290,6 +9330,26 @@ def _make_sample(home: Path) -> tuple[Path, bool]:
     return root, True
 
 
+def _sample_folder() -> str:
+    """The sample's folder as POST /project keeps a lane's, resolved."""
+    root = Path.home() / SAMPLE_NAME
+    try:
+        return str(root.resolve())
+    except (OSError, RuntimeError):
+        return str(root)
+
+
+def _sample_lane(path: str):
+    """The sample's lane, marked sample: the one already marked, or a new one
+    on its folder. Looked for and made in one hold of the lock, so two runs
+    at once make one. Answers as _post_project does."""
+    with _lock:
+        for p in _state.get("projects", []):
+            if isinstance(p, dict) and p.get("sample"):
+                return 200, {"ok": True, "id": p["id"]}
+        return _post_project(Query({"name": [SAMPLE_NAME]}), path, sample=True)
+
+
 def _post_onboarding_sample(q: Query, _):
     if not q.local:
         return 404, {"error": "not found"}
@@ -9303,9 +9363,64 @@ def _post_onboarding_sample(q: Query, _):
         _error("sample", reason=e.strerror or type(e).__name__)
         return 500, {"error": "the sample project could not be made"}
     _info("sample", made=made)
-    # resolved, the way POST /project keeps a lane's folder, so the page finds
-    # the sample's tab by its folder on a later run instead of making another
-    return 200, {"ok": True, "path": str(root.resolve()), "made": made}
+    # resolved, the way POST /project keeps a lane's folder
+    path = str(root.resolve())
+    status, lane = _run_state_request(_sample_lane, path)
+    if status != 200:
+        return status, lane
+    return 200, {"ok": True, "path": path, "made": made, "id": lane["id"]}
+
+
+# ---- the startup sound --------------------------------------------------------------
+# The first run's sound, which the Mac board starts as its startup globe
+# crosses to the onboarding (introSound in index.html), once on a board. A page
+# may not sound before any click or key in Chrome as facilitator run opens it
+# (Chrome's autoplay policy), so the page says which of the two plays it: the
+# page itself, its own Web Audio context running ("page"), or the Mac ("mac"),
+# which plays STARTUP_SOUND, the same sound rendered offline from the page's
+# code, with afplay. Either way the note it leaves in data/ is the board's word
+# that the sound came, and it never comes again: /board-settings.js says it is
+# still to come only while the onboarding is still to do and there is no note.
+STARTUP_SOUND = HERE / "assets" / "startup-sound.wav"
+STARTUP_SOUND_NOTE = DATA / "startup-sound.json"
+AFPLAY = "/usr/bin/afplay"
+_startup_sound_lock = threading.Lock()
+
+
+def _startup_sound_due() -> bool:
+    return not os.path.lexists(STARTUP_SOUND_NOTE)
+
+
+def _post_startup_sound(q: Query, text: str):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    if text not in ("page", "mac"):
+        return 400, {"error": "say page or mac"}
+    with _startup_sound_lock:
+        # only on the first run, and only once
+        if not _profile_needed() or not _startup_sound_due():
+            return 200, {"ok": True, "played": False}
+        if text == "mac":
+            if sys.platform != "darwin" or not STARTUP_SOUND.is_file():
+                return 501, {"error": "the Mac cannot play the startup sound here"}
+            try:
+                proc = subprocess.Popen([AFPLAY, str(STARTUP_SOUND)], stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        start_new_session=True)
+            except OSError as e:
+                _error("startupsound", reason=e.strerror or type(e).__name__)
+                return 500, {"error": "the startup sound could not be played"}
+            threading.Thread(target=proc.wait, name="startup-sound", daemon=True).start()
+        try:
+            fd = os.open(STARTUP_SOUND_NOTE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps({"played": time.strftime("%Y-%m-%dT%H:%M:%S"), "by": text}) + "\n")
+        except OSError as e:
+            _error("startupsound", step="note", reason=e.strerror or type(e).__name__)
+    _info("startupsound", by=text)
+    return 200, {"ok": True, "played": True, "by": text}
 
 
 # ---- the update -------------------------------------------------------------------
@@ -10679,6 +10794,7 @@ ROUTES = [
     Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
     Route("/onboarding", _endpoint(_get_onboarding), methods=["GET"]),
     Route("/onboarding/sample", _endpoint(_post_onboarding_sample, "text"), methods=["POST"]),
+    Route("/startup-sound", _endpoint(_post_startup_sound, "text", 64), methods=["POST"]),
     # the onboarding's picture of the phone app, a plain file under assets/
     # with the no-store every answer carries, as the squid it opens with
     Route("/assets/phone_app_on_stand.webp", _static("assets/phone_app_on_stand.webp", "image/webp"), methods=["GET"]),

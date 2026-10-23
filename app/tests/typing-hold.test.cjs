@@ -1,5 +1,5 @@
 // the typing hold: a card the reader is typing on is not handed to an agent
-// until seven seconds after the last change on it, a change being a report from
+// until three and a half seconds after the last change on it, a change being a report from
 // its page (POST /typing) or a message the reader sends on it, while the lane's
 // other cards go out as ever; a listener already waiting gets the card the
 // moment its hold runs out, not at the end of its wait; changes that keep coming
@@ -17,7 +17,7 @@ const { readFile } = require("node:fs/promises");
 const path = require("node:path");
 const { startBoard } = require("./board-fixture.cjs");
 
-const HOLD_MS = 7000;   // TYPING_HOLD in server.py
+const HOLD_MS = 3500;   // TYPING_HOLD in server.py
 const LATE_MS = 500;    // how late the waiting listener may be told, at most
 const SEED = { title: "typing hold board", items: [
   { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
@@ -115,7 +115,7 @@ test("a report writes nothing and moves nothing", async () => {
   assert.deepEqual(await files(), kept);
 });
 
-test("a send with no typing after it goes out 7 seconds after the send", async t => {
+test("a send with no typing after it goes out 3.5 seconds after the send", async t => {
   const waiting = listen(30);
   const sent = await send("7", "a message and nothing typed after it");
   await sleep(HOLD_MS - 1000);
@@ -127,7 +127,7 @@ test("a send with no typing after it goes out 7 seconds after the send", async t
   await answer(said);
 });
 
-test("a reader sending a word at a time while typing gets the card handed out once, 7 seconds after the last change", async t => {
+test("a reader sending a word at a time while typing gets the card handed out once, 3.5 seconds after the last change", async t => {
   // the listener is open before the first word, as an agent's always is
   const waiting = listen(60);
   await sleep(200);
@@ -179,7 +179,7 @@ test("changes that keep coming keep the card held, and the lane's other card goe
   await answer(said);
 });
 
-test("an agent holding the card gets its new messages from /fresh only 7 seconds after the last change", async t => {
+test("an agent holding the card gets its new messages from /fresh only 3.5 seconds after the last change", async t => {
   await send("7", "the question the agent holds");
   const handed = await claim(30);
   assert.equal(handed.box, "7");
@@ -245,7 +245,7 @@ test("a reply before the hold runs out leaves the message it was never handed qu
   assert.deepEqual((await card("7")).answered.map(m => m.text), ["a follow-up typed while the agent works"]);
 });
 
-test("a spoken message goes out at once even with a typing report just before it, and the typed card beside it is still held 7 seconds", async t => {
+test("a spoken message goes out at once even with a typing report just before it, and the typed card beside it is still held 3.5 seconds", async t => {
   const waiting = listen(30);
   await sleep(200);
   // A is typed on and goes first in the queue; C is reported as typed on too,

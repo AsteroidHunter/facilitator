@@ -87,7 +87,7 @@ before(async () => {
   assert.ok(src.includes("FACILITATOR_TEST_PORT"), "port rebind anchor");
   // these cases are about the ready-to-try marker, not the typing hold
   // (typing-hold.test.cjs), so a message sent here is free to go out at once
-  src = src.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  src = src.replace("TYPING_HOLD = 3.5", "TYPING_HOLD = 0.0");
   assert.ok(src.includes("TYPING_HOLD = 0.0"), "typing hold anchor");
   await writeFile(path.join(fixtureDir, "server.py"), src);
   require(path.join(ROOT, "tests", "fixture-auth.cjs")).copyBridgeFiles(fixtureDir);

@@ -13,7 +13,7 @@ const { startBoard } = require("./board-fixture.cjs");
 async function noTypingHold({ app }) {
   const file = path.join(app, "server.py");
   const source = await readFile(file, "utf8");
-  const patched = source.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  const patched = source.replace("TYPING_HOLD = 3.5", "TYPING_HOLD = 0.0");
   assert.notEqual(patched, source, "test server typing hold was not patched");
   await writeFile(file, patched);
 }

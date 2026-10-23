@@ -76,7 +76,7 @@ PAGE_OPENS = frozenset({"/m", "/"})
 # signed-in phone reads it, and its route refuses a write that did not come from
 # the Mac
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
-                        "/onboarding", "/onboarding/sample", "/assets/phone_app_on_stand.webp",
+                        "/onboarding", "/onboarding/sample", "/startup-sound", "/assets/phone_app_on_stand.webp",
                         "/magic", "/magic/reopen", "/bin", "/bin/restore",
                         "/update", "/update/later"})
 

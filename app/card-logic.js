@@ -2323,14 +2323,22 @@ function poolOf(state){
 }
 
 // ---- the lanes ------------------------------------------------------------------
+// the onboarding's sample project (sample on its record, _sample_lane in
+// server.py): kept on the board but never one of the projects. it has no row
+// here, so the home page's list, the bar's pill, its list and faint names and
+// the phone's list all go without it, and the pages never open it
+function sampleLane(state, owner){
+  return ((state && state.projects) || []).some(p => p && p.id === owner && p.sample);
+}
 // project rows in fixed order: tool meta on top, the rest as the board lists them
 function allRowsOf(state){
-  const owners = [];
+  let owners = [];
   for (const b of state.boxes)
     if (b.owner !== "qchat" && !owners.includes(b.owner)) owners.push(b.owner);   // the quick chat lane never gets a tab
   // stored project lanes keep their tab even with every card deleted
   for (const p of (state.projects || []))
     if (!owners.includes(p.id)) owners.push(p.id);
+  owners = owners.filter(ow => !sampleLane(state, ow));
   owners.sort((a, b) => (a === "facilitator" ? -1 : b === "facilitator" ? 1 : 0));
   // a dragged tab order outlives reloads, server restarts and the device it
   // was dragged on: saved lanes lead in their saved sequence, lanes the record
