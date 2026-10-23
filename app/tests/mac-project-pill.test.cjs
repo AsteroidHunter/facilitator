@@ -763,7 +763,7 @@ test("home's projects stand in a rounded box of the board's glass with the updat
   assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
 
-test("home's box holds the projects or the words for none with the folder row under it, and runs from the logo's word to the charts' last line at every count", () => {
+test("home's box holds the projects or the words for none with the folder row under it, and the two stand as one block centred on the left part's content at every count", () => {
   // the glass box, then the folder row; inside the box the rows and the
   // words for none, and no heading or line anywhere
   const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
@@ -777,18 +777,19 @@ test("home's box holds the projects or the words for none with the folder row un
   // the rows in the box's face and size
   assert.equal(decl(rule(sheet, "#homelistbox"), "font"), "400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)");
   assert.equal(decl(rule(sheet, "#homelist .homerow"), "font"), "inherit");
-  // the box fills the room homeFit leaves between its top and foot, whatever
-  // the count; the rows fill the glass and scroll inside it, with no cap
+  // the box is one height whatever the count, set by homeFit from the look, and
+  // stands where homeFit puts its top; the rows fill the glass and scroll
+  // inside it, with no cap
   const part = rule(sheet, "body.focus.home #homelist"), box = rule(sheet, "#homelistbox");
   const glass = rule(sheet, "#homeglass"), rows = rule(sheet, "#homerows");
   assert.equal(decl(part, "flex-direction"), "column");
-  assert.equal(decl(part, "justify-content"), undefined, "nothing to centre: the box fills its room");
-  assert.equal(decl(box, "flex"), "1 1 auto");
-  assert.equal(decl(box, "min-height"), "0");
+  assert.equal(decl(part, "justify-content"), undefined, "homeFit places the block, the sheet does not centre it");
+  assert.equal(decl(box, "flex"), "none");
   assert.equal(decl(box, "width"), "var(--home-box-w)");
-  assert.equal(decl(box, "margin"), "var(--home-list-top, 0px) var(--home-box-right) var(--home-list-foot, 0px) 0");
-  assert.equal(decl(glass, "flex"), "1 1 auto");
-  assert.equal(decl(glass, "min-height"), "0");
+  assert.equal(decl(box, "margin"), "var(--home-list-top, 0px) var(--home-box-right) 0 0");
+  assert.equal(decl(glass, "flex"), "none");
+  assert.equal(decl(glass, "height"), "var(--home-box-h)");
+  assert.doesNotMatch(html, /--home-list-foot/, "the foot is not set: the block is placed by its top");
   assert.equal(decl(rows, "flex"), "1 1 auto");
   assert.equal(decl(rows, "overflow-y"), "auto");
   assert.equal(decl(rows, "max-height"), undefined, "the rows are not capped");
@@ -802,30 +803,59 @@ test("home's box holds the projects or the words for none with the folder row un
   assert.equal(decl(empty, "left"), "var(--home-pad)");
   assert.equal(decl(empty, "font"), "inherit");
   assert.equal(decl(empty, "color"), "color-mix(in srgb, var(--sub) 14%, transparent)", "the words for none are fainter than the names");
+  // the folder row: its plus and words one line centred across the box, in the
+  // folder row's own size, the plus and the gap following that size
   const folder = rule(sheet, "#homelist #homenew");
-  assert.equal(decl(folder, "padding-left"), "var(--home-pad)");
+  assert.equal(decl(folder, "padding-left"), "0");
   assert.equal(decl(folder, "padding-right"), "0");
-  // the sizes at the reference window, the same in the sheet's defaults and the fit
-  assert.match(html, /box: 350, boxRight: 135, pad: 34 \/ 28,/);
-  assert.equal(decl(part, "--home-box-w"), "calc(350px * var(--home-u, 1))");
+  assert.equal(decl(folder, "justify-content"), "center");
+  assert.equal(decl(folder, "--home-font"), "var(--home-folder-font)");
+  assert.equal(decl(folder, "font"), "400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)");
+  assert.equal(decl(rule(sheet, "#homelist #homenew .homenum"), "width"), "auto", "the plus is no wider than itself, so the line centres");
+  // the sizes at the reference window, the same in the sheet's defaults and the
+  // fit, each times --home-u as the charts' own sizes are: names 24, the folder
+  // row 30, rows 21 apart, the box 375 wide and 526 tall
+  assert.match(html, /font: 24, folder: 30, rows: 21 \/ 24, box: 375, boxH: 526, boxGap: 215, pad: 34 \/ 28,/);
+  assert.equal(decl(part, "--home-font"), "calc(24px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-folder-font"), "calc(30px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-rows"), "calc(var(--home-font) * 21 / 24)");
+  assert.equal(decl(part, "--home-box-w"), "calc(375px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-box-h"), "calc(526px * var(--home-u, 1))");
   assert.equal(decl(part, "--home-box-right"), "calc(135px * var(--home-u, 1))");
   assert.equal(decl(part, "--home-pad"), "calc(var(--home-font) * 34 / 28)");
-  // homeFit sets the box's top at the top of the logo's word and its foot
-  // where the folder row's ink ends level with the last "Last updated" line
+  // homeFit stands the block, the box's top to the folder row's ink foot,
+  // centred on the middle of the logo's top (its mark or its word, whichever
+  // stands higher) and the ink of the last "Last updated" line, moving it by
+  // the difference of the middles from where it stands, its height unchanged
   const fit = between("function homeFit(){", "// fitted on the frame");
   assert.match(fit, /homeInk\(document\.getElementById\("homebrandname"\), t\)/);
   assert.match(fit, /homePair\.querySelectorAll\("\.tk-updated, \.lm-updated"\)\]\.map\(el => homeInk\(el, t\)\)\.filter\(Boolean\)\.pop\(\)/);
-  assert.match(fit, /homeSet\(homeListPart, "--home-list-top", Math\.max\(0, headAt - list\.top\)\)/);
-  assert.match(fit, /homeSet\(homeListPart, "--home-list-foot", Math\.max\(0, list\.bottom - footAt - \(box\.bottom - folder\.bottom\)\)\)/);
+  assert.match(fit, /const logoAt = word \? \(mark\.height > 0 \? Math\.min\(word\.top, mark\.top\) : word\.top\) : shown\?\.top;/);
+  assert.match(fit, /const lastAt = updated\?\.bottom \?\? shown\?\.bottom;/);
+  assert.match(fit, /const standsAt = parseFloat\(getComputedStyle\(homeListBox\)\.marginTop\) \|\| 0;/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-list-top", Math\.max\(0, standsAt \+ \(logoAt \+ lastAt\) \/ 2 - \(box\.top \+ folder\.bottom\) \/ 2\)\)/);
   assert.match(fit, /homeSet\(homeListPart, "--home-box-w", boxW\)/);
-  assert.match(fit, /homeSet\(homeListPart, "--home-box-right", boxRight\)/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-box-h", L\.boxH \* k\)/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-folder-font", Math\.max\(L\.fontMin, L\.folder \* k\)\)/);
+  // and stands the look's gap from where the left half's ink ends, not a fixed way in from the frame's edge, so the
+  // two halves keep their proportion wherever the left half lands in a wider or taller window
+  assert.match(fit, /if \(shown\) homeSet\(homeListPart, "--home-box-right", Math\.max\(0, list\.right - \(shown\.right \+ L\.boxGap \* k \+ boxW\)\)\)/);
+  assert.match(fit, /shown = \{ top: top \+ dy, bottom: bottom \+ dy, right: right \+ dx \};/);
+  assert.doesNotMatch(fit, /L\.boxRight|boxRight =/, "no fixed margin from the frame's right edge");
+  assert.match(fit, /homeSet\(homeListPart, "--home-rows", font \* L\.rows\)/);
+  // every length of the right half is the look's times k, how large the left half is drawn as a share of the look's
+  // (u unless the part's room took from it), so the two halves keep one proportion on any screen, and the left half's
+  // own sizes are the board's as before
+  assert.match(fit, /const k = u \* t \/ t0;/);
+  assert.doesNotMatch(fit, /L\.(box|boxH|folder|font) \* (u\b|frame|innerWidth|innerHeight)/);
+  assert.match(fit, /const width = L\.chartW \* refW \* L\.scale \* u, chartH = L\.chartH \* refH \* L\.scale \* u;/, "the charts' size is untouched");
 });
 
 test("home's box keeps one width and its names one size whatever the names are, and a name too long for it fades at its end", () => {
   // the box, the names and the split come from the window alone
   const fit = between("function homeFit(){", "// fitted on the frame");
-  assert.match(fit, /const font = Math\.max\(L\.fontMin, L\.font \* u\), split = L\.split;/);
-  assert.match(fit, /const boxW = L\.box \* u, boxRight = L\.boxRight \* u;/);
+  assert.match(fit, /const split = L\.split;/);
+  assert.match(fit, /const font = Math\.max\(L\.fontMin, L\.font \* k\), boxW = L\.box \* k;/);
   assert.match(html, /const HOME_LOOK = \{ split: 1 \/ 3, /);
   // nothing measures the names to widen the box, shrink the names or move the split
   assert.doesNotMatch(fit, /scrollWidth \+|widest|need|room\(\)|splitMax|L\.inner/, "no name moves the box");
@@ -836,8 +866,30 @@ test("home's box keeps one width and its names one size whatever the names are, 
   assert.equal(decl(name, "overflow"), "hidden");
   assert.equal(decl(name, "text-overflow"), "clip", "no dots");
   assert.equal(decl(name, "min-width"), "0", "a long name gives way inside its row");
-  assert.equal(decl(cut, "mask-image"), "linear-gradient(to left, transparent 0, #000 var(--home-font))");
+  // its end fades one name's height long while its start is in view, and the
+  // fade follows the slide: --lead at the start, --trail at the end
+  assert.equal(decl(cut, "mask-image").replace(/\s+/g, " "), "linear-gradient(to right, transparent 0, #000 var(--lead, 0px), #000 calc(100% - var(--trail, var(--home-font))), transparent 100%)");
   assert.equal(decl(cut, "-webkit-mask-image"), decl(cut, "mask-image"));
+});
+
+test("a name too long for its box slides while the pointer rests on its row, and a name that fits never moves", () => {
+  // the look: 40px a second at the reference window times u, after 0.4 seconds, holding 0.8 at each end
+  assert.match(html, /slide: 40, slideWait: \.4, slideHold: \.8 \};/);
+  const slide = between("const HOME_EASE", "const homeNameOf");
+  assert.match(slide, /const ms = far \/ \(HOME_LOOK\.slide \* homeUnit \* \(1 - r\)\) \* 1000;/);
+  assert.match(slide, /if \(!name\?\.classList\.contains\("cut"\)\) return;/, "only a cut name slides");
+  assert.match(slide, /hold\(HOME_LOOK\.slideWait, run\)/);
+  assert.match(slide, /homeSlideTo\(name, room, \(\) => hold\(HOME_LOOK\.slideHold, \(\) =>\s*homeSlideTo\(name, 0, \(\) => hold\(HOME_LOOK\.slideHold, run\)\)\)\)/);
+  assert.match(html, /homeUnit = k;/, "the speed follows the size of the page as the sizes do");
+  // the pointer's coming and going on a row start and end it; a press stops it
+  for (const type of ["pointerover", "pointerout", "pointerdown"]) assert.match(html, new RegExp('homeRows\\.addEventListener\\("' + type + '"'));
+  assert.match(slide, /name\.style\.removeProperty\("--lead"\);\s*name\.style\.removeProperty\("--trail"\)/, "back at rest the sheet's own fade stands");
+  // the speed holds through the middle of a slide and climbs and falls over HOME_EASE at each end
+  const done = k => { const r = .3; return k < r ? k * k / (2 * r * (1 - r)) : k > 1 - r ? 1 - (1 - k) ** 2 / (2 * r * (1 - r)) : (k - r / 2) / (1 - r); };
+  assert.equal(done(0), 0); assert.ok(Math.abs(done(1) - 1) < 1e-12);
+  assert.ok(Math.abs(done(.3) - (.3 / 2) / .7) < 1e-12, "the two pieces meet");
+  assert.ok(Math.abs((done(.6) - done(.5)) / .1 - 1 / .7) < 1e-9, "a steady 1 / (1 - r) of the average speed through the middle");
+  assert.match(slide, /const done = k < r \? k \* k \/ \(2 \* r \* \(1 - r\)\) : k > 1 - r \? 1 - \(1 - k\) \*\* 2 \/ \(2 \* r \* \(1 - r\)\) : \(k - r \/ 2\) \/ \(1 - r\);/);
 });
 
 test("home's box shows at every count from none up, says so when there is none, and the logo and charts never move with the count", () => {

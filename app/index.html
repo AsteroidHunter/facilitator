@@ -3800,13 +3800,17 @@
      list (#projmenu, above) without its own box: every open project in the
      same order under the same number, or, with none open, "No active
      projects just yet ..." at its top left in the names' faint ink and size.
-     "+ Open a new folder" stands under the box. the box stands at every
-     count, as tall with one project as with thirty, so the logo and the
-     charts never move for it. homeFit sets its top level with the top of
-     the logo's word, and its foot where the folder row's ink ends level with
-     the last "Last updated" line under the charts. at the reference window
-     the box is 350px wide (23% of the window), its right edge 135px in from
-     the frame's right edge and its corners 32px round, each times --home-u.
+     "+ Open a new folder" stands under the box, centred across it. the box
+     stands at every count, as tall with one project as with thirty, so the
+     logo and the charts never move for it. homeFit stands the box and the
+     folder row as one block, the box's top to the folder row's ink foot,
+     with its middle at the middle of the left part's content, the top of the
+     logo down to the ink of the last "Last updated" line under the charts.
+     at the reference window the box is 375px wide and 526px tall, its left
+     edge 215px from where the left part's ink ends (so 135px in from the
+     frame's right edge there) and its corners 32px round, each times --home-u,
+     which is how large the left part is drawn as a share of the look's. the
+     sheet holds the sizes and the 135px to stand on until homeFit measures.
      its rows are the pill's list's rows at --home-font for their 14px, every
      other length of theirs scaled with it: the number in the monospace at
      14.6 to 14, the 17 to 14 line, the 10 to 14 gap, the 34 to 14 of room on
@@ -3823,17 +3827,20 @@
      names' height (homeFades), so an edge with nothing past it stays at full
      ink and a list that fits wears no fade. the scroll never moves the
      folder row. a name too long for the box never widens it or shrinks the
-     names: its end fades, never in dots */
+     names: its end fades, never in dots, and while the pointer rests on its
+     row it slides along to show its end (homeSlide) */
   body.focus.home #homelist{right:var(--app-inset); width:calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333));
     flex-direction:column; align-items:flex-end;
-    --home-font:calc(28px * var(--home-u, 1)); --home-rows:calc(var(--home-font) * .75);
-    --home-box-w:calc(350px * var(--home-u, 1)); --home-box-right:calc(135px * var(--home-u, 1));
+    --home-font:calc(24px * var(--home-u, 1)); --home-folder-font:calc(30px * var(--home-u, 1));
+    --home-rows:calc(var(--home-font) * 21 / 24);
+    --home-box-w:calc(375px * var(--home-u, 1)); --home-box-h:calc(526px * var(--home-u, 1));
+    --home-box-right:calc(135px * var(--home-u, 1));
     --home-round:calc(32px * var(--home-u, 1)); --home-pad:calc(var(--home-font) * 34 / 28);
     --home-cross:calc(var(--home-font) * 34 / 14)}
-  #homelistbox{flex:1 1 auto; display:flex; flex-direction:column; min-height:0; width:var(--home-box-w); max-width:100%;
-    margin:var(--home-list-top, 0px) var(--home-box-right) var(--home-list-foot, 0px) 0; pointer-events:auto;
+  #homelistbox{flex:none; display:flex; flex-direction:column; width:var(--home-box-w); max-width:100%;
+    margin:var(--home-list-top, 0px) var(--home-box-right) 0 0; pointer-events:auto;
     font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
-  #homeglass{position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+  #homeglass{position:relative; flex:none; height:var(--home-box-h); display:flex; flex-direction:column;
     border-radius:var(--home-round); overflow:hidden}
   /* .28 of the names' size is how far the cap's top stands under the top of
      their 17 to 14 line in the board's sans */
@@ -3875,9 +3882,15 @@
   #homelist .homerow:is(:hover, :focus-visible) .homenum{color:var(--sub)}
   #homelist .homerow.unread .homename{font-weight:600}
   /* a name too long for the box: its end fades, one name's height long,
-     rather than stopping in dots */
-  #homelist .homename.cut{-webkit-mask-image:linear-gradient(to left, transparent 0, #000 var(--home-font));
-    mask-image:linear-gradient(to left, transparent 0, #000 var(--home-font))}
+     rather than stopping in dots. as it slides (homeSlide) the fade follows:
+     --lead is how much of it is slid out of sight at its start and --trail
+     how much is still to come at its end, each up to the fade's length, so
+     the end's fade shows while the start is in view and the start's while
+     the end is */
+  #homelist .homename.cut{-webkit-mask-image:linear-gradient(to right, transparent 0, #000 var(--lead, 0px),
+      #000 calc(100% - var(--trail, var(--home-font))), transparent 100%);
+    mask-image:linear-gradient(to right, transparent 0, #000 var(--lead, 0px),
+      #000 calc(100% - var(--trail, var(--home-font))), transparent 100%)}
   /* the pill's list's cross, at the list's size: on the row under the pointer
      alone, out of the row's flow so the names never move, pale on the last
      project, which stays open */
@@ -3901,10 +3914,14 @@
   #homelist .homerow.lifted{z-index:1; transition:none}
   #homelist .homerow.lifted .homename{color:var(--ink)}
   #homelist .homerow.tearing{opacity:.45}
-  /* the folder row under the box: its plus in the numbers' column and its
-     words where the names start, the top of its ink about 27px under the
-     box at the reference window, and no room held for a cross it never has */
-  #homelist #homenew{margin-top:calc(var(--home-font) * .3); padding-left:var(--home-pad); padding-right:0}
+  /* the folder row under the box: the plus and the words as one line centred
+     across the box, in the folder row's own size (30px at the reference
+     window) with the plus and the gap following it, and no room held for a
+     cross it never has */
+  #homelist #homenew{--home-font:var(--home-folder-font); margin-top:calc(var(--home-font) * .3);
+    justify-content:center; padding-left:0; padding-right:0;
+    font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
+  #homelist #homenew .homenum{width:auto}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   /* both parts come in together on one plain fade: the same start, length and
      curve as the board's own dissolve, with no movement and no stagger */
@@ -5371,11 +5388,18 @@ async function pickFolder(slot){
 // every size here is that look's times --home-u, the smaller of this frame's
 // width and height over the frame that window had, so the page keeps the look
 // at any size. the look (HOME_LOOK): the list's part a third of the frame
-// wide, holding the glass box 350px wide with its right edge 135px in from the
-// frame's right edge, and in it names 28px (twice the pill's list's 14px), 21px
-// apart; the charts as the board draws them, 35% of the frame wide and the
-// token box 35% tall, 35.1px apart (the board's own gap, twice --sp-m), with
-// the phone's logo cluster at 144% 16px over them, the three together at 111%.
+// wide, holding the glass box 375px wide and 526px tall, 215px from where the
+// charts' ink ends, and in it names 24px, 21px apart, with "+ Open a new
+// folder" under it at 30px; the charts as the board draws them, 35% of the
+// reference frame wide and the token box 35% tall, 35.1px apart (the board's
+// own gap, twice --sp-m), with the phone's logo cluster at 144% 16px over
+// them, the three together at 111%. the left part is never touched by the
+// right: its size and place are what they are on every screen, and the right
+// part takes its sizes, its gap and its middle from them, so the two halves
+// keep one proportion to each other whatever shape the window is: every
+// length on the right is the look's times k, how large the group is drawn as
+// a share of the look's, which is --home-u (the smaller of this frame's width
+// and height over the reference's) unless the part's room took from the group.
 // the names never stand under the pill's list's own 14px, in the smallest
 // window. the box, the names and the split keep those sizes whatever the names
 // are, so the logo and the charts never move for a name: a name too long for
@@ -5384,17 +5408,21 @@ async function pickFolder(slot){
 // while the heading's line has room for the heading, the switch and the
 // download button side by side; past that they shrink with the rest, so the
 // three never meet. the group is centred in its part by what it shows.
-// the box's top stands level with the top of the logo's word and the foot of
-// "+ Open a new folder" with the last "Last updated" line's, so the two parts
-// share their top and bottom edges as drawn, whatever the count
+// the box and "+ Open a new folder" stand as one block, centred down the part
+// on the middle of the logo's top to the last "Last updated" line's foot,
+// whatever the count. a name too long for the box slides while the pointer
+// rests on its row: after slideWait seconds it runs left at slide px a second
+// until its end shows, holds slideHold seconds, runs back, holds, and goes again
 const HOME_REF = { w: 1512, h: 982 };
-const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, box: 350, boxRight: 135, pad: 34 / 28, fontMin: 14,
-  scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
+const HOME_LOOK = { split: 1 / 3, font: 24, folder: 30, rows: 21 / 24, box: 375, boxH: 526, boxGap: 215, pad: 34 / 28, fontMin: 14,
+  scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35,
+  slide: 40, slideWait: .4, slideHold: .8 };
 // what the group shows, which is what is centred: the mark and the words, and
 // each chart's heading, drawing and "Last updated" line, not their boxes' clear
 // edges (the panels' own padding, the logo's room for its version)
 const HOME_INK = ["#homemark", "#homebrandcopy", "#homeversion", "#home .tk-head", "#home .tk-stage", "#home .tk-status",
   "#homelimits .lm-title", "#homelimits .lm-rows", "#homelimits .tk-status"];
+let homeUnit = 1;   // --home-u as homeFit last set it, which the slide's speed follows
 const homeSide = document.getElementById("homeside");
 const homeListPart = document.getElementById("homelist");
 const homePair = document.getElementById("homepair");
@@ -5431,21 +5459,11 @@ function homeFit(){
   const refW = HOME_REF.w - (innerWidth - frame.width), refH = HOME_REF.h - (innerHeight - frame.height);
   const u = Math.min(frame.width / refW, frame.height / refH), L = HOME_LOOK;
 
-  // the box and its names at the look's sizes, whatever the names are, so
-  // the split and the charts never move for a name; a name too long for the
-  // box fades at its end
-  const font = Math.max(L.fontMin, L.font * u), split = L.split;
-  const boxW = L.box * u, boxRight = L.boxRight * u;
-  homeSet(homeListPart, "--home-u", u, "");
-  homeSet(homeListPart, "--home-font", font);
-  homeSet(homeListPart, "--home-rows", font * L.rows);
-  homeSet(homeListPart, "--home-box-w", boxW);
-  homeSet(homeListPart, "--home-box-right", boxRight);
+  // the list's part is a third of the frame whatever the names are, so the
+  // charts never move for a name
+  const split = L.split;
   homeSet(homeListPart, "--home-split", split, "");
   homeSet(homeSide, "--home-split", split, "");
-  homeFadeDepth = Math.round(font * 1.6);
-  for (const name of homeListBox.querySelectorAll(".homename"))
-    name.classList.toggle("cut", name.scrollWidth > name.clientWidth);
 
   // the group: the look's sizes times u as drawn on screen, laid out at those over
   // the scale t its words stand at, never under the board's own while the
@@ -5469,9 +5487,12 @@ function homeFit(){
   homeSet(homePair, "--home-gap", L.chartGap * L.scale * u / t);
   // a window too short or too narrow for the group at that scale takes it
   // smaller still, with a twentieth of its part clear on every side
-  const part = homeSide.getBoundingClientRect();
+  const part = homeSide.getBoundingClientRect(), t0 = t;
   t = Math.min(t, part.width * .9 / homePair.offsetWidth, part.height * .9 / homePair.offsetHeight);
   homeSet(homePair, "--home-t", t, "");
+  // how large the group is drawn as a share of the look's: u, less what that
+  // took from it. the right half is drawn at the same share
+  const k = u * t / t0;
 
   // centred by what it shows
   homeSet(homePair, "--home-x", 0);
@@ -5482,24 +5503,48 @@ function homeFit(){
     const left = Math.min(...ink.map(r => r.left)), right = Math.max(...ink.map(r => r.right));
     const top = Math.min(...ink.map(r => r.top)), bottom = Math.max(...ink.map(r => r.bottom));
     const dy = (part.top + part.bottom) / 2 - (top + bottom) / 2;
-    homeSet(homePair, "--home-x", (part.left + part.right) / 2 - (left + right) / 2);
+    const dx = (part.left + part.right) / 2 - (left + right) / 2;
+    homeSet(homePair, "--home-x", dx);
     homeSet(homePair, "--home-y", dy);
-    shown = { top: top + dy, bottom: bottom + dy };
+    shown = { top: top + dy, bottom: bottom + dy, right: right + dx };
   }
 
-  // the glass box's top level with the top of the logo's word, and the
-  // folder row's ink ending level with the foot of the last "Last updated"
-  // line under the charts (before either is drawn, with what the group
-  // shows). the box takes all the height between, at every count, and past
-  // it the rows scroll. the word stands taller than the mark beside it, at
-  // every scale, as the two grow together
+  // the right half at the look's sizes times k, whatever the names are, so
+  // the charts never move for a name: the names, the folder row, the rows'
+  // spacing and the box; a name too long for the box fades at its end. the
+  // box stands the look's gap from where the left half's ink ends, so the two
+  // halves keep their proportion wherever the left half lands in the window
+  const font = Math.max(L.fontMin, L.font * k), boxW = L.box * k;
+  const list = homeListPart.getBoundingClientRect();
+  homeUnit = k;
+  homeSet(homeListPart, "--home-u", k, "");
+  homeSet(homeListPart, "--home-font", font);
+  homeSet(homeListPart, "--home-folder-font", Math.max(L.fontMin, L.folder * k));
+  homeSet(homeListPart, "--home-rows", font * L.rows);
+  homeSet(homeListPart, "--home-box-w", boxW);
+  homeSet(homeListPart, "--home-box-h", L.boxH * k);
+  if (shown) homeSet(homeListPart, "--home-box-right", Math.max(0, list.right - (shown.right + L.boxGap * k + boxW)));
+  homeFadeDepth = Math.round(font * 1.6);
+  for (const name of homeListBox.querySelectorAll(".homename"))
+    name.classList.toggle("cut", name.scrollWidth > name.clientWidth);
+
+  // the box and the folder row are one block, the box's top to the folder
+  // row's ink foot, and it stands centred down the part on the middle of what
+  // the left part shows: the top of the logo (its mark or its word, whichever
+  // stands higher) to the ink of the last "Last updated" line under the
+  // charts (before either is drawn, with what the group shows). the block
+  // moves by the difference of the two middles from where it stands now, so
+  // the same fit answers the same whatever came before
   const word = homeInk(document.getElementById("homebrandname"), t);
   const updated = [...homePair.querySelectorAll(".tk-updated, .lm-updated")].map(el => homeInk(el, t)).filter(Boolean).pop();
-  const headAt = word?.top ?? shown?.top, footAt = updated?.bottom ?? shown?.bottom;
-  const box = homeListBox.getBoundingClientRect(), list = homeListPart.getBoundingClientRect();
-  const folder = homeInk(homeNewName, 1);
-  if (headAt != null) homeSet(homeListPart, "--home-list-top", Math.max(0, headAt - list.top));
-  if (footAt != null && folder) homeSet(homeListPart, "--home-list-foot", Math.max(0, list.bottom - footAt - (box.bottom - folder.bottom)));
+  const mark = document.getElementById("homemark").getBoundingClientRect();
+  const logoAt = word ? (mark.height > 0 ? Math.min(word.top, mark.top) : word.top) : shown?.top;
+  const lastAt = updated?.bottom ?? shown?.bottom;
+  const box = homeListBox.getBoundingClientRect(), folder = homeInk(homeNewName, 1);
+  if (logoAt != null && lastAt != null && folder){
+    const standsAt = parseFloat(getComputedStyle(homeListBox).marginTop) || 0;
+    homeSet(homeListPart, "--home-list-top", Math.max(0, standsAt + (logoAt + lastAt) / 2 - (box.top + folder.bottom) / 2));
+  }
   homeFades();
 }
 // fitted on the frame after anything that moves it: the window's size, the
@@ -5521,6 +5566,88 @@ if (document.fonts){
   document.fonts.ready.then(homeFitSoon);
   document.fonts.addEventListener?.("loadingdone", homeFitSoon);
 }
+
+// a name too long for its box slides while the pointer rests on its row (see
+// HOME_LOOK): to its end, a hold, back to its start, a hold, and again. each
+// slide runs at the look's speed times --home-u, easing in over its first
+// HOME_EASE share and out over its last, so it never jerks at an end; the
+// pointer leaving takes the name back to its start the same way. a name that
+// fits never moves. the fade follows the slide (--lead, --trail: see the
+// sheet's .homename.cut), up to a name's height each
+const HOME_EASE = .3;
+const homeSlides = new WeakMap();
+function homeSlideFade(name, depth){
+  const room = name.scrollWidth - name.clientWidth;
+  homeSet(name, "--lead", Math.min(depth, name.scrollLeft));
+  homeSet(name, "--trail", Math.min(depth, Math.max(0, room - name.scrollLeft)));
+}
+function homeSlideStop(name){
+  const s = homeSlides.get(name);
+  if (!s) return;
+  cancelAnimationFrame(s.frame);
+  clearTimeout(s.timer);
+  homeSlides.delete(name);
+}
+// back at rest: the start's place and the end's fade, as the sheet draws them
+function homeSlideClear(name){
+  name.scrollLeft = 0;
+  name.style.removeProperty("--lead");
+  name.style.removeProperty("--trail");
+}
+// one slide of the name's text to `to`, then `next`. the distance covered at
+// time k of the whole: the speed climbs over the first HOME_EASE, holds, and
+// falls over the last HOME_EASE, so the cruise speed is the look's
+function homeSlideTo(name, to, next){
+  const s = homeSlides.get(name), from = name.scrollLeft, far = Math.abs(to - from);
+  if (!s) return;
+  if (far < 1){ next(); return; }
+  const r = HOME_EASE, began = performance.now(), depth = parseFloat(getComputedStyle(name).fontSize);
+  const ms = far / (HOME_LOOK.slide * homeUnit * (1 - r)) * 1000;
+  const step = now => {
+    if (!name.isConnected){ homeSlideStop(name); return; }
+    const k = Math.min(1, (now - began) / ms);
+    const done = k < r ? k * k / (2 * r * (1 - r)) : k > 1 - r ? 1 - (1 - k) ** 2 / (2 * r * (1 - r)) : (k - r / 2) / (1 - r);
+    name.scrollLeft = from + (to - from) * done;
+    homeSlideFade(name, depth);
+    if (k < 1) s.frame = requestAnimationFrame(step); else next();
+  };
+  s.frame = requestAnimationFrame(step);
+}
+function homeSlideRest(name){
+  if (!name?.classList.contains("cut")) return;
+  homeSlideStop(name);
+  const s = { frame: 0, timer: 0 };
+  homeSlides.set(name, s);
+  const hold = (seconds, then) => { s.timer = setTimeout(then, seconds * 1000); };
+  const run = () => {
+    const room = name.scrollWidth - name.clientWidth;
+    if (!name.isConnected || room < 1){ homeSlideStop(name); return; }
+    homeSlideTo(name, room, () => hold(HOME_LOOK.slideHold, () =>
+      homeSlideTo(name, 0, () => hold(HOME_LOOK.slideHold, run))));
+  };
+  hold(HOME_LOOK.slideWait, run);
+}
+function homeSlideLeave(name){
+  if (!name) return;
+  homeSlideStop(name);
+  if (name.scrollLeft < 1){ homeSlideClear(name); return; }
+  homeSlides.set(name, { frame: 0, timer: 0 });
+  homeSlideTo(name, 0, () => { homeSlideStop(name); homeSlideClear(name); });
+}
+const homeNameOf = e => e.target.closest?.(".homerow")?.querySelector(".homename");
+homeRows.addEventListener("pointerover", e => {
+  const row = e.target.closest?.(".homerow");
+  if (row && e.pointerType !== "touch" && !row.contains(e.relatedTarget)) homeSlideRest(homeNameOf(e));
+});
+homeRows.addEventListener("pointerout", e => {
+  const row = e.target.closest?.(".homerow");
+  if (row && !row.contains(e.relatedTarget)) homeSlideLeave(homeNameOf(e));
+});
+// a row pressed stands still, whether it opens or is carried
+homeRows.addEventListener("pointerdown", e => {
+  const name = homeNameOf(e);
+  if (name){ homeSlideStop(name); homeSlideClear(name); }
+});
 
 // ---- the home page ---------------------------------------------------------
 // The house at the head of the bar opens it: one blank page above every
