@@ -26,7 +26,7 @@ Facilitator is meant to complement your existing development workflow. **To make
 **Pre-requisites**:
 - Claude Code or Codex
 - Google Chrome
-- macOS 11 or later (the installer sets up its own Python 3.14 for the board; your own Python is not changed)
+- macOS 11 or later
 
 Installing the Facilitator is easy:
 ```
