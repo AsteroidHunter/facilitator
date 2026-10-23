@@ -129,7 +129,7 @@ before(async () => {
   source = patch(source, "ACK_GRACE = 90.0", `ACK_GRACE = ${ACK_GRACE_S}`);
   // these cases are about saving, not the typing hold (typing-hold.test.cjs),
   // so a message sent here is free to go out at once
-  source = patch(source, "TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  source = patch(source, "TYPING_HOLD = 3.5", "TYPING_HOLD = 0.0");
   source = patch(source, 'TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
     'TAILSCALE_APP = "/facilitator-test/no-tailscale-app"');
   source = patch(source,

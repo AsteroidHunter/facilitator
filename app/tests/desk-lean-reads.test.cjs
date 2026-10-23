@@ -37,7 +37,7 @@ before(async () => {
       ["DESK_KEPT = 32", `DESK_KEPT = ${KEPT}`],
       // these cases are about lean reads, not the typing hold
       // (typing-hold.test.cjs), so a message sent here is free to go out at once
-      ["TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0"],
+      ["TYPING_HOLD = 3.5", "TYPING_HOLD = 0.0"],
       [`                "queuePos": qpos.get(b["id"], 0),\n`,
        `                "queuePos": qpos.get(b["id"], 0),\n` +
        `                **({"probe": (HERE / "probe.txt").read_text()} if b["id"] == "m1" and (HERE / "probe.txt").exists() else {}),\n`],

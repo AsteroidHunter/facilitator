@@ -106,7 +106,7 @@ before(async () => {
   assert.notEqual(ported, source, "test server port was not patched");
   // these cases are about the log, not the typing hold (typing-hold.test.cjs),
   // so a message sent here is free to go out at once
-  const patched = ported.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  const patched = ported.replace("TYPING_HOLD = 3.5", "TYPING_HOLD = 0.0");
   assert.notEqual(patched, ported, "test server typing hold was not patched");
   await writeFile(path.join(appDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(appDir);
