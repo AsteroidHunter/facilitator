@@ -36,10 +36,10 @@ async function fixture(laneDirs) {
   assert.match(source, /TAILSCALE_APP = "\/Applications\/Tailscale\.app\/Contents\/MacOS\/Tailscale"/);
   // these cases are about the helper, not the typing hold (typing-hold.test.cjs),
   // so a message sent here is free to go out at once
-  assert.match(source, /TYPING_HOLD = 7\.0/);
+  assert.match(source, /TYPING_HOLD = 3\.5/);
   await fs.writeFile(path.join(app, 'server.py'), source
     .replace('PORT = 8877', "PORT = int(os.environ['FACILITATOR_TEST_PORT'])")
-    .replace('TYPING_HOLD = 7.0', 'TYPING_HOLD = 0.0')
+    .replace('TYPING_HOLD = 3.5', 'TYPING_HOLD = 0.0')
     .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
       `TAILSCALE_APP = ${JSON.stringify(path.join(outer, 'no-real-tailscale'))}`));
   copyBridgeFiles(app);

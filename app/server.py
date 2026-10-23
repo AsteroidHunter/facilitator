@@ -917,7 +917,7 @@ Endpoints:
                                becomes the newest message the claim covers, so
                                it is the one that decides /reply's 100 word cap,
                                and the agent has to be able to see it. Nothing
-                               new is handed over until 7 seconds after the
+                               new is handed over until 3.5 seconds after the
                                reader's last change in the card's typing box or
                                last message on it, so the held card comes back
                                with an empty list until then, and a reply before
@@ -945,7 +945,7 @@ Endpoints:
                                none) for a message an agent sent for the reader
                                (/send by=agent), null for the reader's own. Also returns
                                {"idle":true} on timeout.
-                               A card is not handed out until 7 seconds after
+                               A card is not handed out until 3.5 seconds after
                                the reader's last change in its typing box or
                                last message on it, except a card sent a voice
                                message (via=voice), which goes out at once.
@@ -2140,7 +2140,7 @@ ACK_GRACE = 90.0
 # handed to an agent: the typing hold's one clock, kept here and nowhere else.
 # The pages only say that a change happened, so a tab closed or a phone asleep
 # mid-reply simply stops saying it and its last change runs out here
-TYPING_HOLD = 7.0
+TYPING_HOLD = 3.5
 # Version 1 removes the old convention that treated a line containing only ---
 # as a hidden short/full delimiter. Existing state is split once in _migrate;
 # every new reply has explicit fields and the Markdown renderer is never asked
