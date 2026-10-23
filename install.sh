@@ -232,6 +232,7 @@ preflight() {
 }
 
 banner
+about
 
 section '1. Claude Code or Codex'
 agent_found=0
