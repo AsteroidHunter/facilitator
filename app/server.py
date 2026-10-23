@@ -612,13 +612,17 @@ Endpoints:
                                complete, with the board's version written into
                                it. Local only, and the one page besides /m that
                                the board's own origin may frame
-  POST /onboarding/sample   -> makes the sample project the onboarding opens,
+  POST /onboarding/sample   -> makes the onboarding's sample project,
                                ~/facilitator-sample, holding its internal folder
                                and its wiki with one short example in each, the
                                first time it is missing; one that exists, as a
-                               folder or anything else, is never touched.
-                               Answers {ok, path, made}; a 409 when something
-                               that is not a folder holds the name. Local only
+                               folder or anything else, is never touched. Its
+                               lane is made with it the first time, as POST
+                               /project makes one, and marked sample, which no
+                               list of projects shows and nothing opens.
+                               Answers {ok, path, made, id}; a 409 when
+                               something that is not a folder holds the name.
+                               Local only
   GET  /assets/phone_app_on_stand.webp
                             -> the onboarding's picture of the phone app, the
                                first line of its 101: Phone App card. Local
@@ -3106,6 +3110,16 @@ def _migrate() -> None:
     for field in ("order", "closed"):
         if not isinstance(_state["tabs"].get(field), list):
             _state["tabs"][field] = []
+    # the onboarding's sample project (2026-10-23) is marked sample on its
+    # record and never listed or opened. a board from before the mark holds the
+    # lane the onboarding opened on the sample's folder, marked here once; a
+    # lane opened on that folder by hand after this is an ordinary project
+    if _state.get("sample_flag_version", 0) < SAMPLE_FLAG_VERSION:
+        folder = _sample_folder()
+        for p in _state["projects"]:
+            if isinstance(p, dict) and not p.get("server") and p.get("dir") == folder:
+                p["sample"] = True
+        _state["sample_flag_version"] = SAMPLE_FLAG_VERSION
     for b in _state["boxes"]:
         b.setdefault("ws", ws[b.get("owner", "facilitator")][0]["id"])
         b.setdefault("task", None)
@@ -8164,12 +8178,13 @@ FIRST_OMNI_REPLY = (
     "Once done, start interacting with the agent via the Facilitator!")
 
 
-def _post_project(q: Query, text: str, found: dict | None = None):
+def _post_project(q: Query, text: str, found: dict | None = None, sample: bool = False):
     # a new project lane from the page's plus tab: slug the name,
     # store {id, name, dir} so restarts keep it, give the lane its
     # per-owner slots; the tab appears with its one general-purpose Omni card.
     # found is a server's folder as _post_project_route read it, kept with
-    # the server's id and its repository
+    # the server's id and its repository. sample marks the onboarding's
+    # sample project (_sample_lane), which gets no tab
     name = q.one("name").strip()
     slug = "".join(c if c.isalnum() else "-" for c in name.lower())
     while "--" in slug:
@@ -8208,6 +8223,8 @@ def _post_project(q: Query, text: str, found: dict | None = None):
             record = {"id": slug, "name": name, "dir": found["dir"], "server": found["server"],
                       **({"git": found["git"]} if found.get("git") else {})}
             d = found["dir"]
+        if sample:
+            record["sample"] = True
         _state.setdefault("projects", []).append(record)
         _state["busy"].setdefault(slug, None)
         _state["claimed"].setdefault(slug, [])
@@ -9219,8 +9236,8 @@ def _post_profile(q: Query, text: str):
 # What a Mac board shows first while its profile is not complete: the mock's
 # run of real cards (onboarding.html), laid over the whole board in a frame of
 # its own until the closing card is marked done and the profile is saved. It
-# opens the sample project below as its project, and the board lands on that
-# project's tab when it ends.
+# makes the sample project below, which the board keeps unlisted, and the
+# board lands on its home page when it ends.
 ONBOARDING_PAGE = HERE / "onboarding.html"
 ONBOARDING_VERSION_SLOT = b'<meta name="facilitator-version" content="">'
 BOARD_VERSION = re.compile(rb'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
@@ -9250,7 +9267,14 @@ def _get_onboarding(q: Query, _):
 # with one short example. Made the first time the onboarding asks and it is
 # missing, and never touched again: a folder, a file or a link already holding
 # the name is left exactly as it is.
+# Its lane is made with it, as POST /project makes any, and marked sample on
+# its record: the board keeps it, with its Omni Ticket #1, but no list of
+# projects shows it and nothing opens it (sampleLane in card-logic.js). A lane
+# an older board made on the folder before the mark is marked once by _migrate
+# (SAMPLE_FLAG_VERSION); one opened on the folder by hand after that is an
+# ordinary project.
 SAMPLE_NAME = "facilitator-sample"
+SAMPLE_FLAG_VERSION = 1
 SAMPLE_FILES = {
     f"{SAMPLE_NAME}-internal/example-note.md": (
         "# Example note\n\n"
@@ -9291,6 +9315,26 @@ def _make_sample(home: Path) -> tuple[Path, bool]:
     return root, True
 
 
+def _sample_folder() -> str:
+    """The sample's folder as POST /project keeps a lane's, resolved."""
+    root = Path.home() / SAMPLE_NAME
+    try:
+        return str(root.resolve())
+    except (OSError, RuntimeError):
+        return str(root)
+
+
+def _sample_lane(path: str):
+    """The sample's lane, marked sample: the one already marked, or a new one
+    on its folder. Looked for and made in one hold of the lock, so two runs
+    at once make one. Answers as _post_project does."""
+    with _lock:
+        for p in _state.get("projects", []):
+            if isinstance(p, dict) and p.get("sample"):
+                return 200, {"ok": True, "id": p["id"]}
+        return _post_project(Query({"name": [SAMPLE_NAME]}), path, sample=True)
+
+
 def _post_onboarding_sample(q: Query, _):
     if not q.local:
         return 404, {"error": "not found"}
@@ -9304,9 +9348,12 @@ def _post_onboarding_sample(q: Query, _):
         _error("sample", reason=e.strerror or type(e).__name__)
         return 500, {"error": "the sample project could not be made"}
     _info("sample", made=made)
-    # resolved, the way POST /project keeps a lane's folder, so the page finds
-    # the sample's tab by its folder on a later run instead of making another
-    return 200, {"ok": True, "path": str(root.resolve()), "made": made}
+    # resolved, the way POST /project keeps a lane's folder
+    path = str(root.resolve())
+    status, lane = _run_state_request(_sample_lane, path)
+    if status != 200:
+        return status, lane
+    return 200, {"ok": True, "path": path, "made": made, "id": lane["id"]}
 
 
 # ---- the update -------------------------------------------------------------------

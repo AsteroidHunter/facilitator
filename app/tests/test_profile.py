@@ -16,7 +16,8 @@
             goes afterwards on a thread of its own
   sample    POST /onboarding/sample makes ~/facilitator-sample with its
             internal folder and its wiki the first time, and never touches a
-            folder, a file or a link already holding the name
+            folder, a file or a link already holding the name; its lane is
+            tests/test_sample_project.py's
   page      GET /onboarding serves onboarding.html with the board's version
             written in, to this Mac only, and it is the one page besides /m
             the board's origin may frame
@@ -542,14 +543,19 @@ class PostHog(Case):
 
 
 class Sample(Case):
+    # the sample's lane, which the route makes with its folder, is the board's
+    # state, which this module does not load: its own tests are in
+    # tests/test_sample_project.py, and here it is the lane the route was handed
     def make(self):
-        with mock.patch.object(Path, "home", classmethod(lambda cls: self.home)):
+        with mock.patch.object(Path, "home", classmethod(lambda cls: self.home)), \
+                mock.patch.object(S, "_sample_lane", lambda path: (200, {"ok": True, "id": "facilitator-sample"})):
             return self.call("POST", "/onboarding/sample", b"")
 
     def test_it_is_made_once_with_its_internal_folder_and_its_wiki(self):
         status, answer = self.make()
         root = self.home / "facilitator-sample"
-        self.assertEqual((status, answer), (200, {"ok": True, "path": str(root.resolve()), "made": True}))
+        self.assertEqual((status, answer), (200, {"ok": True, "path": str(root.resolve()), "made": True,
+                                                  "id": "facilitator-sample"}))
         self.assertEqual(sorted(p.name for p in root.iterdir()),
                          ["facilitator-sample-internal", "facilitator-sample-wiki"])
         note = root / "facilitator-sample-internal" / "example-note.md"
@@ -558,7 +564,8 @@ class Sample(Case):
         self.assertTrue(page.read_text().startswith("# Example page\n"))
         self.assertEqual([p.name for p in self.home.iterdir()], ["facilitator-sample"], "the build folder was left")
         note.write_text("mine now")
-        self.assertEqual(self.make(), (200, {"ok": True, "path": str(root.resolve()), "made": False}))
+        self.assertEqual(self.make(), (200, {"ok": True, "path": str(root.resolve()), "made": False,
+                                             "id": "facilitator-sample"}))
         self.assertEqual(note.read_text(), "mine now", "an existing sample was written over")
 
     def test_a_folder_a_file_or_a_link_holding_the_name_is_never_touched(self):
@@ -582,7 +589,7 @@ class Sample(Case):
             self.assertEqual(self.call("POST", "/onboarding/sample", b"", port=S.BRIDGE_PORT)[0], 404)
         self.assertFalse((self.home / "facilitator-sample").exists())
 
-    def test_its_tab_is_found_again_by_the_folder_post_project_keeps(self):
+    def test_its_path_is_the_folder_post_project_keeps(self):
         status, answer = self.make()
         with mock.patch.object(Path, "home", classmethod(lambda cls: self.home)):
             d = Path(answer["path"]).expanduser().resolve()

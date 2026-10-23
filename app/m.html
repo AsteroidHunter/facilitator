@@ -5858,7 +5858,8 @@ function appNameFor(title){
   return title === "facilitator" ? "Facilitator" : title;
 }
 function validateOwners(state){
-  validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat"));
+  // the onboarding's sample project is never opened (sampleLane in card-logic.js)
+  validOwners = new Set(Object.keys(state.pwds || {}).filter(ow => ow !== "qchat" && !sampleLane(state, ow)));
   if (!validOwners.has(activeOwner)){
     localStorage.removeItem("activeproj");
     activeOwner = validOwners.has("facilitator") ? "facilitator" : ([...validOwners][0] || "facilitator");

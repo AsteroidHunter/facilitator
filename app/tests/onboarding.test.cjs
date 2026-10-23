@@ -129,18 +129,18 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.equal(placing.status, 200);
   assert.ok(placing.text.includes("root.MagicBox = {"));
 
-  // the run's first move: the sample project, then its tab as "Open a new folder" makes one
+  // the run's first move: the sample project, its folder and its lane, marked sample so no list shows it
   const made = json(await board.call("POST", "/onboarding/sample", ""));
-  assert.deepEqual(made, { ok: true, path: path.join(home, "facilitator-sample"), made: true });
+  assert.deepEqual(made, { ok: true, path: path.join(home, "facilitator-sample"), made: true, id: "facilitator-sample" });
   assert.deepEqual(fs.readdirSync(made.path).sort(), ["facilitator-sample-internal", "facilitator-sample-wiki"]);
   assert.deepEqual(fs.readdirSync(path.join(made.path, "facilitator-sample-internal")), ["example-note.md"]);
   assert.deepEqual(fs.readdirSync(path.join(made.path, "facilitator-sample-wiki")), ["example-page.md"]);
-  const project = json(await board.call("POST", "/project?name=facilitator-sample", made.path));
-  assert.equal(project.id, "facilitator-sample");
   const again = json(await board.call("POST", "/onboarding/sample", ""));
-  assert.equal(again.made, false);
-  const pwds = json(await board.call("GET", "/state")).pwds;
-  assert.equal(pwds["facilitator-sample"], again.path, "a second run would not find the tab by its folder");
+  assert.deepEqual(again, { ...made, made: false }, "a second run made another lane");
+  const reading = json(await board.call("GET", "/state"));
+  assert.equal(reading.pwds["facilitator-sample"], made.path);
+  assert.deepEqual(reading.projects, [{ id: "facilitator-sample", name: "facilitator-sample", dir: made.path, sample: true }]);
+  assert.deepEqual(reading.boxes.filter(b => b.owner === "facilitator-sample").map(b => b.title), ["Omni Ticket #1"]);
 
   // the closing card's save, an email given being the yes
   const answers = { name: "Ada Lovelace", email: "ada@example.org", emailYes: true,
@@ -367,7 +367,7 @@ async function finishWith(answers, { run = "finish()", ok = true } = {}) {
     calls, onboard, cards: [{}, onboard], profile: { timeZone: null, ...answers },
     show: note("show"), leaveHistory: note("leaveHistory"), nudge: note("nudge"), printReply: note("printReply"),
     render: (el, raw) => calls.push(["render", raw]), pageRaw: (card, i) => i + ":" + card.asking,
-    unlight: note("unlight"), caretQueue: note("caretQueue"), projectReady: Promise.resolve(null),
+    unlight: note("unlight"), caretQueue: note("caretQueue"),
     fetch: async (url, init) => { calls.push(["fetch", url, JSON.parse(init.body)]); return { ok }; },
     feedback: { setReady: note("setReady") },
     document: { body: { classList: { add: note("obdone") } }, activeElement: null },
@@ -542,6 +542,33 @@ test("the board keeps the onboarding up once the frame has saved the profile, un
   assert.equal(other.frames[0].gone, true);
 });
 
+test("the frame's done ends the run on the home page and opens no project, the sample's least of all", () => {
+  const done = (g, data = { onboarding: "done" }, source = g.frames[0].contentWindow) =>
+    g.listeners.message({ source, origin: "http://127.0.0.1:1", data });
+  const g = gate({ flag: true });
+  // an older frame's word naming the sample project is still only a done
+  done(g, { onboarding: "done", project: "facilitator-sample" });
+  assert.deepEqual(g.moves, ["home"]);
+  assert.equal(g.frames[0].gone, true);
+  assert.equal(g.document.body.inert, false);
+  assert.equal(g.listeners.message, undefined, "the board kept listening after done");
+  // already home: it stays there, with no second move
+  const home = gate({ flag: true, homeOpen: true });
+  done(home);
+  assert.deepEqual(home.moves, []);
+  assert.equal(home.frames[0].gone, true);
+  // a project's own window keeps its project
+  const own = gate({ flag: true, LOCKED: "orchard" });
+  done(own);
+  assert.deepEqual(own.moves, []);
+  assert.equal(own.frames[0].gone, true);
+  // another page's done moves nothing
+  const other = gate({ flag: true });
+  done(other, { onboarding: "done" }, {});
+  assert.deepEqual(other.moves, []);
+  assert.equal(other.frames[0].gone, undefined);
+});
+
 test("the onboarding is Welcome, one onboarding card of three needed questions, four 101 cards and You are all set up", () => {
   const titles = [...grab("  const CARDS = [", "  // the timings.").matchAll(/title: "([^"]+)"/g)].map(m => m[1]);
   assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Atomizing asks",
@@ -565,7 +592,9 @@ test("the onboarding is Welcome, one onboarding card of three needed questions, 
   assert.ok(ONBOARDING.includes('fetch("/onboarding/sample", { method: "POST" })'));
   assert.ok(ONBOARDING.includes('fetch("/profile", { method: "POST", body: JSON.stringify(body) })'));
   assert.ok(ONBOARDING.includes("emailYes: email != null"), "an email given is not the yes");
-  assert.ok(ONBOARDING.includes('parent.postMessage({ onboarding: "done", project }, location.origin)'));
+  // the run names no project to open: the board ends it on its home page
+  assert.ok(ONBOARDING.includes('parent.postMessage({ onboarding: "done" }, location.origin)'));
+  assert.doesNotMatch(ONBOARDING, /fetch\("\/project|projectReady|fetch\("\/state"\)/, "the page still opens the sample's tab");
   assert.doesNotMatch(ONBOARDING, /placeholder\s*=\s*"[^"]*(\.\.\.|…)"/);
 });
 
@@ -952,7 +981,8 @@ test("the board lays the onboarding over itself while the server says so, and ta
   assert.ok(gate.includes("document.documentElement.appendChild(frame);\n  document.body.inert = true;"),
             "the board under the onboarding can still be used");
   assert.ok(gate.includes('e.data?.onboarding !== "done"') && gate.includes("e.origin !== location.origin"));
-  assert.match(gate, /if \(tabClosed\(project\)\) reopenTab\(project\);\s*else setTab\(project\);/);
+  assert.ok(gate.includes("if (FOCUS && !LOCKED && !homeOpen) setHome(true);"), "the run does not end on the home page");
+  assert.doesNotMatch(gate, /setTab\(|reopenTab\(|e\.data\.project/, "the run still opens a project");
   assert.ok(gate.includes('if (!frame.contentDocument?.getElementById("obstage")){ onboard.failed = true; away(); }'),
             "a frame without the onboarding would wall the board off");
   const reading = MAC.slice(MAC.indexOf("async function poll(timed = false){"), MAC.indexOf("if (seq <= createSeq) return;"));
@@ -963,8 +993,8 @@ test("the board lays the onboarding over itself while the server says so, and ta
 });
 
 // the board's own gate code, run in a vm with the window, the document and the
-// board's tab moves replaced by small fakes and the clock handed in
-function gate({ flag = false } = {}) {
+// board's moves to its home page replaced by small fakes and the clock handed in
+function gate({ flag = false, homeOpen = false, LOCKED = null } = {}) {
   const frames = [], timers = [], listeners = {}, moves = [];
   let now = 1000;
   const frameOf = () => {
@@ -981,7 +1011,8 @@ function gate({ flag = false } = {}) {
     setTimeout: (fn, ms) => { timers.push({ fn, at: now + ms }); return timers.length; },
     clearTimeout: id => { if (timers[id - 1]) timers[id - 1].cleared = true; },
     addEventListener: (type, fn) => { listeners[type] = fn; }, removeEventListener: type => { delete listeners[type]; },
-    poll: async () => {}, validActiveOwnerIds: new Set(["facilitator-sample"]), tabClosed: () => false,
+    FOCUS: true, LOCKED, homeOpen,
+    setHome: on => { moves.push(on ? "home" : "board"); context.homeOpen = !!on; },
     setTab: id => moves.push(id), reopenTab: id => moves.push("reopen " + id),
   });
   const block = MAC.slice(MAC.indexOf("const onboard = {"), MAC.indexOf("\nfunction showOwnerRefusal"));

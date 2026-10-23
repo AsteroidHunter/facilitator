@@ -4402,9 +4402,8 @@ if (LOCKED) document.body.classList.add("locked");
 // onboarding.html) is laid over the whole window before anything here can be
 // used. it stands in a frame of its own, so its cards keep their own state and
 // keys, and the board under it loads as it always does but takes no focus,
-// pointer or key (inert). its closing card saves the profile and names the
-// project it opened; the board then shows that project's tab, and the frame
-// goes on the board's own fade.
+// pointer or key (inert). its closing card saves the profile; the board then
+// shows its home page, and the frame goes on the board's own fade.
 // whether it is needed is asked twice over: by that flag as the page loads, so
 // a board that needs it never shows itself first, and by every reading of
 // /state (onboarding: true, onboardingWatch below). the flag alone is read
@@ -4450,7 +4449,7 @@ function openOnboarding(){
     if (!frame.contentDocument?.getElementById("obstage")){ onboard.failed = true; away(); }
     else frame.contentWindow.focus();
   });
-  addEventListener("message", async function done(e){
+  addEventListener("message", function done(e){
     if (e.source === source && e.origin === location.origin && e.data?.onboarding === "saved"){
       onboard.saved = true;
       clearTimeout(onboard.leaving);
@@ -4459,18 +4458,15 @@ function openOnboarding(){
     }
     if (e.source !== source || e.origin !== location.origin || e.data?.onboarding !== "done") return;
     removeEventListener("message", done);
-    await poll();   // the sample project's tab arrives with its label and folder
-    const project = e.data.project;
-    if (project && validActiveOwnerIds.has(project)){
-      if (tabClosed(project)) reopenTab(project);
-      else setTab(project);
-    }
+    // the run ends on the home page, as the house opens it; the sample project
+    // it made stays on the board unopened
+    if (FOCUS && !LOCKED && !homeOpen) setHome(true);
     away();
   });
 }
 // every reading of the board: the onboarding up while the board says it is
 // needed, and taken away two seconds after it stops saying so, which leaves
-// this window's own closing card the time to name the project to open. a
+// this window's own closing card the time to say it is done. a
 // reading asked before the onboarding last ended here is older than the save
 // and is not believed
 function onboardingWatch(state){
@@ -4503,7 +4499,8 @@ function clearOwnerRefusal(){
 }
 function validateActiveOwner(state){
   knownOwnerIds = new Set(Object.keys(state.pwds || {}));
-  validActiveOwnerIds = new Set([...knownOwnerIds].filter(owner => owner !== "qchat"));
+  // the onboarding's sample project is never opened (sampleLane in card-logic.js)
+  validActiveOwnerIds = new Set([...knownOwnerIds].filter(owner => owner !== "qchat" && !sampleLane(state, owner)));
   if (LOCKED){
     if (!validActiveOwnerIds.has(LOCKED)){
       showOwnerRefusal('Project "' + LOCKED + '" is not available.');
@@ -4512,6 +4509,9 @@ function validateActiveOwner(state){
     activeOwner = LOCKED;
   } else if (activeOwner !== DRAFT || !draft){
     if (!validActiveOwnerIds.has(activeOwner)){
+      // the sample project an older onboarding left open gives way to home,
+      // where the onboarding ends now
+      if (sampleLane(state, activeOwner)) sampleLeft = true;
       try { localStorage.removeItem("activeproj"); } catch (err) {}
       activeOwner = validActiveOwnerIds.has("facilitator")
         ? "facilitator" : ([...validActiveOwnerIds][0] || null);
@@ -4761,11 +4761,12 @@ let projCarried = false; // a carry just ended: the release is not a choice
 function renderTabs(st){
   if (!FOCUS || !st) return;
   if (projCarry?.rects) return;   // a row being carried owns the list; the repaint lands after the drop
-  // a board with no project to show opens on the home page, where one is added.
+  // a board with no project to show opens on the home page, where one is added,
+  // and so does one whose open project was the onboarding's sample.
   // asked once per load, so leaving home for a new folder is not undone on the next paint
   if (!homeChecked){
     homeChecked = true;
-    if (!LOCKED && !draft && !homeOpen && !allRowsOf(st).length) setHome(true);
+    if (!LOCKED && !draft && !homeOpen && (!allRowsOf(st).length || sampleLeft)) setHome(true);
   }
   // a project closed while the reader was on it, or closed in another window:
   // the board steps to the first project still open. it may never sit on a
@@ -5550,6 +5551,7 @@ const LIMITS_EVERY = 60 * 1000;
 const LIMITS_TICK = 15 * 1000;
 let homeOpen = false;
 let homeChecked = false;
+let sampleLeft = false;   // the saved open project was the onboarding's sample (validateActiveOwner)
 let homePanel = null;
 let homeLimits = null;
 let homeTimer = null;

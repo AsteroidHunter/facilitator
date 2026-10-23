@@ -37,8 +37,8 @@
      hint elsewhere (the default is ?hint=reply).
      The answers stay in this page until the last card is marked done; then
      they are saved as the profile (POST /profile), the frame goes and the
-     board opens on the sample project this page opened at its start
-     (POST /onboarding/sample, then POST /project as "Open a new folder" does).
+     board opens on its home page. The sample project this page made at its
+     start (POST /onboarding/sample) stays on the board, never listed or opened.
      Every question is needed: Enter with the box empty keeps the question and
      asks for its answer in one short line, and so does an email with no @ or
      no dot after it. The cards after the onboarding card open only once every
@@ -1865,25 +1865,10 @@ for (const pane of document.querySelectorAll(".tikpane")){
   }
 
   // ---- the end: the profile, and the board ------------------------------------
-  // the run opens the sample project as its project at the start: the folder
-  // made the first time it is missing (POST /onboarding/sample), then its tab,
-  // found where it is already the board's or made the way the home page's
-  // "Open a new folder" makes one. the board lands on that tab at the end
-  const projectReady = (async () => {
-    try {
-      const made = await (await fetch("/onboarding/sample", { method: "POST" })).json();
-      if (!made || !made.path) return null;
-      const st = await (await fetch("/state")).json();
-      const open = Object.entries(st.pwds || {}).find(([, dir]) => dir === made.path);
-      if (open) return open[0];
-      const name = made.path.split("/").filter(Boolean).pop();
-      const px = await fetch("/project?name=" + encodeURIComponent(name), { method: "POST", body: made.path });
-      const pr = await px.json().catch(() => null);
-      return px.ok && pr && pr.id ? pr.id : null;
-    } catch (e) {
-      return null;
-    }
-  })();
+  // the run makes the sample project at the start (POST /onboarding/sample):
+  // the folder the first time it is missing, and its lane, which the board
+  // keeps but never lists or opens. the board lands on its home page at the end
+  fetch("/onboarding/sample", { method: "POST" }).catch(() => {});
   // the same rule as the board's (clean_email in usage_counts.py): the email
   // question takes only an address, and the save carries no email, with no yes,
   // for anything else
@@ -1910,7 +1895,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   }
   // the last card closed: the answers are saved as the profile, again if they
   // were, and the card goes, the ticket list
-  // with it. the board then takes the frame away onto the sample project.
+  // with it. the board then takes the frame away onto its home page.
   // every answer is needed, so the key with one missing goes to the first
   // question not answered, which is the onboarding card's newest page, since a
   // page comes only with the answer before it: the first question is called
@@ -1939,8 +1924,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     document.body.classList.add("obdone");
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     caretQueue();
-    const project = await projectReady;
-    if (parent !== window) parent.postMessage({ onboarding: "done", project }, location.origin);
+    if (parent !== window) parent.postMessage({ onboarding: "done" }, location.origin);
     else setTimeout(() => location.replace("/"), 180);
   }
 
