@@ -1014,6 +1014,8 @@ function gate({ flag = false, homeOpen = false, LOCKED = null } = {}) {
     FOCUS: true, LOCKED, homeOpen,
     setHome: on => { moves.push(on ? "home" : "board"); context.homeOpen = !!on; },
     setTab: id => moves.push(id), reopenTab: id => moves.push("reopen " + id),
+    // the way out under the startup globe (first-run-intro.test.cjs), here at once
+    leaveOnboarding: open => open(),
   });
   const block = MAC.slice(MAC.indexOf("const onboard = {"), MAC.indexOf("\nfunction showOwnerRefusal"));
   vm.runInContext(block, context);

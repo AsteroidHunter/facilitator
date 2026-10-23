@@ -417,6 +417,15 @@
   /* the curtain is first in the body and the banner a later child of it, so a
      sibling rule lifts the banner while the curtain is there, with no :has() */
   #loading ~ #offline{z-index:100003}
+  /* the first run (introBegin): the curtain stands over the onboarding's frame
+     (#onboard.under) from the first paint, its white ground laid under the
+     globe as a veil of its own, so the globe and the onboarding's first card
+     under the veil each fade on their own: the globe out, then the veil, which
+     is the card coming in, the two mixing at their own strengths. on the way out of
+     the onboarding (leaveOnboarding) it stands over the frame again, whole */
+  #loading.over{z-index:2147483647}
+  #loading.intro{background:transparent}
+  #loading.intro::before{content:""; position:absolute; inset:0; background:#ffffff}
 
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
   /* the globe keeps turning for the reason the phone gives: a still globe is the
@@ -4031,10 +4040,13 @@
     100%{transform:scale(0) rotate(14deg)}}
   /* the onboarding (openOnboarding below), over the whole window and over
      everything on it while the board has no profile. its page paints its own
-     paper, the board's; once done it goes on the board's own .18s fade */
+     paper, the board's; once done it goes on the board's own .18s fade, under
+     the startup globe (leaveOnboarding) */
   #onboard{position:fixed; inset:0; width:100%; height:100%; margin:0; padding:0; border:none;
     z-index:2147483647; background:transparent; transition:opacity .18s ease}
   #onboard.gone{opacity:0; pointer-events:none}
+  /* one step under the startup curtain while the curtain stands over it */
+  #onboard.under{z-index:2147483646}
   /* the settings page's Bin: the line saying how long cards are kept, then a
      row to a deleted card, its title over its project and when it was
      deleted, and Restore on the right */
@@ -4402,8 +4414,10 @@ if (LOCKED) document.body.classList.add("locked");
 // onboarding.html) is laid over the whole window before anything here can be
 // used. it stands in a frame of its own, so its cards keep their own state and
 // keys, and the board under it loads as it always does but takes no focus,
-// pointer or key (inert). its closing card saves the profile; the board then
-// shows its home page, and the frame goes on the board's own fade.
+// pointer or key (inert). its closing card saves the profile; the startup
+// globe then comes over it, the frame goes and the board shows its home page
+// under the globe, which fades into it (leaveOnboarding). opened as the page
+// loads, it comes in from the startup globe (introBegin).
 // whether it is needed is asked twice over: by that flag as the page loads, so
 // a board that needs it never shows itself first, and by every reading of
 // /state (onboarding: true, onboardingWatch below). the flag alone is read
@@ -4459,9 +4473,12 @@ function openOnboarding(){
     if (e.source !== source || e.origin !== location.origin || e.data?.onboarding !== "done") return;
     removeEventListener("message", done);
     // the run ends on the home page, as the house opens it; the sample project
-    // it made stays on the board unopened
-    if (FOCUS && !LOCKED && !homeOpen) setHome(true);
-    away();
+    // it made stays on the board unopened. the startup globe comes over the
+    // last card first, and the frame goes and home opens under it
+    leaveOnboarding(() => {
+      if (FOCUS && !LOCKED && !homeOpen) setHome(true);
+      away();
+    });
   });
 }
 // every reading of the board: the onboarding up while the board says it is
@@ -12695,12 +12712,14 @@ let queueFatCaret = () => {};
 // with the page free to answer a click. then it fades as the phone's does and is
 // gone for good. no clock takes it down, the phone's rule: a reading that fails
 // while it is up stops the globe and reddens it, and the next one that gets
-// through turns it again
+// through turns it again. on the first run the intro takes it down instead
+// (introBegin below), and the onboarding's way out puts it up once more
 const curtain = document.getElementById("loading");
 const CURTAIN_FADE_MS = 260;
 let curtainDown = !curtain;   // lifting or gone: it never comes back
 function curtainDrawn(){
   if (curtainDown) return;
+  if (introRun.on){ introRun.drawn = true; return; }
   curtainDown = true;
   curtain.classList.remove("down");
   ComposeFormat.settled().then(() => requestAnimationFrame(() => setTimeout(() => {
@@ -12711,6 +12730,231 @@ function curtainDrawn(){
 }
 function curtainTrouble(){
   if (curtain && curtain.isConnected && curtain.style.opacity !== "0") curtain.classList.add("down");
+}
+
+// ---- the first run's intro, and the onboarding's way out
+// a page that loads with the onboarding to show (BOARD_ONBOARDING, a board
+// nobody's first run has been on yet) opens on the startup globe alone for
+// INTRO_GLOBE_MS from its first paint, then crosses to the onboarding's first
+// card: the globe fades out over INTRO_FADE_MS and the whole card fades in
+// over the same length, starting INTRO_OVERLAP of the way into the globe's
+// fade, both on the board's --gentle. the curtain stands over the frame the
+// while (#loading.intro in the sheet), and the two fades are the browser's own
+// animations set on the page's clock, so a busy page cannot hold them back. a
+// card not yet drawn by then holds the globe until it is, the curtain's own
+// rule. the startup sound starts as the cross fade begins, once on a board
+// (introSound). at the onboarding's end the globe comes over its last card on
+// the onboarding's own .18s ease, home opens under it, and after
+// LEAVE_GLOBE_MS it fades into home over LEAVE_FADE_MS on --gentle
+// (leaveOnboarding). the numbers are the first-run mock's, as settled
+// (mock-first-run-intro-20261023.html)
+const INTRO_GLOBE_MS = 700;
+const INTRO_FADE_MS = 800;
+const INTRO_OVERLAP = 0.5;
+const LEAVE_COVER_MS = 180;
+const LEAVE_GLOBE_MS = 800;
+const LEAVE_FADE_MS = 600;
+const GENTLE = "cubic-bezier(.42, .06, .38, 1)";   // --gentle in card-tokens.css
+// the intro's moments on the page's clock (performance.now): the cross fade
+// begins INTRO_GLOBE_MS after the first paint, or once the card is drawn if
+// that is later; the globe fades over its first INTRO_FADE_MS and the card
+// over the same length from INTRO_FADE_MS * (1 - INTRO_OVERLAP) in
+function introTimes(paintAt, drawnAt){
+  const cross = Math.max(paintAt + INTRO_GLOBE_MS, drawnAt);
+  const card = cross + INTRO_FADE_MS * (1 - INTRO_OVERLAP);
+  return { cross, globe: [cross, cross + INTRO_FADE_MS], card: [card, card + INTRO_FADE_MS] };
+}
+// the way out's moments, in ms from the frame's done: the card covered, the
+// fade into home begun, and done
+function leaveTimes(){
+  const covered = LEAVE_COVER_MS, out = covered + LEAVE_GLOBE_MS;
+  return { covered, out, done: out + LEAVE_FADE_MS };
+}
+// drawn: the board's first reading came while the intro held the curtain
+const introRun = { on: false, drawn: false, frame: null, audio: null, fades: [] };
+if (globalThis.BOARD_ONBOARDING && onboard.frame && curtain) introBegin(onboard.frame);
+function introBegin(frame){
+  introRun.on = true;
+  introRun.frame = frame;
+  curtain.classList.add("over", "intro");
+  frame.classList.add("under");
+  // asked for now, so the browser has said by the cross fade whether the page may sound
+  if (globalThis.BOARD_STARTUP_SOUND) introRun.audio = introAudio();
+  Promise.all([firstPaint(), cardDrawn(frame)]).then(([paintAt, drawnAt]) => {
+    if (introRun.on) introCross(introTimes(paintAt, drawnAt));
+  }, introDrop);
+}
+// the page's first paint on its clock: the globe's first moment on screen.
+// the browser says so a little after it is shown, which is waited for; one
+// that never does in a second is taken at its first frame
+function firstPaint(){
+  const seen = list => list.find(e => e.name === "first-paint")?.startTime;
+  return new Promise(done => {
+    const now = seen(performance.getEntriesByType("paint"));
+    if (now != null) return done(now);
+    let frame = null;
+    requestAnimationFrame(t => { frame = t; });
+    try {
+      const watch = new PerformanceObserver(list => {
+        const at = seen(list.getEntries());
+        if (at != null){ watch.disconnect(); done(at); }
+      });
+      watch.observe({ type: "paint", buffered: true });
+    } catch (e) {}
+    setTimeout(() => done(frame ?? performance.now()), 1000);
+  });
+}
+// when the frame's first card is drawn: the page loaded, its fonts in and a
+// frame painted. a frame without the onboarding (openOnboarding takes it away)
+// never is
+function cardDrawn(frame){
+  return new Promise((drawn, failed) => frame.addEventListener("load", () => {
+    const doc = frame.contentDocument, win = frame.contentWindow;
+    if (!doc?.getElementById("obstage")) return failed();
+    Promise.resolve(doc.fonts?.ready).then(() =>
+      win.requestAnimationFrame(() => win.requestAnimationFrame(() => drawn(performance.now()))));
+  }, { once: true }));
+}
+function introCross(t){
+  const fade = (el, at, pseudoElement) => {
+    const a = el.animate([{ opacity: 1 }, { opacity: 0 }],
+      { duration: INTRO_FADE_MS, easing: GENTLE, fill: "forwards", ...(pseudoElement ? { pseudoElement } : {}) });
+    a.startTime = at;
+    introRun.fades.push(a);
+    return a;
+  };
+  fade(curtain.querySelector(".scene"), t.globe[0]);
+  fade(curtain, t.card[0], "::before").finished.then(introEnd, () => {});
+  setTimeout(introSound, t.cross - performance.now());
+}
+// the card is in: the curtain goes, and the frame takes its own place again
+function introEnd(){
+  if (!introRun.on) return;
+  introRun.on = false;
+  curtainDown = true;
+  curtain.remove();
+  for (const a of introRun.fades.splice(0)) a.cancel();
+  curtain.classList.remove("over", "intro");
+  introRun.frame.classList.remove("under");
+}
+// the frame did not get the onboarding: the curtain is the startup curtain
+// again, and comes down once the board is drawn
+function introDrop(){
+  if (!introRun.on) return;
+  introRun.on = false;
+  for (const a of introRun.fades.splice(0)) a.cancel();
+  if (introRun.audio) introRun.audio.close().catch(() => {});
+  curtain.classList.remove("over", "intro");
+  introRun.frame.classList.remove("under");
+  if (introRun.drawn) curtainDrawn();
+}
+
+// the startup sound, once on a board: /board-settings.js says it is still to
+// come (BOARD_STARTUP_SOUND), and POST /startup-sound keeps the note that it
+// came (server.py). the page plays it itself where the browser lets a page
+// sound before any click or key, its own context running. Chrome as
+// facilitator run opens it does not (its autoplay policy), so there the page
+// asks the board to play the same sound on the Mac (assets/startup-sound.wav,
+// this code rendered offline). one or the other, never both: a context the
+// browser holds back is closed, never resumed
+function introAudio(){
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    return AC ? new AC() : null;
+  } catch (e) { return null; }
+}
+function introSound(){
+  if (!globalThis.BOARD_STARTUP_SOUND) return;
+  const ctx = introRun.audio;
+  let by = ctx && ctx.state === "running" ? "page" : "mac";
+  if (by === "page"){
+    try {
+      const len = startupSound(ctx, ctx.currentTime + 0.05);
+      setTimeout(() => ctx.close().catch(() => {}), (len + 0.3) * 1000);
+    } catch (e){ by = "mac"; }
+  }
+  if (by === "mac" && ctx) ctx.close().catch(() => {});
+  fetch("/startup-sound", { method: "POST", body: by }).catch(() => {});
+}
+// "Major-seventh bloom" (mock-startup-tunes-20261023.html), its Web Audio code
+// as written there: C, E, G and B start a breath apart and ring together, each
+// a soft pure sine note in the reply chime's shape, through the chime's output
+// level. the whole sound from when on ctx; its length in seconds
+const startupSound = (() => {
+  const BOARD_LEVEL = 0.6;   // CHIME_VOLUME
+  const N = { C5: 523.25, E5: 659.26, G5: 783.99, B5: 987.77 };
+  // partials: [frequency ratio, level, length ratio]
+  const PURE = [[1, 1, 1]];
+  // one note in the chime's shape; returns when it is silent
+  function note(ctx, dest, when, n) {
+    const start = when + n.t;
+    const attack = n.attack != null ? n.attack : 0.045;
+    const len = n.len != null ? n.len : 0.66;
+    const peak = n.peak != null ? n.peak : 0.24;
+    let end = start;
+    for (const [ratio, level, lenRatio] of (n.partials || PURE)) {
+      const plen = Math.max(attack + 0.05, len * lenRatio);
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(n.f * ratio, start);
+      if (n.glideTo) osc.frequency.exponentialRampToValueAtTime(n.glideTo * ratio, start + n.glideTime);
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(peak * level, start + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + plen);
+      g.gain.linearRampToValueAtTime(0, start + plen + 0.02);
+      osc.connect(g); g.connect(dest);
+      osc.start(start); osc.stop(start + plen + 0.03);
+      end = Math.max(end, start + plen + 0.02);
+    }
+    return end;
+  }
+  function playTune(ctx, dest, when, tune) {
+    let end = when;
+    for (const n of tune.notes) end = Math.max(end, note(ctx, dest, when, n));
+    return end - when;
+  }
+  const BLOOM = { id: "bloom", name: "Major-seventh bloom",
+    desc: "C, E, G and B start a breath apart and ring together, a soft dreamy chord.",
+    notes: [
+      { f: N.C5, t: 0,    peak: 0.075, attack: 0.09, len: 1.9 },
+      { f: N.E5, t: 0.07, peak: 0.075, attack: 0.09, len: 1.9 },
+      { f: N.G5, t: 0.14, peak: 0.075, attack: 0.09, len: 1.9 },
+      { f: N.B5, t: 0.21, peak: 0.075, attack: 0.09, len: 1.9 } ] };
+  return (ctx, when) => {
+    const out = ctx.createGain();
+    out.gain.value = BOARD_LEVEL;
+    out.connect(ctx.destination);
+    return playTune(ctx, out, when, BLOOM);
+  };
+})();
+
+// the onboarding's way out, from the frame's done: the globe comes over the
+// last card whole, its white ground with it, open takes the frame away and
+// opens home under it, and the globe fades into home. the curtain is the
+// startup's own, put back first in the body
+function leaveOnboarding(open){
+  if (!curtain){ open(); return; }
+  if (introRun.on) introEnd();
+  curtainDown = true;
+  const t = leaveTimes();
+  curtain.removeAttribute("style");
+  curtain.classList.remove("down", "intro");
+  curtain.classList.add("over");
+  onboard.frame?.classList.add("under");
+  document.body.prepend(curtain);
+  const fade = curtain.animate([
+    { opacity: 0, easing: "ease" },
+    { opacity: 1, offset: t.covered / t.done },
+    { opacity: 1, offset: t.out / t.done, easing: GENTLE },
+    { opacity: 0 },
+  ], { duration: t.done, fill: "forwards" });
+  setTimeout(open, t.covered);
+  setTimeout(() => { curtain.style.pointerEvents = "none"; }, t.out);   // the fade must not eat the first click
+  fade.finished.then(() => {
+    curtain.remove();
+    fade.cancel();
+    curtain.classList.remove("over");
+  }, () => {});
 }
 // ---- the board's reading, lean
 // THE READING A POLL HANDS ON IS THE ONE /state WOULD GIVE, BUILT FROM WHAT CHANGED.
