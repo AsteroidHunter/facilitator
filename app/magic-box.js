@@ -90,10 +90,12 @@
   // the box expanded over the dimmed board, by the green button at the other
   // end of its bar from the cross: BIG of the room's width and of its height,
   // centred in it. the room is the Mac's window and the phone's screen,
-  // {left, top, width, height}. inside: the part of the room it must keep to
-  // (the phone's screen inside its safe areas, clear of the notch and the home
-  // bar), whose edges cut it. square: a site that will not be framed, which
-  // stays a square, as large as the shorter side allows, in the middle
+  // {left, top, width, height}; the phone's box itself fills its whole screen,
+  // and keeps its bar's buttons where they stand in this one (m.html).
+  // inside: the part of the room it must keep to (the phone's screen inside
+  // its safe areas, clear of the notch and the home bar), whose edges cut it.
+  // square: a site that will not be framed, which stays a square, as large as
+  // the shorter side allows, in the middle
   const BIG = { mac: 0.9, phone: 0.95 };
   function grow(room, share, square, inside) {
     let width = room.width * share, height = room.height * share;
