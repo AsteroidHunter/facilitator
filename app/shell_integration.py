@@ -1,7 +1,8 @@
-"""Own the command, shell block and personal skill links installed by ./install.sh,
-and take back the Claude Code status line entry an older install added."""
+"""Own the command, shell block, personal skill links and Claude Code status line
+entry installed by ./install.sh."""
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -39,10 +40,12 @@ QUIET = False
 done = 0
 
 
-def ok(text):
+def ok(text, loud=False):
+    """loud keeps the line when the installer runs quiet, for a change made
+    outside the board's own files."""
     global _printed, done
     done += 1
-    if QUIET:
+    if QUIET and not loud:
         return
     _printed = True
     print(f"{style('38;2;0;114;0', '✓')} {text}")
@@ -152,6 +155,7 @@ def install():
     else:
         ok("Command already linked.")
     skills_install()
+    statusline_add()
     # the block goes in even when the folder is on PATH already: that PATH is
     # this terminal's, and can come from a block an uninstall has since taken
     # out, which a new window would not read
@@ -387,6 +391,33 @@ def last_member(found, key):
     return next((m for m in reversed(found) if m[0] == key), None)
 
 
+def render(value, lead, colon, newline):
+    """value as JSON, laid out like the members around it."""
+    if "\n" in lead:
+        unit = lead.rsplit("\n", 1)[1]
+        text = json.dumps(value, indent=unit, ensure_ascii=False).replace("\n", "\n" + unit)
+        return text.replace("\n", newline)
+    separators = (", ", ": ") if " " in colon else (",", ":")
+    return json.dumps(value, separators=separators, ensure_ascii=False)
+
+
+def add_member(text, key, value):
+    """text with key: value added at the end of its top-level object."""
+    newline = "\r\n" if "\r\n" in text else "\n"
+    opened, found, closed = members_of(text)
+    if not found:
+        lead, colon = newline + "  ", ": "
+        return (text[:opened + 1] + lead + json.dumps(key) + colon
+                + render(value, lead, colon, newline) + newline + text[closed:])
+    _, key_start, key_end, start, end = found[-1]
+    before = key_start
+    while text[before - 1] in WHITESPACE:
+        before -= 1
+    lead, colon = text[before:key_start], text[key_end:start]
+    return (text[:end] + "," + lead + json.dumps(key) + colon
+            + render(value, lead, colon, newline) + text[end:])
+
+
 def remove_member(text, key):
     """text without the last member named key, and nothing else changed."""
     opened, found, closed = members_of(text)
@@ -441,6 +472,11 @@ def write_settings(path, text):
         raise
 
 
+def statusline_command(wrapped=None):
+    command = f"python3 {shlex.quote(str(STATUSLINE))}"
+    return command + (f" {shlex.quote(wrapped)}" if wrapped else "")
+
+
 def statusline_record():
     """The saved record; None when there is none; ValueError when it is not
     one this checkout wrote. A record from before app/ names the script at the
@@ -460,6 +496,75 @@ def statusline_record():
                     or (isinstance(record["original"], str) and isinstance(json.loads(record["original"]), str)))):
         raise ValueError("invalid status line record")
     return record
+
+
+def save_statusline_record(record):
+    temporary = STATUSLINE_RECORD.with_suffix(".tmp")
+    temporary.write_text(json.dumps(record, indent=2) + "\n")
+    temporary.replace(STATUSLINE_RECORD)
+
+
+def statusline_add():
+    """Point the Claude Code status line at claude-statusline.py, wrapping a
+    command that is already there so it keeps showing. Safe to run again.
+    Whatever stops it is a line and not a failure: the rest of the install
+    goes on."""
+    settings = claude_dir() / "settings.json"
+    if not STATUSLINE.is_file():
+        skipped(f"Claude limits not added: {STATUSLINE} is missing.")
+        return
+    if not settings.parent.is_dir():
+        skipped(f"Claude limits not added: {settings.parent} is not there.")
+        return
+    try:
+        record = statusline_record()
+    except (OSError, ValueError):
+        skipped(f"Claude limits not added: {STATUSLINE_RECORD} is invalid.")
+        return
+    if record and record["settings"] != str(settings):
+        skipped(f"Claude limits were already added to {record['settings']}.")
+        return
+    try:
+        text = read_settings(settings)
+        whole, command = (None, None) if text is None else statusline_spans(text)
+        created = text is None
+        if created:
+            text = "{}\n"
+        original = None
+        if whole is None:
+            updated = add_member(text, "statusLine", {"type": "command", "command": statusline_command()})
+        else:
+            value = json.loads(text[whole[0]:whole[1]])
+            current = value.get("command") if isinstance(value, dict) else None
+            if (not isinstance(value, dict) or value.get("type") != "command"
+                    or not isinstance(current, str) or not current.strip() or command is None):
+                skipped(f"Claude limits not added: the statusLine in {settings} is not a command that can be wrapped.")
+                return
+            if str(STATUSLINE) in current:
+                ok("Claude limits already added.")
+                return
+            if "claude-statusline.py" in current:
+                skipped(f"Claude limits not added: the statusLine in {settings} runs another claude-statusline.py.")
+                return
+            original = text[command[0]:command[1]]
+            updated = text[:command[0]] + json.dumps(statusline_command(current), ensure_ascii=False) + text[command[1]:]
+        entry = json.loads(updated)["statusLine"]
+    except (OSError, ValueError):
+        skipped(f"Claude limits not added: {settings} could not be read as JSON.")
+        return
+    try:
+        save_statusline_record({"version": 1, "settings": str(settings), "script": str(STATUSLINE),
+                                "created": created, "original": original, "entry": entry})
+        try:
+            write_settings(settings, updated)
+        except OSError:
+            STATUSLINE_RECORD.unlink(missing_ok=True)
+            raise
+    except OSError as error:
+        skipped(f"Claude limits not added: could not write {settings} ({error.strerror or 'error'}).")
+        return
+    ok(f"Claude limits added to {settings}." if original is None
+       else f"Claude limits added to {settings}, around your status line.", loud=True)
 
 
 def statusline_uninstall():

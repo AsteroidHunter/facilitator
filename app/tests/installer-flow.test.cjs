@@ -134,15 +134,17 @@ test("a full run with no phone client makes the private environment and the comm
     assert.ok(text.includes("4. Mobile app\n─────────────\n\n"
       + "The phone client puts your board on your phone, over Tailscale and\n"
       + "behind an app password.\n\n"
-      + `${PHONE}n\n\n${CHROME_ON}✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator.\n\n`
+      + `${PHONE}n\n\n${CHROME_ON}✓ facilitator command and agent skill installed\n`
+      + `✓ Claude limits added to ${path.join(f.home, ".claude", "settings.json")}.\nOpen a new terminal to use facilitator.\n\n`
       + `${CLOSING}\n\n`), text);
-    assert.doesNotMatch(text, /Tailscale\n─|4\.1|4\.2|App password|Claude limits|settings\.json/);
+    assert.doesNotMatch(text, /Tailscale\n─|4\.1|4\.2|App password/);
     assert.equal(await f.has(path.join(f.data, ".venv", "bin", "python")), true);
     for (const name of ["run.config.json", "seed.json"]) assert.equal(await f.has(path.join(f.data, name)), true, name);
     assert.equal(await fs.readlink(path.join(f.home, ".local/share/facilitator/bin/facilitator")), path.join(f.repo, "facilitator"));
     for (const host of [".claude", ".agents"])
       assert.equal(await fs.readlink(path.join(f.home, host, "skills", "facilitator")), path.join(f.repo, ".agents/skills/facilitator"));
-    assert.equal(await f.has(path.join(f.home, ".claude", "settings.json")), false, "no status line entry is added any more");
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.home, ".claude", "settings.json"), "utf8")).statusLine.command,
+      `python3 ${path.join(f.app, "claude-statusline.py")}`, "the status line entry is added");
     const calls = await f.calls();
     const at = line => calls.indexOf(line);
     assert.ok(at("uv python install --no-bin 3.14") >= 0, calls.join(" | "));
