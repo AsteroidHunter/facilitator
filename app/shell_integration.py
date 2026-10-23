@@ -152,10 +152,9 @@ def install():
     else:
         ok("Command already linked.")
     skills_install()
-    local_bin = str(BIN.parent)
-    if local_bin in os.environ.get("PATH", "").split(os.pathsep):
-        ok("The command folder is already on PATH.")
-        return
+    # the block goes in even when the folder is on PATH already: that PATH is
+    # this terminal's, and can come from a block an uninstall has since taken
+    # out, which a new window would not read
     recorded = recorded_profiles()
     added = False
     for rc in profiles():
