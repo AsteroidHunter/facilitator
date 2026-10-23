@@ -1,9 +1,10 @@
-// `facilitator bridge setup`: the installer's banner and its one line under it,
-// then only the installer's "4. Mobile app" step, for someone who said no at
-// install and for someone who already set the phone up. Every run is on a
-// throwaway home and copy of the checkout with fake commands on PATH (see
-// installer-sandbox.cjs); the output is compared with what ./install.sh itself
-// printed in the same sandbox, so the two cannot drift apart.
+// `facilitator bridge setup`: the installer's banner, its one line under it and
+// the two paragraphs saying what Facilitator is, then only the installer's
+// "4. Mobile app" step, for someone who said no at install and for someone who
+// already set the phone up. Every run is on a throwaway home and copy of the
+// checkout with fake commands on PATH (see installer-sandbox.cjs); the output
+// is compared with what ./install.sh itself printed in the same sandbox, so
+// the two cannot drift apart.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs/promises");
@@ -16,6 +17,17 @@ const BOTH = "Is Tailscale installed on both your devices? (y / n) ";
 const ANSWER = "answer: ";
 const PASSWORDS = [["App password (input hidden): ", PASSWORD + "\n"], ["Confirm app password (input hidden): ", PASSWORD + "\n"]];
 const BANNER_LINES = 6; // five rows of letters and the line under them
+// what Facilitator is, under the banner: plain, flush left, a blank line
+// before each paragraph, broken by hand like every other long line
+const ABOUT = [
+  "",
+  "Facilitator is an opinionated and minimalist interface for",
+  "interacting with claude or codex on the terminal.",
+  "",
+  "Facilitator's UI is designed to help you ship more by atomizing your",
+  "builds and orchestrating several subagents.",
+];
+const HEAD_LINES = BANNER_LINES + ABOUT.length;
 
 async function using(options, body) {
   const f = await sandbox(options);
@@ -24,7 +36,8 @@ async function using(options, body) {
   try { await body(f); } finally { await f.clean(); }
 }
 
-const head = text => text.split("\n").slice(0, BANNER_LINES).join("\n");
+const head = text => text.split("\n").slice(0, HEAD_LINES).join("\n");
+const about = text => text.split("\n").slice(BANNER_LINES, HEAD_LINES);
 // the installer's own "4. Mobile app" step, up to the Chrome graphics step after it
 const mobileApp = text => {
   const from = text.indexOf("\n4. Mobile app\n");
@@ -42,7 +55,7 @@ async function assertOnlyPhoneStep(f, before) {
   assert.deepEqual(calls, [], "the setup looked up or ran something other than the phone step: " + calls.join(" | "));
 }
 
-test("said no at install: the banner and its line, then the Mobile app step, and nothing else of the installer", async () => {
+test("said no at install: the banner, its line and what Facilitator is, then the Mobile app step, and nothing else of the installer", async () => {
   await using({}, async f => {
     const install = await f.terminal([[PHONE, "n"]]);
     assert.equal(install.code, 0, install.text);
@@ -54,8 +67,10 @@ test("said no at install: the banner and its line, then the Mobile app step, and
     assert.deepEqual(setup.unsent, []);
     assert.ok(setup.text.startsWith(head(install.text) + "\n"), "the banner is not the installer's:\n" + setup.text);
     assert.equal(setup.text.split("\n")[BANNER_LINES - 1].trim(), "installer");
-    assert.match(setup.text, new RegExp(`^${"[^\\n]*\\n".repeat(BANNER_LINES)}\\n4\\. Mobile app\\n─{13}\\n\\n`),
-      "the Mobile app step does not follow the banner at once:\n" + setup.text);
+    assert.deepEqual(about(install.text), ABOUT, "the installer does not say what Facilitator is under its banner:\n" + install.text);
+    assert.deepEqual(about(setup.text), ABOUT, "the setup does not say what Facilitator is under its banner:\n" + setup.text);
+    assert.ok(setup.text.startsWith(head(setup.text) + "\n\n4. Mobile app\n" + "─".repeat(13) + "\n\n"),
+      "the Mobile app step does not follow the lines under the banner at once:\n" + setup.text);
     assert.ok(setup.text.includes(`${PHONE}y\n\n4.1 Tailscale\n─────────────\n\n`), setup.text);
     assert.ok(setup.text.includes("4.2 App password\n────────────────\n\nChoose a strong password to log into your Facilitator phone app.\n"), setup.text);
     assert.match(setup.text, /\n✓ App password confirmed\.\n$/);
@@ -110,6 +125,7 @@ test("the banner is drawn in colour on a terminal exactly as the installer draws
     const setup = await f.commandTerminal(["bridge", "setup"], [[PHONE, "n"]], { color: true });
     assert.equal(setup.code, 0, setup.text);
     assert.equal(head(setup.text), head(install.text));
+    assert.deepEqual(about(setup.text), ABOUT, "the lines under the banner are not plain text");
     assert.match(setup.text, /\n\x1b\[1m4\. Mobile app\x1b\[0m\n/);
   });
 });
@@ -164,8 +180,9 @@ test("install.sh and the command share one source: the step is not written out t
   const command = await fs.readFile(path.join(root, "facilitator"), "utf8");
   assert.match(installer, /^\. "\$REPO\/installer-lib\.sh"$/m);
   assert.match(installer, /^mobile_app$/m);
-  assert.match(installer, /^banner$/m);
-  for (const text of ["Would you like to use the phone client?", "'4. Mobile app'", "Tailscale connects your phone", "BANNER_ROWS="]) {
+  assert.match(installer, /^banner\nabout$/m);
+  for (const text of ["Would you like to use the phone client?", "'4. Mobile app'", "Tailscale connects your phone", "BANNER_ROWS=",
+    "Facilitator is an opinionated"]) {
     assert.ok(shared.includes(text), `${text} is not in the shared file`);
     assert.ok(!installer.includes(text), `${text} is written out again in install.sh`);
     assert.ok(!command.includes(text), `${text} is written out again in the command`);
