@@ -73,14 +73,12 @@ facilitator bridge setup
 
 Once the mobile app is set up, you can use it like a regular app and *it will work as long as Tailscale is active on both your home device and the phone.* 
 
+---
+
 The password is required once during the initial set up; it prevents other members in your tailscale account from accessing your data. If you ever accidentally log out of the phone app and forget the password, or wish to update it, you can do so by running the following on your mac's terminal:
 ```
 facilitator password set
 ```
-
-#### Forgot the phone's password or want to change it?
-
-
 
 ## Updating the Facilitator
 
