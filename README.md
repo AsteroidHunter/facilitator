@@ -42,10 +42,12 @@ cd facilitator
 
 **Once installed**
 
-1. On your favorite terminal:
+1. On a new tab on your favorite terminal, then run:
 `facilitator run`
-2. Start a Claude or Codex session, and run `/facilitator onboard` in Claude Code and `$facilitator onboard` in Codex
-3. Open a project on the facilitator, press `command + T` to open a new card, and start shipping!
+2. Open the project you want to work one via the facilitator
+3. Navigate to that folder on your terminal, start your terminal agent you usually do, and run `/facilitator onboard` on claude (or `$facilitator onboard` on codex)
+
+You are ready to start shipping!
 
 ### Mobile version
 
@@ -55,13 +57,30 @@ cd facilitator
 
 The Facilitator comes with a mobile version. The mobile version is fun to use when paired with an external keyboard. 
 
-If you have an always on machine (or like to leave your laptop running), you can access your project on the Facilitator and direct agents as long as you have **Tailscale**. 
+If you have an always on machine (or like to leave your laptop running), you can access your project on the Facilitator and direct agents as long as you have **Tailscale** installed on both your mac and the iPhone. 
 
-To use the mobile version:
+**If you skipped the mobile client set up during the regular installation**, you can set up the phone client by running:
+```
+facilitator bridge setup
+```
+
+**If you set up the mobile during the initial installation**, here's how to use the mobile version (one time set up):
 1. Run `facilitator bridge`
 2. Scan the QR code using your phone
-3. Follow the steps to set up the web app
-4. Continue shipping!
+3. Add the web app to your home screen
+4. Enter the password you set during installation
+5. Continue shipping!
+
+Once the mobile app is set up, you can use it like a regular app and *it will work as long as Tailscale is active on both your home device and the phone.* 
+
+The password is required once during the initial set up; it prevents other members in your tailscale account from accessing your data. If you ever accidentally log out of the phone app and forget the password, or wish to update it, you can do so by running the following on your mac's terminal:
+```
+facilitator password set
+```
+
+#### Forgot the phone's password or want to change it?
+
+
 
 ## Updating the Facilitator
 
