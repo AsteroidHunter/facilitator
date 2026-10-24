@@ -4,14 +4,17 @@
 
 ## About 
 
-Facilitator is a natural language development environment. It is an interface built to resolve *the* bottleneck when coding with agents: [understanding](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck).
+Facilitator is an open-source alternative to the Claude Code/Codex desktop app that works with your existing subscriptions. It is an interface built to resolve *the* bottleneck when coding with agents: [understanding](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck). 
 
-**Facilitator makes it super easy to atomize your asks and orchestrate dozens of subagents.** The interface speeds up your development and helps you ship faster and better in following ways:
-1. If you are working on a large spec, you can develop different parts of the spec independently, quickly delegating the portions that are simple, and spending more time on parts that require greater attention
-2. If you want to ship *n* features or resolve *n* bugs, you can do so independently on *n* different cards, where the task on each is handled by a subagent in a worktree
-3. The tickets on the left show you which cards are waiting for your input and which ones are busy
-4. Hotkeys make it easy to triage tasks; you can quickly defer features and bugs that should be dealt with later
-5. After iterating a bit on a project using the Facilitator, the cards serve as that project's knowledge bank, owned by you, and easily queryable by agents
+It does not have a traditional chat interface. Instead, each project on the app is linked to an orchestrator agent. To build a feature or resolve a bug, you create a card (Command + T), send a message, and the orchestrator assigns that task to a subagent in a worktree. Repeat this a bunch until you have several tasks running in the background, and you will be surprised how quickly you can iterate on a product!
+
+The Facilitator makes it super easy to:
+
+- **Parallelize work**. There are often feature builds or bugs that do not require a lot of discussion and can be dealt with by agents while you work on heftier tasks.
+- **See which subagents/tasks are awaiting further instructions**. It is easy to lose track of several terminal windows, but color-coded UI in a box? Hard to miss.
+- **Stay in the loop**. I genuinely don't think you can build anything substantive without understanding what is going on. Active cards on the Facilitator keep your mental model up-to-date. Have a doubt? Want to explore multiple approaches for a feature? Just ask!
+- **Triage**. Choosing what to build later or what not to build at all is important if you want to ship! Click the moon or hit Ctrl + Shift + \ to defer a card!
+- **Bonus**: after a while, all the cards and the conversations within them act as a searchable knowledge base for that project!
 
 ![The Facilitator board with notes pointing to the cards, the task drawer, the triage buttons and the free space](docs/images/facilitator_20261022_social_3.png)
 
