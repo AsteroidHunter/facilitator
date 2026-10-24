@@ -4,9 +4,11 @@
 
 ## About 
 
-Facilitator is an open-source alternative to the Claude Code/Codex desktop app that works with your existing subscriptions. It is an interface built to resolve *the* bottleneck when coding with agents: [understanding](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck). 
+Facilitator is an open-source alternative to the Claude Code/Codex desktop app, and it works with your existing subscriptions. 
 
-It does not have a traditional chat interface. Instead, each project on the app is linked to an orchestrator agent. To build a feature or resolve a bug, you create a card (Command + T), send a message, and the orchestrator assigns that task to a subagent in a worktree. Repeat this a bunch until you have several tasks running in the background, and you will be surprised how quickly you can iterate on a product!
+It is an interface built to resolve *the* bottleneck when coding with agents: [understanding](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck). 
+
+It does **not** have a traditional chat interface. Instead, each project on the app is linked to an orchestrator agent. To build a feature or resolve a bug, you create a card (Command + T), send a message, and the orchestrator assigns that task to a subagent in a worktree. Repeat this a bunch until you have several tasks running in the background, and you will be surprised how quickly you can iterate on a product!
 
 The Facilitator makes it super easy to:
 
