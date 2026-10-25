@@ -12,6 +12,7 @@ account alone); wait listens with that key, and keeps trying through a drop
 until its own deadline. Runs on python3 3.7 and newer."""
 
 import argparse
+import errno
 import http.client
 import json
 import os
@@ -44,6 +45,10 @@ NAME_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def output(status, **fields):
+    if status == "permission_denied":
+        fields.setdefault("detail", "Access to the local board was denied by the operating system or sandbox.")
+    elif status == "connection_error":
+        fields.setdefault("detail", "The local board could not be reached; its state is unknown.")
     print(json.dumps({"status": status, **fields}, ensure_ascii=False))
 
 
@@ -91,6 +96,21 @@ def request(method, route, *, timeout=3):
         return json.load(response)
 
 
+def connection_status(problem):
+    """Classify the transport cause, which urlopen usually wraps in URLError.
+
+    Only an explicit connection refusal means down; denied access and an
+    inconclusive failure say nothing about whether the board is running.
+    """
+    while isinstance(problem, urllib.error.URLError) and isinstance(problem.reason, BaseException):
+        problem = problem.reason
+    if isinstance(problem, PermissionError) or getattr(problem, "errno", None) in (errno.EPERM, errno.EACCES):
+        return "permission_denied"
+    if getattr(problem, "errno", None) == errno.ECONNREFUSED:
+        return "down"
+    return "connection_error"
+
+
 def board():
     try:
         state = request("GET", "/state")
@@ -98,8 +118,8 @@ def board():
         return None, "different_server"
     except ValueError:
         return None, "different_server"
-    except OSError:
-        return None, "down"
+    except OSError as problem:
+        return None, connection_status(problem)
     if not isinstance(state, dict) or not all(
         isinstance(state.get(key), dict) for key in ("pwds", "busy", "listening", "listenerGap")
     ) or not isinstance(state.get("pwd"), str):
@@ -480,7 +500,10 @@ def wait(args):
         else:
             output("protocol_error", detail="wait response has no claim or state")
     except (OSError, ValueError, urllib.error.HTTPError) as problem:
-        output("connection_error", detail=str(problem))
+        # A failed wait or ack may already have reached the board. Never
+        # retry here or turn an unconfirmed hand-off into a claim.
+        status = "permission_denied" if connection_status(problem) == "permission_denied" else "connection_error"
+        output(status, detail=str(problem))
 
 
 def main():
