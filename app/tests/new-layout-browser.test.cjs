@@ -4,6 +4,8 @@
 // list. The three stand as one group in the middle of the window, the list and
 // the box share one centre line, the list stands in front, the row still sends
 // to the open card, and with the switch off the board is laid out as before.
+// The switch and the layout are developer mode's alone, so these pages open in
+// it (mac-developer-mode-browser.test.cjs covers the mode itself).
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { readFileSync, mkdtempSync, rmSync } = require("node:fs");
@@ -39,6 +41,7 @@ after(async () => {
 async function open(width = 1512, height = 949) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  await page.evaluateOnNewDocument(() => localStorage.setItem("macDeveloperMode", "on"));
   await page.setViewport({ width, height });
   await page.goto(board.origin + "/", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => document.body.classList.contains("layout-ready") && typeof lastState !== "undefined" && lastState);

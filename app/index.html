@@ -3772,7 +3772,8 @@
   #homebrandcopy{position:relative; display:inline-block}
   #homebrandname{display:block}
   #homeversion{position:absolute; top:calc(100% - 1px * var(--home-logo, 1)); left:calc(1px * var(--home-logo, 1));
-    font:500 calc(10px * var(--home-logo, 1))/1.1 var(--inter); letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap}
+    font:500 calc(10px * var(--home-logo, 1))/1.1 var(--inter); letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap;
+    pointer-events:auto}   /* its clicks turn developer mode on and off */
   #home{display:none}
   body.focus.home #home{display:block; flex:none; height:var(--home-chart-h, calc((100vh - var(--bar-h)) * .35));
     pointer-events:auto}
@@ -4064,6 +4065,9 @@
   #onboard.gone{opacity:0; pointer-events:none}
   /* one step under the startup curtain while the curtain stands over it */
   #onboard.under{z-index:2147483646}
+  /* the New layout switch shows only in developer mode (MAC_DEVELOPER_KEY in
+     the script) */
+  body:not(.mac-developer-mode) #setlayoutrow{display:none}
   /* the settings page's Bin: the line saying how long cards are kept, then a
      row to a deleted card, its title over its project and when it was
      deleted, and Restore on the right */
@@ -4224,7 +4228,7 @@
         <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
       <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
     </div>
-    <div class="setrow">
+    <div class="setrow" id="setlayoutrow">
       <label class="setlabel" for="setlayout"><span>New layout</span>
         <small class="sethelp">Projects show the card on the left, the ticket list at the upper right and the composer in its own box under the list.</small></label>
       <input type="checkbox" role="switch" id="setlayout">
@@ -4470,12 +4474,22 @@ let lastState = null;
 // (owner) is a row, its conversations the columns; arrows walk it, the left
 // bar jumps anywhere directly.
 const FOCUS = document.body.classList.contains("focus");
+// developer mode belongs to this browser, not the board's shared settings, the
+// way the phone's belongs to the phone (m.html): seven quick clicks on the
+// home page's version turn it on or off (the listener by homeversion below).
+// while it is off, Settings shows no New layout switch
+const MAC_DEVELOPER_KEY = "macDeveloperMode";
+let macDeveloperMode = false;
+try { macDeveloperMode = localStorage.getItem(MAC_DEVELOPER_KEY) === "on"; } catch (_) {}
+document.body.classList.toggle("mac-developer-mode", macDeveloperMode);
 // the new layout (Settings, Appearance): the project tabs show the card on the
 // left, the ticket list at the upper right and the card's typing row in a box
 // of its own under the list (fitNewLayout). it is the board's newlayout
-// setting, "1" for on. the class goes on with the page's first lines, so a
-// page opened in it never draws the other layout first
-const newLayoutWanted = () => settingsStore.getItem("newlayout") === "1";
+// setting, "1" for on, and it is drawn only in developer mode; with that off
+// the board keeps today's layout and the setting waits as it was kept. the
+// class goes on with the page's first lines, so a page opened in it never
+// draws the other layout first
+const newLayoutWanted = () => macDeveloperMode && settingsStore.getItem("newlayout") === "1";
 document.body.classList.toggle("newlayout", FOCUS && newLayoutWanted());
 let selectedId = localStorage.getItem("selbox") || null;
 let shownId = null;   // the card the page is actually showing, so a selection
@@ -5498,6 +5512,28 @@ const homeNewName = document.querySelector("#homenew .homename");
 // the landing's own mark and version, so the version is written in one place
 document.getElementById("homemark").src = document.getElementById("npmark").src;
 document.getElementById("homeversion").textContent = document.getElementById("npversion").textContent;
+// seven clicks on the home page's version, each within a second of the last,
+// turn developer mode on or off (MAC_DEVELOPER_KEY), as seven taps on the
+// phone's do, and the layout follows at once. another window of this browser
+// turning it is heard too
+let developerClicks = 0, developerClickAt = -Infinity;
+function setMacDeveloperMode(on){
+  macDeveloperMode = on;
+  document.body.classList.toggle("mac-developer-mode", on);
+  applyNewLayout();
+}
+document.getElementById("homeversion").addEventListener("click", () => {
+  const now = performance.now();
+  developerClicks = now - developerClickAt < 1000 ? developerClicks + 1 : 1;
+  developerClickAt = now;
+  if (developerClicks !== 7) return;
+  developerClicks = 0;
+  setMacDeveloperMode(!macDeveloperMode);
+  try { localStorage.setItem(MAC_DEVELOPER_KEY, macDeveloperMode ? "on" : "off"); } catch (_) {}
+});
+addEventListener("storage", e => {
+  if (e.key === MAC_DEVELOPER_KEY && (e.newValue === "on") !== macDeveloperMode) setMacDeveloperMode(e.newValue === "on");
+});
 // set only when it changes, so a fit that changes nothing lays nothing out again
 function homeSet(el, name, value, unit = "px"){
   const v = Math.round(value * 1000) / 1000 + unit;
