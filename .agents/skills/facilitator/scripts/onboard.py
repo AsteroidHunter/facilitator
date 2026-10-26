@@ -38,6 +38,10 @@ ACK_PATIENCE = 60       # seconds an ack is tried again through a drop
 WAIT_CYCLE = 25         # seconds one /wait call from a server may last
 REMOTE_BASE = "http://board"   # what an agent on a server writes for the board
 LANE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
+# the shape of the keys the board makes (43 of these characters): a key of
+# any other shape is refused before it is kept, since a lane's key goes
+# into a curl config
+KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{20,100}")
 # a name the board keeps (server.py's _clean_text): at most 200 characters,
 # and no control character other than a tab or a new line
 NAME_MAX = 200
@@ -263,7 +267,10 @@ def remote_base(rec):
 def save_key(rec, owner, key):
     """The lane's key, and a curl config that carries it, sends the runbook's
     curl lines on to the board's door and never through a proxy, so they
-    work with -K and the key never shows in ps."""
+    work with -K and the key never shows in ps. A key of any other shape
+    than the board's is refused, and nothing is written."""
+    if not isinstance(key, str) or not KEY_SHAPE.fullmatch(key):
+        raise ValueError("not a key this server can use")
     held, config = key_files(rec, owner)
     lines = [f'header = "Authorization: Bearer {key}"', 'noproxy = "*"']
     if rec["board"].startswith("http://"):
@@ -318,6 +325,9 @@ def inspect_remote(args, rec):
         if not isinstance(key, str) or not key or not isinstance(answer.get("owner"), str) \
                 or not LANE_ID.fullmatch(answer["owner"]):
             output("protocol_error", detail="join answered no key", **common)
+            return
+        if not KEY_SHAPE.fullmatch(key):
+            output("protocol_error", detail="join answered a key this server cannot use", **common)
             return
         config = save_key(rec, answer["owner"], key)
         named = {"name": name} if name else {}

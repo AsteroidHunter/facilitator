@@ -33,6 +33,9 @@ from pathlib import Path
 TOP_NAME = ".facilitator"
 SKILL_LINK = Path(".agents") / "skills" / "facilitator"
 CONNECT_WAIT = 15      # seconds the link is given to reach the board before this says so
+# the shape of the keys the board makes, as onboard.py checks a lane's key:
+# a server key of any other shape is refused before anything is written
+KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{20,100}")
 
 # no proxy, ever: a proxy named in this account's settings would be handed
 # the pairing code and the key that comes back
@@ -123,7 +126,8 @@ def trade(board, code):
     if status != 200:
         stop("The board refused: " + (said or {}).get("error", "status " + str(status)) + ".")
     if (not isinstance(said, dict) or not isinstance(said.get("key"), str) or not isinstance(said.get("server"), str)
-            or not isinstance(said.get("name"), str) or not isinstance(said.get("files"), dict)):
+            or not isinstance(said.get("name"), str) or not isinstance(said.get("files"), dict)
+            or not KEY_SHAPE.fullmatch(said["key"])):
         stop("The board's answer could not be read; nothing was changed here.")
     return said
 
