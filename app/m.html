@@ -8288,37 +8288,30 @@ function phoneMagicFetch(id, rev){
       if (PB.bodies.get(id) !== ask) return null;
       if (!box){ PB.bodies.delete(id); return null; }
       const seen = box.kind === "image" && box.src ? await phoneMagicPicture(box.src) : null;
-      if (PB.bodies.get(id) !== ask){ if (seen) URL.revokeObjectURL(seen.src); return null; }
+      if (PB.bodies.get(id) !== ask) return null;
       Object.assign(ask, { rev: box.rev, box, seen });
       return ask;
     });
   PB.bodies.set(id, ask);
   return ask.wait;
 }
-// a box's picture as the page's own copy, held in its memory only, decoded and
-// its size read, so the box takes its shape at once (the view's seen). one that
-// will not come is left to the view, which fetches it itself as it always did
+// a box's picture loaded, decoded and its size read, so the box takes its shape
+// at once (the view's seen). from its own address, which the server sandboxes;
+// a blob: copy is this origin's. one that will not load is left to the view,
+// which loads it itself as it always did
 async function phoneMagicPicture(src){
-  try {
-    const r = await fetch(src, { cache: "no-store", credentials: "same-origin" });
-    if (!r.ok) return null;
-    const url = URL.createObjectURL(await r.blob()), img = new Image();
-    img.src = url;
-    await img.decode().catch(() => {});
-    return { src: url, natural: [img.naturalWidth, img.naturalHeight], img };
-  } catch (e) { return null; }
+  const img = new Image();
+  const loaded = await new Promise(done => { img.onload = () => done(true); img.onerror = () => done(false); img.src = src; });
+  if (!loaded) return null;
+  await img.decode().catch(() => {});
+  return { src, natural: [img.naturalWidth, img.naturalHeight], img };
 }
-// a picture let go, and the one the box shows (PB.seen), which is let go only
-// once the box shows another and no card's box still holds it
+// a picture let go, and the one the box shows (PB.seen), held while it shows
 function phoneMagicForget(have){
-  const seen = have.seen;
   have.seen = null;
-  if (seen && seen !== PB.seen) URL.revokeObjectURL(seen.src);
 }
 function phoneMagicShows(seen){
-  const was = PB.seen;
   PB.seen = seen;
-  if (was && was !== seen && ![...PB.bodies.values()].some(h => h.seen === was)) URL.revokeObjectURL(was.src);
 }
 // as the page builds its cards (reachCards): the open box of each card it
 // builds is fetched, and what was fetched for a card it no longer keeps, or

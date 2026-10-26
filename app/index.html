@@ -8930,20 +8930,19 @@ function magicFetch(id, rev){
   MB.bodies.set(id, ask);
   return ask.wait;
 }
-// a box's picture as the page's own copy, decoded and its size read before
-// it is shown, so the box takes its shape at once (the view's seen)
+// a box's picture loaded, decoded and its size read before it is shown, so the
+// box takes its shape at once (the view's seen). from its own address, which
+// the server sandboxes; a blob: copy is this origin's. one that will not load
+// is left to the view, which loads it itself
 async function magicPicture(key, src){
   if (MB.pictures.has(key)) return;
   MB.pictures.set(key, null);
-  try {
-    const r = await fetch(src, { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    const url = URL.createObjectURL(await r.blob()), img = new Image();
-    img.src = url;
-    await img.decode().catch(() => {});
-    if (!MB.pictures.has(key)){ URL.revokeObjectURL(url); return; }
-    MB.pictures.set(key, { src: url, natural: [img.naturalWidth, img.naturalHeight], img });
-  } catch (e) { MB.pictures.delete(key); }
+  const img = new Image();
+  const loaded = await new Promise(done => { img.onload = () => done(true); img.onerror = () => done(false); img.src = src; });
+  if (!loaded){ MB.pictures.delete(key); return; }
+  await img.decode().catch(() => {});
+  if (!MB.pictures.has(key)) return;
+  MB.pictures.set(key, { src, natural: [img.naturalWidth, img.naturalHeight], img });
 }
 // a page's height known for a box at a width, to within a pixel and a half
 // (the box's edge rounds), or 0
@@ -8961,7 +8960,7 @@ function magicAhead(){
     if (x.magic.open) magicFetch(x.id, x.magic.rev);
   }
   for (const [id, have] of MB.bodies) if (!live.has(id + ":" + have.rev) && have.box) MB.bodies.delete(id);
-  for (const [key, seen] of MB.pictures) if (!live.has(key)){ if (seen) URL.revokeObjectURL(seen.src); MB.pictures.delete(key); }
+  for (const key of MB.pictures.keys()) if (!live.has(key)) MB.pictures.delete(key);
   for (const key of MB.heights.keys()) if (!live.has(key)) MB.heights.delete(key);
   magicMeasure();
 }

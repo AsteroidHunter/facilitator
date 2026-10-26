@@ -1883,35 +1883,38 @@ test("a pull from the right edge on a card with no box dips the card once, and n
   assert.ok(dipped(), "the mouse follows the same rule, once its touch's leftovers are past");
 });
 
-// the phone's box script with every box a picture: what it fetched (asked),
-// the pictures it let go (revoked), and pictures that come only when the test
-// lets them (slow), each read as 640 x 400
+// the phone's box script with every box a picture: what it fetched or loaded
+// (asked), and pictures that come only when the test lets them (slow), each
+// read as 640 x 400. a picture is loaded from its own address, never fetched
+// into a copy of the page's own
 function phoneBoxPictures({ slow = false } = {}) {
   const page = phoneBoxScript(read("m.html"), { drawn: false });
   const { ctx } = page;
-  const asked = [], revoked = [], waiting = [];
-  let made = 0;
+  const asked = [], waiting = [];
   ctx.fetch = url => {
     asked.push(url);
+    if (url.startsWith("/magic/img")) return Promise.reject(new Error("a picture fetched into a copy: " + url));
     const id = new URL(url, "http://phone").searchParams.get("box");
-    if (url.startsWith("/magic/img")) {
-      const picture = { ok: true, blob: async () => ({}) };
-      return slow ? new Promise(r => waiting.push(() => r(picture))) : Promise.resolve(picture);
-    }
     const rev = ctx.lastState.boxes.find(b => b.id === id).magic.rev;
     return Promise.resolve({ ok: true, json: async () => ({ box: id, rev, kind: "image", src: `/magic/img?box=${id}&rev=${rev}` }) });
   };
-  ctx.URL = { createObjectURL: () => "blob:" + ++made, revokeObjectURL: u => revoked.push(u) };
-  ctx.Image = class { decode() { return Promise.resolve(); } get naturalWidth() { return 640; } get naturalHeight() { return 400; } };
+  ctx.Image = class {
+    set src(url) {
+      asked.push(url);
+      const load = () => this.onload && this.onload();
+      if (slow) waiting.push(load); else Promise.resolve().then(load);
+    }
+    decode() { return Promise.resolve(); } get naturalWidth() { return 640; } get naturalHeight() { return 400; }
+  };
   const fetched = kind => asked.filter(u => u.startsWith("/magic/" + kind)).map(u => new URL(u, "http://phone").searchParams.get("box"));
   const near = (build, keep = build) => { ctx.nearbyCards = () => ({ build: new Set(build), keep: new Set(keep) }); };
   const tick = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
   const land = async () => { while (waiting.length) waiting.shift()(); await tick(); };
-  return { ...page, asked, revoked, fetched, near, tick, land };
+  return { ...page, asked, fetched, near, tick, land };
 }
 
 test("the phone fetches boxes only for the cards it builds, once for each revision, and lets go of the ones it no longer keeps", async () => {
-  const { ctx, PB, draws, fetched, near, tick, revoked } = phoneBoxPictures();
+  const { ctx, PB, draws, fetched, near, tick } = phoneBoxPictures();
   const card = (id, more = {}) => ({ id, owner: "p", done: false, magic: { open: true, rev: 1 }, ...more });
   ctx.lastState = { boxes: ["a", "b", "c", "d", "e", "f", "g"].map(id => card(id)).concat(
     card("shut", { magic: { open: false, rev: 1 } }), card("done", { done: true }), card("other", { owner: "q" }),
@@ -1928,17 +1931,23 @@ test("the phone fetches boxes only for the cards it builds, once for each revisi
   await tick();
   assert.equal(fetched("body").length, 3, "a box was fetched again at the same revision");
   // a new revision on a card beside it: that box alone, once, and its old picture let go
+  const oldC = PB.bodies.get("c");
+  assert.ok(oldC.seen, "a picture fetched was not kept");
   ctx.lastState.boxes.find(b => b.id === "c").magic = { open: true, rev: 2 };
   ctx.reachCards(); ctx.reachCards();
   await tick();
   assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c"]);
-  assert.equal(revoked.length, 1, "the old revision's picture was kept");
-  // the card on show's box is drawn at once, picture and size in hand
+  assert.equal(oldC.seen, null, "the old revision's picture was kept");
+  assert.equal(PB.bodies.get("c").seen.src, "/magic/img?box=c&rev=2", "the new revision's picture");
+  // the card on show's box is drawn at once, picture and size in hand, the
+  // picture shown from its own address, which the server sandboxes
   ctx.select();
   assert.equal(draws.length, 1, "the box waited for a fetch it already had");
   assert.deepEqual([...draws[0][1].natural], [640, 400]);
+  assert.equal(draws[0][1].src, "/magic/img?box=b&rev=1", "the picture is shown from a copy of the page's own");
   // a swipe to c: d is built and fetched, a leaves the cards kept and is let go; f, never
   // near, and g, kept but never built, are never fetched
+  const oldA = PB.bodies.get("a");
   ctx.shownId = "c";
   near(["b", "c", "d"], ["b", "c", "d", "e"]);
   ctx.select();
@@ -1947,7 +1956,7 @@ test("the phone fetches boxes only for the cards it builds, once for each revisi
   await tick();
   assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c", "d"]);
   assert.ok(!PB.bodies.has("a"), "a card no longer kept still holds its box");
-  assert.equal(revoked.length, 2, "its picture was kept");
+  assert.equal(oldA.seen, null, "its picture was kept");
   assert.ok(!fetched("body").some(id => ["e", "f", "g", "shut", "done", "other", "none"].includes(id)), "a box fetched for a card never built");
   // while a pull or a swipe is going, the building waits, and the fetching with it
   ctx.pullGoing = () => true;
