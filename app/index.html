@@ -4080,6 +4080,62 @@
   .sp-mac .binrow:hover .binrestore, .sp-mac .binrow:focus-within .binrestore{opacity:1}
   .sp-mac .binrow .binrestore:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
   .sp-mac .binrow .binrestore:disabled{opacity:.4; cursor:default}
+
+  /* ---- the new layout (Settings, Appearance) ----------------------------- */
+  /* the card on the left, the ticket list at the upper right and the card's
+     typing row out of the card, in a box of its own under the list. the script
+     places all three as shares of the window (fitNewLayout) and hands the
+     box's place down from the stage as --nl-x, --nl-y, --nl-w and --nl-h, in
+     the stage's pixels. the box is the card's own tray and row, so typing,
+     sending, attaching, drafts and every key work as they do in the card.
+     with the setting off the holder lays out nothing of its own, and the tray
+     and the row stand in the card's foot exactly as they always have */
+  .composebox{display:contents}
+  /* front to back: the list, the typing box, the card. the box is laid from
+     inside the card, so it stands over the card by being positioned in it */
+  body.focus.newlayout #tickets{z-index:2}
+  body.focus.newlayout #tickets .ttl{font-size:19px}
+  /* the box is paratrooper's typing field, a rounded rectangle rather than a
+     pill: its glass face (an almost white tint over a blur), its hairline and
+     white rim drawn inside the edge, its lift and its soft shadow under, its
+     18px corner, and its text inset and type. the type is the board's 18. the
+     paperclip stands outside the field at its left, on its floor, where
+     paratrooper's plus stands; the send square stands inside at its bottom
+     right, where paratrooper's arrow stands */
+  body.focus.newlayout .box.sel .composebox{
+    display:flex; flex-direction:column; position:fixed; box-sizing:border-box;
+    left:var(--nl-x); top:var(--nl-y); width:var(--nl-w); height:var(--nl-h);
+    border-radius:18px; background-color:rgba(120,120,128,.03);
+    backdrop-filter:blur(16px) saturate(180%); -webkit-backdrop-filter:blur(16px) saturate(180%);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.55), inset 0 1px 0 rgba(255,255,255,.9),
+      inset 0 0 0 1px #C7C7CC, inset 0 0 2px rgba(255,255,255,.35),
+      0 1px 3px rgba(0,0,0,.07), 0 8px 20px rgba(0,0,0,.06), 0 6px 33px rgba(0,0,0,.068);
+    isolation:isolate;
+  }
+  body.focus.newlayout .box.sel .composebox .tray{margin:0 40px 0 14px; background:none}
+  body.focus.newlayout .box.sel .composebox .bottombar{
+    flex:1 1 auto; min-height:0; margin:0; border-top:none; background:none; align-items:stretch;
+  }
+  body.focus.newlayout .box.sel .composebox .compose{align-items:stretch}
+  /* the field fills the box, so a click anywhere in it is a click in the words,
+     and the words scroll inside it once they pass its foot */
+  body.focus.newlayout .box.sel .composebox :is(textarea, .cffield){
+    flex:1 1 auto; align-self:stretch; height:auto !important; min-height:0; max-height:none; margin:0;
+    font:18px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    color:#000;
+  }
+  body.focus.newlayout .box.sel .composebox textarea,
+  body.focus.newlayout .box.sel .composebox .cffield .cm-scroller{padding:8px 40px 8px 14px}
+  body.focus.newlayout .box.sel .composebox .cffield .cm-scroller{
+    height:100% !important; min-height:0; max-height:none; font:inherit;
+  }
+  /* paratrooper leaves the placeholder in the browser's own grey */
+  body.focus.newlayout .box.sel .composebox textarea::placeholder,
+  body.focus.newlayout .box.sel .composebox .cffield .cm-placeholder{color:#757575}
+  body.focus.newlayout .box.sel .composebox .sendbtn{position:absolute; right:5px; bottom:5px; margin:0 !important}
+  body.focus.newlayout .box.sel .composebox .clipbtn{
+    position:absolute; left:-42px; bottom:2.5px; width:34px; height:34px;
+  }
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
@@ -4167,6 +4223,11 @@
       <label class="setlabel" for="setwait"><span>Cards waiting on you</span>
         <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
       <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setlayout"><span>New layout</span>
+        <small class="sethelp">Projects show the card on the left, the ticket list at the upper right and the composer in its own box under the list.</small></label>
+      <input type="checkbox" role="switch" id="setlayout">
     </div>
   </div>
   <div data-section="editor" data-label="Editor">
@@ -4304,7 +4365,7 @@
      opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.3.27</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.3.29</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -4409,6 +4470,13 @@ let lastState = null;
 // (owner) is a row, its conversations the columns; arrows walk it, the left
 // bar jumps anywhere directly.
 const FOCUS = document.body.classList.contains("focus");
+// the new layout (Settings, Appearance): the project tabs show the card on the
+// left, the ticket list at the upper right and the card's typing row in a box
+// of its own under the list (fitNewLayout). it is the board's newlayout
+// setting, "1" for on. the class goes on with the page's first lines, so a
+// page opened in it never draws the other layout first
+const newLayoutWanted = () => settingsStore.getItem("newlayout") === "1";
+document.body.classList.toggle("newlayout", FOCUS && newLayoutWanted());
 let selectedId = localStorage.getItem("selbox") || null;
 let shownId = null;   // the card the page is actually showing, so a selection
                       // that changed without a click can be noticed
@@ -7099,7 +7167,12 @@ function makeBox(b, i, state){
     send.innerHTML = SEND_ICON;
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
-    pendwrap.append(meta, sentwrap, tray, bottombar);
+    // the tray and the row together: a box of their own under the ticket list
+    // in the new layout, and in the other one nothing at all, so the two lay
+    // out in the card's foot as they always have (.composebox)
+    const composebox = h("div", "composebox");
+    composebox.append(tray, bottombar);
+    pendwrap.append(meta, sentwrap, composebox);
     // the column: the scroller holding the answered panel over the answer, and laid
     // over the answer at the card's floor the sent panel and the row the reader types in
     replyview.append(answwrap, reply);
@@ -7279,6 +7352,11 @@ function makeBox(b, i, state){
     // answer under the title, and the row the reader types in under the bar's hairline
     watchRise(replyview);
     watchRise(ta);
+    // in the new layout the tray stands over the words in the typing box, so
+    // its opening and shutting moves them, and the block caret is laid again
+    if (window.ResizeObserver) new ResizeObserver(() => {
+      if (document.body.classList.contains("newlayout")) queueFatCaret();
+    }).observe(tray);
     // and the reader's own scrolling of the answer, which holds a page turn back
     watchReading(els[b.id]);
 
@@ -8886,7 +8964,8 @@ function magicAhead(){
 // once, unseen, in a sealed frame of its own at the width it will be shown at,
 // until it has said its height and then a moment more for anything that
 // arrives late. one page at a time, and the frame goes as soon as it is done.
-// it runs as the shown page does (MagicBox.pageDoc): no network, no keys
+// it runs as the shown page does (MagicBox.pageDoc, in its holder,
+// MagicBox.holderDoc): no network, no keys
 const MEASURE_SETTLE = 300, MEASURE_MOST = 3000;
 function magicMeasure(){
   if (!MB.el || MB.measuring) return;
@@ -8913,7 +8992,7 @@ function magicMeasure(){
       magicMeasure();
     };
     const m = MB.measuring = { frame, word, key, width, settle: 0, most: setTimeout(done, MEASURE_MOST), done };
-    frame.srcdoc = MagicBox.pageDoc(have.box.html || "", word, true, false, !!have.box.widget);
+    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(have.box.html || "", word, true, false, !!have.box.widget));
     document.body.appendChild(frame);
     return;
   }
@@ -9053,13 +9132,14 @@ function magicPlace(){
   const { S, rect, fit, most } = room;
   if (!most.shown){ MB.el.style.visibility = "hidden"; return; }
   // what it shows asks for, in stage pixels: the view's want (card-logic.js)
-  const at = MagicBox.place(rect, fit, MB.view.want(most, S));
+  const at = MagicBox.place(rect, fit, MB.view.want(most, S), room.side);
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   if (MB.el.style.visibility === "hidden") return;
   // shown: its lines to the card, and the rise if it is new on the card
   magicLine(rect, at);
   boxRise(MB);
+  if (room.side === "left") magicLineLeft(rect, at);
 }
 // the box expanded by its green button, over the dimmed board: nine tenths of
 // the window's width and height in its middle (MagicBox.grow), a site that
@@ -9233,7 +9313,9 @@ if (MB.el) addEventListener("keydown", e => {
   if (magicEscape()){ e.preventDefault(); e.stopImmediatePropagation(); }
 });
 // the card's rectangle on the stage, the fit's edges and the largest box
-// there is room for beside it, or null with no card laid out to stand beside
+// there is room for beside it, or null with no card laid out to stand beside.
+// the box stands right of the card, and left of it in the new layout, where
+// the room on the right is the ticket list's and the typing box's (side)
 function magicRoom(){
   const card = document.querySelector("main"), stage = document.getElementById("stage");
   if (!card || !stage) return null;
@@ -9242,7 +9324,9 @@ function magicRoom(){
   const lim = frameLimits();
   const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
   const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
-  return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
+  const side = document.body.classList.contains("newlayout") ? "left" : undefined;
+  if (side) fit.left = lim.left - FRAME_CLEAR;
+  return { S, sr, rect, fit, side, most: MagicBox.place(rect, fit, undefined, side) };
 }
 // the lines from the card to its box, the ones every box draws, as the owner
 // chose them in the connector mock (m1237, mock-box-connector-20261013.html:
@@ -9275,6 +9359,20 @@ function magicLine(card, box){
   // are one group, which wears the shadow (#mbline.on > g)
   MB.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
     two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
+    '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+  MB.line.classList.add("on");
+}
+// the same two lines for a box left of the card, where the new layout stands
+// it (magicRoom): the card and the box are turned over so magicTwo measures
+// them as it measures a box on the right, and the lines are turned back, from
+// the box's right edge to the card's left edge, dashes counted from the box
+function magicLineLeft(card, box){
+  const turn = r => ({ left: -(r.left + r.width), top: r.top, width: r.width, height: r.height });
+  const two = magicTwo(turn(card), turn(box));
+  if (!two) return;
+  const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+  MB.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + (-two.to).toFixed(2) + ' ' + y.toFixed(2) + 'L' +
+    (-two.from).toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
     '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
   MB.line.classList.add("on");
 }
@@ -13337,6 +13435,8 @@ async function poll(timed = false){
     // arrangement is read when it moves, and used at the next tab switch or
     // reload, as it was when the browser kept them
     if (settingsStore.notice) settingsStore.notice(state.settingsRev);
+    // the new layout is the one setting taken at once, whichever window turned it
+    applyNewLayout();
     const caretBefore = focusedCaretContext();
     // a card this page has just put in the Bin stays out of the reading
     binHide(state);
@@ -13903,6 +14003,7 @@ function fitStage(){
   if (!FOCUS) return;
   const stage = document.getElementById("stage");
   if (!stage) return;
+  if (document.body.classList.contains("newlayout")){ fitNewLayout(stage); return; }
   // fit inside the rounded app frame, not the raw window: the frame is inset from
   // every edge, so a region fitted to the window bottom lands past the frame line.
   const lim = frameLimits();
@@ -13969,6 +14070,94 @@ function fitStage(){
   applyRespNav();   // show or hide the pan arrow for the current mode and pane
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
   magicSync();      // and the card's magic box follows the card, or goes in the phone view
+}
+
+// ---- the new layout ----------------------------------------------------------
+// the three boxes as the owner sized them, each as percent of the window, its
+// outer edges: the card, the ticket list's holder and the typing box. their
+// places are rough. the fit keeps their sizes and the gaps between them, puts
+// the list's centre line on the typing box's, and then moves the three as one
+// so the smallest rectangle round them stands in the middle of the window
+const NEW_LAYOUT = {
+  card:     { left: 18,   top: 12, width: 31, height: 77 },
+  list:     { left: 54.5, top: 9,  width: 24, height: 52 },
+  composer: { left: 52.5, top: 66, width: 28, height: 25 },
+};
+// the stage's scale there: full size in a window this big, and in proportion
+// in any other, smaller or larger, so what is inside the boxes keeps its size
+// against the boxes. the window the layout was tuned in, 1512 by 949, draws it
+// at .94
+const NEW_LAYOUT_FULL = { w: 1605, h: 1010 };
+// the regions the new layout shows; every other one is put away while it is on
+const NEW_LAYOUT_REGIONS = new Set(["main", "tickets"]);
+let newLayoutFitH = null;   // innerHeight at the new layout's last fit
+function fitNewLayout(stage){
+  const W = innerWidth, H = innerHeight;
+  // the card and the ticket list and nothing else. the regions' own hides,
+  // places and sizes stay as this tab keeps them, for the other layout
+  // (applySavedLayout puts them back, and this takes them off again after it)
+  for (const id of FIT_REGIONS){
+    const el = id === "main" ? document.querySelector("main") : document.getElementById(id);
+    if (el) el.classList.toggle("region-off", !NEW_LAYOUT_REGIONS.has(id));
+  }
+  // the phone view takes a narrow window over as it does for the other layout
+  const phone = MacPhoneView.portrait(W, H, contentBounds(LEFT_MID_REGIONS).right, phoneWanted);
+  phoneWanted = phone;
+  window.macPhoneHost?.request(phone);
+  respMode = "wide";
+  respHasRight = false;
+  document.body.dataset.respMode = respMode;
+  const card = document.querySelector("main"), list = document.getElementById("tickets");
+  const head = document.getElementById("tikhead");
+  const bar = document.querySelector(".bar");
+  const num = v => parseFloat(v) || 0;
+  // every measure below is in the stage's pixels at the scale k0, counted from
+  // the window's top left corner
+  const k0 = Math.min(W / NEW_LAYOUT_FULL.w, H / NEW_LAYOUT_FULL.h);
+  const box = r => ({ x: r.left / 100 * W / k0, y: r.top / 100 * H / k0,
+                      w: r.width / 100 * W / k0, h: r.height / 100 * H / k0 });
+  const c = box(NEW_LAYOUT.card), l = box(NEW_LAYOUT.list), m = box(NEW_LAYOUT.composer);
+  // the list's names and rows stand in from its holder by the holder's own
+  // insets, the two not quite equal, so the line through the middle of what
+  // shows is the one put on the typing box's
+  const hs = head ? getComputedStyle(head) : null;
+  const inL = hs ? num(hs.marginLeft) : 0, inR = hs ? num(hs.marginRight) : 0;
+  l.x = m.x + m.w / 2 - (l.w + inL - inR) / 2;
+  const seen = [c, { x: l.x + inL, y: l.y, w: l.w - inL - inR, h: l.h }, m];
+  const left = Math.min(...seen.map(b => b.x)), right = Math.max(...seen.map(b => b.x + b.w));
+  const top = Math.min(...seen.map(b => b.y)), bottom = Math.max(...seen.map(b => b.y + b.h));
+  const midX = (left + right) / 2, midY = (top + bottom) / 2;
+  // centred, the group's top would only reach under the bar in a very short
+  // window. there the whole group is drawn smaller about the window's middle,
+  // so it still stands centred and clear of the bar
+  const barFoot = bar ? bar.getBoundingClientRect().bottom : STAGE_BAR;
+  const half = (bottom - top) * k0 / 2;
+  const k = k0 * Math.min(1, Math.max(0.1, (H / 2 - barFoot) / half));
+  // a point of the group, in the stage's own pixels: the stage stands at the
+  // window's left edge and under the bar (#stage), drawn at k
+  const sx = x => W / 2 / k + (x - midX);
+  const sy = y => (H / 2 - STAGE_BAR) / k + (y - midY);
+  const put = (el, b) => {
+    el.style.left = sx(b.x) + "px"; el.style.top = sy(b.y) + "px";
+    el.style.width = b.w + "px"; el.style.height = b.h + "px";
+  };
+  put(card, c);
+  put(list, l);
+  // the typing box is the card's own row, laid on the stage from inside the
+  // card (.composebox), so its place is handed down rather than written on it
+  stage.style.setProperty("--nl-x", sx(m.x) + "px");
+  stage.style.setProperty("--nl-y", sy(m.y) + "px");
+  stage.style.setProperty("--nl-w", m.w + "px");
+  stage.style.setProperty("--nl-h", m.h + "px");
+  stageScale = k; stageTx = 0; stageTy = 0;
+  stage.style.transform = `translate(0px, 0px) scale(${k})`;
+  lastFitW = W;
+  newLayoutFitH = H;
+  document.body.style.backgroundPosition =
+    `calc(0px - var(--step) / 2) calc(${STAGE_BAR}px - var(--step) / 2)`;
+  applyRespNav();
+  seatPagePill();
+  magicSync();
 }
 
 // the edge arrow that pans between the two panes. It only exists when the mode
@@ -14071,6 +14260,13 @@ try {
   if (fsq.addEventListener) fsq.addEventListener("change", onFs);
   else if (fsq.addListener) fsq.addListener(onFs);
 } catch (e) {}
+// the new layout stands in the middle of the window, so it follows the
+// window's height as well: the freeze above on a resize that only changes the
+// height is the other layout's. a resize that changed the width has already
+// been fitted by the time this hears it
+addEventListener("resize", () => {
+  if (FOCUS && document.body.classList.contains("newlayout") && innerHeight !== newLayoutFitH) fitStage();
+});
 
 // the copy button on fenced blocks: one click puts the block's text on the
 // clipboard; the icon is the standard two-sheets copy glyph, drawn inline
@@ -14300,12 +14496,32 @@ function applySavedLayout(){
   // freeze rule does not apply here.
   if (typeof fitStage === "function") fitStage(); else seatPagePill();
 }
+// the switch in Settings, or another window's turn of it read off the board:
+// the page takes the layout the setting names at once. the regions go back to
+// this tab's own arrangement first (applySavedLayout), and the new layout's fit
+// then places them, or the other layout's fit does. the typing row on screen is
+// measured again for the row it now stands in
+function applyNewLayout(){
+  const on = FOCUS && newLayoutWanted();
+  if (on === document.body.classList.contains("newlayout")) return;
+  if (on && editMode) setEditMode(false);
+  document.body.classList.toggle("newlayout", on);
+  if (!on){
+    const stage = document.getElementById("stage");
+    for (const v of ["--nl-x", "--nl-y", "--nl-w", "--nl-h"]) stage.style.removeProperty(v);
+  }
+  applySavedLayout();
+  const shown = els[shownId];
+  if (shown && shown.tick) shown.tick();
+  queueFatCaret();
+}
 let dragging = null;
 let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
 const mouse = { x: 0, y: 0 };   // the resize hotkey targets the box under the cursor
 addEventListener("pointermove", e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 addEventListener("pointerdown", e => {
-  if (!FOCUS || !dragEnabled || !e.altKey) return;
+  // the new layout places its boxes itself, so nothing on it is dragged
+  if (!FOCUS || !dragEnabled || !e.altKey || document.body.classList.contains("newlayout")) return;
   const el = e.target.closest(REGION_SEL);
   if (!el) return;
   e.preventDefault();
@@ -14368,6 +14584,7 @@ const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
 function setEditMode(on){
   if (!FOCUS) return;
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
+  if (on && document.body.classList.contains("newlayout")) return;   // it places its own boxes
   editMode = on;
   document.body.classList.toggle("editmode", on);
   if (on){
@@ -14432,6 +14649,11 @@ function updateWatch(state){
     wait.checked = waitNewestFirst();
     waitNote.textContent = wait.checked ? "Newest first" : "Oldest first";
   };
+  // the new layout for the project tabs: the board's newlayout setting, "1"
+  // for on and absent for off. the switch puts it on or off at once
+  // (applyNewLayout)
+  const layout = document.getElementById("setlayout");
+  const layoutOn = () => settingsStore.getItem("newlayout") === "1";
   // the profile (GET and POST /profile in server.py): what the onboarding
   // saved, read from the board each time the page opens and saved a field at a
   // time as each is changed. a change the board refuses (an empty name, an
@@ -14552,6 +14774,7 @@ function updateWatch(state){
       usage.checked = sharing();
       updateCheck.checked = checking();
       showWait();
+      layout.checked = layoutOn();
       readProfile();
       readBin();
     },
@@ -14580,6 +14803,12 @@ function updateWatch(state){
     else settingsStore.removeItem("waitnewest");
     showWait();
     if (lastState) renderCarousel(lastState);
+  });
+  layout.checked = layoutOn();
+  layout.addEventListener("change", () => {
+    if (layout.checked) settingsStore.setItem("newlayout", "1");
+    else settingsStore.removeItem("newlayout");
+    applyNewLayout();
   });
   btn.addEventListener("click", () => view.open());
   const feedbackBtn = document.getElementById("feedbackbtn");

@@ -226,7 +226,7 @@ test("the page's own page can say left when the sealed frame keeps the key to it
 });
 
 test("command+T in a page is stopped in the frame and said to the board, which makes a card as the key does", () => {
-  const { pageDoc } = (() => { const s = vm.createContext({}); vm.runInContext(read("magic-box.js"), s); return s.MagicBox; })();
+  const { pageDoc, holderDoc } = (() => { const s = vm.createContext({}); vm.runInContext(read("magic-box.js"), s); return s.MagicBox; })();
   const scripts = doc => [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
   // the Mac's page stops it ahead of anything the agent wrote; the phone's page has no keys of the board's
   const mac = pageDoc("<p>x</p>", "w", true);
@@ -275,7 +275,7 @@ test("command+T in a page is stopped in the frame and said to the board, which m
   const body = { style: { setProperty() {}, removeProperty() {} }, textContent: "", dataset: {}, append() {},
     addEventListener() {}, querySelector() { return null; } };
   const vctx = vm.createContext({
-    MagicBox: { pageDoc }, getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout() {}, Date,
+    MagicBox: { pageDoc, holderDoc }, getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout() {}, Date,
     addEventListener: (type, f) => { if (type === "message") onMessage = f; },
     h: () => ({ setAttribute() {}, addEventListener() {}, clientWidth: 398, contentWindow: {} }),
   });

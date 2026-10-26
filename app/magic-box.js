@@ -279,8 +279,9 @@
     "on: (what, fn) => { if (heard[what] && typeof fn === 'function') heard[what].push(fn); } }) });" +
     "})();";
   // word: when given, the page tells the board it is still itself each time it
-  // finishes loading, by posting the word to it. A page that has sent its frame
-  // elsewhere loads without saying it, and the board puts the page back.
+  // finishes loading, by posting the word to it. A page that has tried to send
+  // its frame elsewhere (which its holder refuses, holderDoc) loads without
+  // saying it, and the board puts the page back.
   // sized: the page says its own height too (PAGE_HEIGHT), and relays the
   // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE, PAGE_ESCAPE) and
   // scrolls and says its keys for control+S (PAGE_SCROLL); the Mac's box asks
@@ -298,9 +299,39 @@
       '<meta name="referrer" content="no-referrer">' + (sized ? CALM : tall ? TAPS : "") + '<script>' + KEYS_GUARD + ZOOM_GUARD + '</script>' + hello +
       String(html == null ? "" : html);
   }
+  // the page may still send its own frame to another address, carrying
+  // anything in the address: a sandbox lets a frame move itself, no policy in
+  // the page reaches its own frame, and the request is out before the board
+  // could put the page back. What a frame may be sent to is the frame-src of
+  // the document it stands in, which Chrome and Safari check each move of the
+  // frame against before anything is fetched (CSP's frame-src, which
+  // "restricts the URLs which may be loaded into child navigables"). The
+  // board's own page cannot say none there, since a website's box frames the
+  // site. So the page stands in a holder, sealed as the page is (PAGE_SANDBOX)
+  // and under the page's own policy, with its frame-src 'none': the page, a
+  // srcdoc, is never fetched and loads, and every address it sends its frame
+  // to is refused before it is asked for. The page cannot move the holder,
+  // which is not its own frame (its sandbox). The holder hands on whatever the
+  // page and the board post to each other, as it is, so each hears the other
+  // as before, and says true, which it never hands on from the page, each
+  // time the page in it has loaded, which the board takes as the page's load
+  const HOLDER = "<style>html,body{margin:0;height:100%;overflow:hidden}" +
+    "iframe{display:block;border:0;width:100%;height:100%}</style>";
+  function holderDoc(page) {
+    const P = JSON.stringify(String(page)).replace(/</g, "\\u003c");
+    return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
+      '<meta name="referrer" content="no-referrer">' + HOLDER + '<body><script>(() => {' +
+      'const f = document.createElement("iframe");' +
+      'f.setAttribute("sandbox", ' + JSON.stringify(PAGE_SANDBOX) + '); f.setAttribute("referrerpolicy", "no-referrer");' +
+      'addEventListener("message", e => {' +
+      'if (e.source === f.contentWindow && e.data !== true) parent.postMessage(e.data, "*", [...e.ports]);' +
+      'else if (e.source === parent && f.contentWindow) f.contentWindow.postMessage(e.data, "*", [...e.ports]); });' +
+      'f.addEventListener("load", () => parent.postMessage(true, "*"));' +
+      'f.srcdoc = ' + P + '; document.body.append(f); })();</script>';
+  }
   // a website runs as itself, on its own origin, which is never the board's;
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, WIDGET, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, WIDGET, pageDoc, holderDoc, SITE_SANDBOX };
 })(globalThis);

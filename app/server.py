@@ -514,7 +514,9 @@ Endpoints:
                                looks for updates (updatecheck, "0" when off),
                                whether the cards
                                waiting on the reader are listed newest first
-                               (waitnewest, "1" when so), the home chart,
+                               (waitnewest, "1" when so), whether the project
+                               tabs wear the new layout (newlayout, "1" when
+                               so), the home chart,
                                the typed page's tasks and the one-time layout
                                passes, under the key names and
                                text values the browsers kept them under. They
@@ -9142,7 +9144,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|home\.chart|folderview"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|newlayout|home\.chart|folderview"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096

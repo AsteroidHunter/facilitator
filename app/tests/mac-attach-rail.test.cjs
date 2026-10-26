@@ -280,7 +280,8 @@ test("the arrow and Enter send files alone, and press nothing with an empty box 
 test("the desktop card seats the rail over the row and adds files through it from plus, paste and drop", () => {
   const html = read("index.html");
   assert.ok(html.includes('const tray = h("div", "tray");'));
-  assert.ok(html.includes("pendwrap.append(meta, sentwrap, tray, bottombar);"));
+  assert.ok(html.includes("composebox.append(tray, bottombar);"));
+  assert.ok(html.includes("pendwrap.append(meta, sentwrap, composebox);"));
   assert.ok(html.includes("wireAttachmentTransfer(ta, files => trayAdd(b.id, files));"), "paste and drop go to the rail");
   const change = html.slice(html.indexOf('clipfile.addEventListener("change"'), html.indexOf("head.addEventListener(\"click\"", html.indexOf('clipfile.addEventListener("change"')));
   assert.match(change, /trayAdd\(b\.id, files\)/, "the plus goes to the rail");

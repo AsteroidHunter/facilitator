@@ -262,14 +262,17 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   const start = html.indexOf("function magicPlace(){"), fn = html.slice(start, html.indexOf("\n}\n", start));
   const roomAt = html.indexOf("function magicRoom(){"), room = html.slice(roomAt, html.indexOf("\n}\n", roomAt));
   assert.match(room, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
-  assert.match(room, /return \{ S, sr, rect, fit, most: MagicBox\.place\(rect, fit\) \};/);
+  // right of the card, and left of it in the new layout, where the room on the
+  // right is the ticket list's and the typing box's
+  assert.match(room, /const side = document\.body\.classList\.contains\("newlayout"\) \? "left" : undefined;\n  if \(side\) fit\.left = lim\.left - FRAME_CLEAR;/);
+  assert.match(room, /return \{ S, sr, rect, fit, side, most: MagicBox\.place\(rect, fit, undefined, side\) \};/);
   // no room beside the card: hidden where it is, before anything is sized
   // or asked of what it shows, and nothing else is done with it
   assert.match(fn, /const room = magicRoom\(\);\n  if \(!room\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n  const \{ S, rect, fit, most \} = room;\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
-  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
+  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\), room\.side\)/);
   // shown, it draws the line to the card from the card's and the box's own
   // rectangles, with no workspace edge to keep it under
-  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);/);
+  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);\n  if \(room\.side === "left"\) magicLineLeft\(rect, at\);/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
   // still open: hiding it closes nothing and takes nothing off the page, and
@@ -710,7 +713,7 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.match(view, /if \(tall > 0 && hooks\.heard && !view\.big\) hooks\.heard\(tall, run\.frame\.clientWidth\);/);
   const measure = html.slice(html.indexOf("function magicMeasure(){"), html.indexOf("function magicDraw("));
   assert.match(measure, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\);/);
-  assert.match(measure, /frame\.srcdoc = MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true\);/);
+  assert.match(measure, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true\)\);/);
   assert.match(measure, /frame\.inert = true;/);
   assert.match(measure, /visibility: "hidden", pointerEvents: "none"/);
   assert.match(measure, /frame\.remove\(\);/);
@@ -1249,10 +1252,116 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
 test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
   const view = read("card-logic.js");
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall\)\)/);
   assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
   assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
+});
+
+// the holder an agent's page stands in, run with stand-ins for its window: the
+// page's frame it makes, the board above it and whatever else posts to it
+function holderSide(page) {
+  const { holderDoc } = api();
+  const doc = holderDoc(page);
+  const scripts = [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+  const up = [], down = [], on = {}, attrs = {}, appended = [];
+  const inner = { postMessage: (...a) => down.push(a) };
+  const frame = { contentWindow: null, srcdoc: "", setAttribute: (k, v) => { attrs[k] = v; },
+    addEventListener: (type, f) => { on["frame " + type] = f; } };
+  const parent = { postMessage: (...a) => up.push(a) };
+  const ctx = vm.createContext({ parent, addEventListener: (type, f) => { on[type] = f; },
+    document: { createElement: tag => (assert.equal(tag, "iframe"), frame),
+      body: { append: f => { appended.push(f); frame.contentWindow = inner; } } } });
+  for (const s of scripts) vm.runInContext(s, ctx);
+  return { doc, scripts, up, down, on, attrs, appended, frame, inner, parent };
+}
+
+test("an agent's page stands in a holder whose policy lets its frame be sent nowhere", () => {
+  const { PAGE_POLICY, PAGE_SANDBOX } = api();
+  // the page sending its own frame away is checked against the frame-src of
+  // the document the frame stands in: the holder's, which is the page's own
+  // policy, frame-src 'none' with it
+  const page = 'x</script><script>top.hacked = 1</script> <!-- y';
+  const h = holderSide(page);
+  assert.ok(h.doc.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PAGE_POLICY}">`));
+  assert.ok(PAGE_POLICY.includes("frame-src 'none'"));
+  assert.match(h.doc, /<meta name="referrer" content="no-referrer">/);
+  // the page is the holder's frame's srcdoc, exactly as given, and nothing in
+  // it can close the holder's script or add one of its own
+  assert.equal(h.scripts.length, 1);
+  assert.ok(h.doc.endsWith("</script>") && h.doc.indexOf("</script>") === h.doc.length - 9);
+  assert.equal(h.frame.srcdoc, page);
+  assert.deepEqual(h.appended, [h.frame]);
+  // the page's frame is sealed as the holder is, scripts and nothing else
+  assert.deepEqual({ ...h.attrs }, { sandbox: PAGE_SANDBOX, referrerpolicy: "no-referrer" });
+  // the holder sizes the frame to itself, with nothing of its own to scroll
+  assert.match(h.doc, /html,body\{margin:0;height:100%;overflow:hidden\}iframe\{display:block;border:0;width:100%;height:100%\}/);
+});
+
+test("the holder hands on what the page and the board post to each other, as it is, and says the page's loads itself", () => {
+  const h = holderSide("<p>x</p>");
+  const port = { id: "port" };
+  // up from the page: words, anything else that can be posted, and its ports
+  for (const data of ["w 120", { jsonrpc: "2.0", id: 1, method: "m" }, 7])
+    h.on.message({ source: h.inner, data, ports: [] });
+  h.on.message({ source: h.inner, data: "w", ports: [port] });
+  assert.deepEqual(h.up.map(a => [a[0], a[1], [...a[2]]]),
+    [["w 120", "*", []], [{ jsonrpc: "2.0", id: 1, method: "m" }, "*", []], [7, "*", []], ["w", "*", [port]]]);
+  // true is the holder's alone: the page saying it is never handed on
+  h.up.length = 0;
+  h.on.message({ source: h.inner, data: true, ports: [] });
+  assert.deepEqual(h.up, []);
+  // down from the board, to the page alone
+  h.on.message({ source: h.parent, data: "w to 40 1", ports: [] });
+  assert.deepEqual(h.down.map(a => [a[0], a[1], [...a[2]]]), [["w to 40 1", "*", []]]);
+  // and nothing from anyone else, either way
+  h.on.message({ source: {}, data: "w to 0 2", ports: [] });
+  assert.equal(h.up.length + h.down.length, 1);
+  // each load of the page's frame is said to the board as true
+  h.on["frame load"]();
+  h.on["frame load"]();
+  assert.deepEqual(h.up.map(a => a.slice(0, 2)), [[true, "*"], [true, "*"]]);
+});
+
+test("the board counts the page's loads as its holder says them, and puts back a page that loaded without its word", () => {
+  const timers = [], frames = [];
+  let onMessage = null;
+  const body = { style: { setProperty() {}, removeProperty() {} }, textContent: "", dataset: {}, append() {},
+    addEventListener() {}, querySelector() { return null; } };
+  const ctx = vm.createContext({
+    MagicBox: api(), getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout: f => timers.push(f), Date,
+    addEventListener: (type, f) => { if (type === "message") onMessage = f; },
+    h: tag => { const f = { listens: [], setAttribute() {}, addEventListener(type) { this.listens.push(type); },
+      clientWidth: 398, isConnected: true, contentWindow: { id: frames.length } }; if (tag === "iframe") frames.push(f); return f; },
+  });
+  vm.runInContext(read("card-logic.js").match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", ctx);
+  const view = ctx.magicView({ querySelector: s => s === ".mbbody" ? body : null, lastElementChild: null }, { placed() {} });
+  view.draw({ kind: "html", html: "<p>x</p>" });
+  const first = view.page;
+  assert.ok(first.frame.srcdoc.startsWith(api().holderDoc("")
+    .slice(0, api().holderDoc("").indexOf("<body>"))), "the page is shown in its holder");
+  assert.ok(!frames.some(f => f.listens.includes("load")), "the holder's own load is not the page's");
+  // a load and its word: the page stays
+  onMessage({ source: first.frame.contentWindow, data: true });
+  onMessage({ source: first.frame.contentWindow, data: first.word });
+  timers.splice(0).forEach(f => f());
+  assert.equal(view.page, first);
+  // true from any other window is nobody's load
+  onMessage({ source: {}, data: true });
+  assert.equal(timers.length, 0);
+  // a load the word does not follow: the page tried to send its frame away,
+  // and a fresh frame with the page takes its place
+  onMessage({ source: first.frame.contentWindow, data: true });
+  timers.splice(0).forEach(f => f());
+  assert.notEqual(view.page, first);
+  assert.equal(view.page.tries, 1);
+  assert.equal(frames.length, 2);
+  // and a page that keeps trying is taken down after three tries
+  for (let i = 0; i < 3; i++){
+    onMessage({ source: view.page.frame.contentWindow, data: true });
+    timers.splice(0).forEach(f => f());
+  }
+  assert.equal(view.page, null);
 });
 
 test("the board's own policy holds nothing a sealed page would inherit and be stopped by", () => {
