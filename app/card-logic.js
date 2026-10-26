@@ -8997,7 +8997,11 @@ function magicView(el, hooks = {}){
     if (size > WIDGET_NOTE_MOST) return widgetFail(run, m.id, -32602, "too large");
     const p = m.params && typeof m.params === "object" ? m.params : {};
     if (m.method === "widget/ready"){
-      widgetRead(w).then(({ status, body }) => {
+      // asks a quarter second apart or closer share one reading, so a page that
+      // keeps asking cannot keep the board reading
+      const now = Date.now();
+      if (!run.reads || now - run.readAt > 250){ run.readAt = now; run.reads = widgetRead(w); }
+      run.reads.then(({ status, body }) => {
         if (status !== 200 || !body) return widgetRefused(run, m.id, status, body, "not read, try again");
         if (body.rev !== w.rev) return widgetFail(run, m.id, -32003, "this page was replaced");
         run.ready = true;

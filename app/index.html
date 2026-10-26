@@ -8797,9 +8797,14 @@ if (MB.el){
     moving: () => !!MB.move,
     pageHeight: width => magicHeight(MB.id + ":" + MB.rev, width),
     heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); },
-    // the owner is at the box, for a widget's message: the pointer over it or
-    // the box holding the keys (magicPointer, magicHold)
-    atBox: () => MB.el.classList.contains("on") && (MB.over || MB.el.classList.contains("held")) });
+    // the owner is at the box, for a widget's message: the keys are in it (its
+    // page's frame has the focus), or the pointer is over it (magicPointer)
+    // and nothing else on the board has the keys, so keys typed on the card
+    // with the pointer resting on the box never count
+    atBox: () => {
+      const live = document.activeElement;
+      return MB.el.classList.contains("on") && (MB.el.contains(live) || (MB.over && (!live || live === document.body)));
+    } });
   MB.body = MB.view.body;
   MB.el.querySelector(".mbclose").addEventListener("click", () => magicClose());
   // the green button expands the box and puts it back (magicBig). what held

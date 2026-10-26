@@ -279,7 +279,7 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   // every fit and every reading of the board place it again
   assert.ok(!/magicOff|magicClose|MB\.el\.classList\.remove/.test(fn), "hiding it puts it away");
   assert.match(html, /magicSync\(\);      \/\/ and the card's magic box follows the card/);
-  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n  \}\n\}/);
+  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n(?:    \/\/[^\n]*\n)*    MB\.view\.widgetSync\(b\.magic\);\n  \}\n\}/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
   // what it shows asks for, in the shared view (card-logic.js): a picture as
   // many of the page's pixels as it has pixels on screen, its size read once off
@@ -713,7 +713,7 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.match(view, /if \(tall > 0 && hooks\.heard && !view\.big\) hooks\.heard\(tall, run\.frame\.clientWidth\);/);
   const measure = html.slice(html.indexOf("function magicMeasure(){"), html.indexOf("function magicDraw("));
   assert.match(measure, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\);/);
-  assert.match(measure, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true\)\);/);
+  assert.match(measure, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true, false, !!have\.box\.widget\)\);/);
   assert.match(measure, /frame\.inert = true;/);
   assert.match(measure, /visibility: "hidden", pointerEvents: "none"/);
   assert.match(measure, /frame\.remove\(\);/);
@@ -1252,7 +1252,7 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
 test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
   const view = read("card-logic.js");
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(view, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall\)\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall, !!view\.widget\)\)/);
   assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
   assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);

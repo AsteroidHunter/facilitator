@@ -8184,8 +8184,13 @@ PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
   expand: from => { phoneMagicBig(from); return PB.view.big; },
   moving: () => !!PB.move,
   // the owner is at the box, for a widget's message: it is out, in the drawer
-  // or expanded over the page
-  atBox: () => PB.view.big || (tickets.classList.contains("boxface") && drawerOpen()) });
+  // or expanded over the page, and nothing else on the page has the keys, so
+  // keys typed on the card below it never count
+  atBox: () => {
+    const live = document.activeElement;
+    return (PB.view.big || (tickets.classList.contains("boxface") && drawerOpen())) &&
+      (PB.el.contains(live) || !live || live === document.body);
+  } });
 // the cross takes a tap and never the keys. with the box out, Tab stays in the
 // drawer (keepTabInMenu) and the cross was its one stop, so a Tab to get back
 // to the reply box put the keys on it and the next space or return shut the
