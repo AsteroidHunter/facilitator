@@ -262,14 +262,17 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   const start = html.indexOf("function magicPlace(){"), fn = html.slice(start, html.indexOf("\n}\n", start));
   const roomAt = html.indexOf("function magicRoom(){"), room = html.slice(roomAt, html.indexOf("\n}\n", roomAt));
   assert.match(room, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
-  assert.match(room, /return \{ S, sr, rect, fit, most: MagicBox\.place\(rect, fit\) \};/);
+  // right of the card, and left of it in the new layout, where the room on the
+  // right is the ticket list's and the typing box's
+  assert.match(room, /const side = document\.body\.classList\.contains\("newlayout"\) \? "left" : undefined;\n  if \(side\) fit\.left = lim\.left - FRAME_CLEAR;/);
+  assert.match(room, /return \{ S, sr, rect, fit, side, most: MagicBox\.place\(rect, fit, undefined, side\) \};/);
   // no room beside the card: hidden where it is, before anything is sized
   // or asked of what it shows, and nothing else is done with it
   assert.match(fn, /const room = magicRoom\(\);\n  if \(!room\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n  const \{ S, rect, fit, most \} = room;\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
-  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
+  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\), room\.side\)/);
   // shown, it draws the line to the card from the card's and the box's own
   // rectangles, with no workspace edge to keep it under
-  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);/);
+  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);\n  if \(room\.side === "left"\) magicLineLeft\(rect, at\);/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
   // still open: hiding it closes nothing and takes nothing off the page, and
