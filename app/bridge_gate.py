@@ -83,6 +83,16 @@ LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
                         "/update", "/update/later"})
 
 
+def _device(headers):
+    """Whose wrong passwords a sign-in counts against: the last entry of
+    X-Forwarded-For, the address Tailscale Serve gives the phone, or "local"
+    for a request with no such header."""
+    value = headers.get(b"x-forwarded-for")
+    if value is None:
+        return "local"
+    return value.decode("latin-1").split(",")[-1].strip()[:64] or "local"
+
+
 def _client_class(headers):
     """The client log's classes, from the user agent, which is never kept.
     A touch screen on a Mac user agent (an iPad) cannot be told from here."""
@@ -264,7 +274,7 @@ class BridgeGate:
                 value = json.loads(raw).get("password") if raw is not None else None
             except (ValueError, AttributeError, TypeError):
                 value = None
-            verdict, issued = bridge_auth.login(value)
+            verdict, issued = bridge_auth.login(value, _device(headers))
             if verdict == "ok":
                 await _reply(scope, receive, send, 200, {"ok": True}, extra=(
                     (b"set-cookie", bridge_auth.session_cookie(issued).encode()),))
