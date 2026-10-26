@@ -82,6 +82,12 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
         req.end(body);
       });
     },
+    // the reader's own message on a card, sent as the board's page sends it:
+    // a send without the page's headers is an agent's. query adds to box=
+    async say(box, text, query = "") {
+      const r = await board.call("POST", `/send?box=${encodeURIComponent(box)}${query}`, text);
+      return { status: r.status, body: JSON.parse(r.text) };
+    },
     // stop the server, leave the folder as it is, and start the same board again
     async restart(between) { await halt(); if (between) await between(); await launch(); },
     async stop() { await halt(); await rm(outer, { recursive: true, force: true }); },

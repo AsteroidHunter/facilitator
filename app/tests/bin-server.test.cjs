@@ -40,14 +40,19 @@ const binList = async () => (await call("GET", "/bin")).body;
 const saved = async () => JSON.parse(await readFile(path.join(board.data, "state.json"), "utf8"));
 const magicFiles = async () => (await readdir(path.join(board.data, "magic-boxes")).catch(() => [])).filter(n => !n.startsWith("."));
 const make = async title => (await post("/create?owner=facilitator", title)).id;
-const wait = async () => (await call("GET", "/wait?owner=facilitator&timeout=1&agent=claude")).body;
+// the lane's agent claims and fetches as an agent does, with no browser headers
+const agentGet = async route => {
+  const r = await fetch(board.origin + route);
+  return { status: r.status, body: await r.json() };
+};
+const wait = async () => (await agentGet("/wait?owner=facilitator&timeout=1&agent=claude")).body;
 
 // an agent's whole turn on one card: claim, confirm, read what is fresh, answer
 async function answer(id, words) {
   const claim = await wait();
   assert.equal(claim.box, id, JSON.stringify(claim));
   await post(`/ack?owner=facilitator&token=${claim.ack}`);
-  await call("GET", "/fresh?owner=facilitator");
+  await agentGet("/fresh?owner=facilitator");
   await post(`/reply?box=${id}`, words);
 }
 
@@ -125,7 +130,7 @@ test("a card deleted while an agent holds it frees the lane and loses no message
   assert.equal(claim.box, id);
   await post(`/ack?owner=facilitator&token=${claim.ack}`);
   await post(`/bin?box=${id}`);
-  const fresh = (await call("GET", "/fresh?owner=facilitator")).body;
+  const fresh = (await agentGet("/fresh?owner=facilitator")).body;
   assert.ok(!JSON.stringify(fresh).includes("held message"), "nothing of it is handed on");
   assert.equal((await call("POST", `/reply?box=${id}`, "late answer")).status, 400, "no answer lands on it");
   const next = await wait();

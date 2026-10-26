@@ -67,22 +67,24 @@ function listen(timeout) {
   return waiting;
 }
 
-// the reader's two kinds of change, each answering when the board has it
+// the reader's two kinds of change, each answering when the board has it. a
+// message is sent as the board's page sends it, since one without the page's
+// headers is an agent's
 async function typing(box) {
   const said = await post(`/typing?box=${box}`);
   assert.deepEqual(said, { status: 200, body: { ok: true } });
   return Date.now();
 }
 async function send(box, text) {
-  assert.equal((await post(`/send?box=${box}`, text)).status, 200);
+  assert.equal((await board.say(box, text)).status, 200);
   return Date.now();
 }
-// a message spoken through the voice layer, sent the way app/voice/board.py
-// sends it; answers when the send started, since the claim it wakes may come
-// back before the send's own answer does
+// a message the reader spoke through the voice layer: via=voice under an
+// operation id; answers when the send started, since the claim it wakes may
+// come back before the send's own answer does
 async function speak(box, text) {
   const started = Date.now();
-  assert.equal((await post(`/send?box=${box}&via=voice&op=voice-${started}${box}`, text)).status, 200);
+  assert.equal((await board.say(box, text, `&via=voice&op=voice-${started}${box}`)).status, 200);
   return started;
 }
 

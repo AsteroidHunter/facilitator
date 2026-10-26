@@ -29,6 +29,7 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. The board does not hand out a card, or new messages on a card you already hold, until 3.5 seconds after the person's last change in its typing box or last message on it; a card the person speaks to by voice (its messages come with `message_via` `voice`) is not held and goes out at once. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
 - Immediately before **every** `/reply`, including an interim or worker-completion reply, call `GET /fresh?owner=YOURLANE` and read its result before composing and sending. If it returns messages for the card you are answering, include them; those messages are folded into the held claim. If it names a different held card, handle that claim first and do not use its messages in a reply on another card. With no held card, `/fresh` returns an empty message list and hands over nothing; queued messages on other cards remain for their own claims. Do not combine a `/fresh` call with a prewritten reply in one command.
+- `/wait` and `/fresh` answer agents only. A request from a browser page, such as a board link opened in a tab, is refused with a 403 and claims or hands over nothing.
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
 - Before going idle, and between the steps of any follow-up work, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Claim waiting cards before going on, and while workers run, listen with a short `timeout` so you can check on them between rounds. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
@@ -38,12 +39,12 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 ## Sending for the person
 
-An agent that puts a message on a card for the person, such as a voice or text assistant, sends it with `POST /send` and marks it as its own with `by=agent` and its name in `agent=`:
+An agent that puts a message on a card for the person, such as a voice or text assistant, sends it with `POST /send` and names itself in `agent=`; `by=agent` may still be given:
 
     curl -sS -X POST --data-binary @message.txt "http://127.0.0.1:$PORT/send?box=ID&by=agent&agent=voice-assistant"
 
-- The board stores `"by": "agent"` and `"agent": NAME` (24 characters at most) on the message. A message without `by` is the person's own, and so is every message stored before the field existed. `agent=` without `by=agent` is ignored.
-- `by` says who sent the message; `via` still says how it arrived. A voice assistant's own message is `via=voice&by=agent`; the person's spoken words are `via=voice` alone.
+- A message an agent sends is always stored as an agent's: the board stores `"by": "agent"` on it, with or without `by=agent`, and `"agent": NAME` (24 characters at most) when `agent=` names the sender. Only the board's own pages and the phone send the person's own words, and those carry no `by`, as does every message stored before the field existed.
+- `by` says who sent the message; `via` still says how it arrived. A voice assistant's own message is `via=voice&by=agent`; the person's own spoken words carry `via=voice` and no `by`.
 - The lane's agent sees it in `/wait` and `/fresh`: `message_by` runs beside `messages`, one entry per message, `"agent"` for a message an agent sent and null for the person's own, and `message_agent` gives the sender's name the same way. The answered messages, the transcript and `/thread` keep both fields.
 - On the Mac board and the phone, the message's bubble shows a small robot before its first word, and it never joins a bubble of the person's own messages.
 
