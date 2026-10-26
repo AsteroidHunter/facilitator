@@ -8845,11 +8845,13 @@ function magicView(el, hooks = {}){
       view.body.appendChild(away);
     }
   };
-  // an agent's page in its sealed frame. each time the page finishes loading it
-  // says so with a word only it and the board know (MagicBox.pageDoc). a load
-  // the word does not follow is the page sending its frame somewhere else,
+  // an agent's page in its sealed frame, inside the holder that keeps the
+  // frame from being sent anywhere (MagicBox.holderDoc). each time the page
+  // finishes loading it says so with a word only it and the board know
+  // (MagicBox.pageDoc), and the holder says the load itself. a load the word
+  // does not follow is the page trying to send its frame somewhere else,
   // which it may not: a fresh frame with the page takes its place, and a page
-  // that keeps leaving is taken down after three tries. the frame cannot be
+  // that keeps trying is taken down after three tries. the frame cannot be
   // looked into, so the word is how the board knows what is in it
   const page = (html, tries) => {
     view.body.textContent = "";
@@ -8864,15 +8866,15 @@ function magicView(el, hooks = {}){
     // a board that sizes the box to the page waits a moment for its height
     // (view.waiting), then shows it at whatever size it has
     if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
-    frame.addEventListener("load", () => {
+    run.loaded = () => {
       run.loads++;
-      // the word is posted from the page's own load, so it lands a moment
-      // after the frame's; half a second is long past it on a page that stayed
+      // the word is posted from the page's own load, so it lands about when
+      // the holder's does; half a second is long past it on a page that stayed
       setTimeout(() => {
         if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
       }, 500);
-    });
-    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall);
+    };
+    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall));
     run.since = Date.now();
     view.body.append(frame, h("div", "mbcover"));
   };
@@ -8896,7 +8898,10 @@ function magicView(el, hooks = {}){
   };
   addEventListener("message", e => {
     const run = view.page;
-    if (!run || e.source !== run.frame.contentWindow || typeof e.data !== "string") return;
+    if (!run || e.source !== run.frame.contentWindow) return;
+    // the page has loaded in its holder, which alone says true (MagicBox.holderDoc)
+    if (e.data === true) return run.loaded();
+    if (typeof e.data !== "string") return;
     if (e.data === run.word) run.said++;
     // control+option+left typed inside the page, which the board never hears
     // from a sealed frame: the page relays it (MagicBox.pageDoc)

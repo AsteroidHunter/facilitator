@@ -8881,7 +8881,8 @@ function magicAhead(){
 // once, unseen, in a sealed frame of its own at the width it will be shown at,
 // until it has said its height and then a moment more for anything that
 // arrives late. one page at a time, and the frame goes as soon as it is done.
-// it runs as the shown page does (MagicBox.pageDoc): no network, no keys
+// it runs as the shown page does (MagicBox.pageDoc, in its holder,
+// MagicBox.holderDoc): no network, no keys
 const MEASURE_SETTLE = 300, MEASURE_MOST = 3000;
 function magicMeasure(){
   if (!MB.el || MB.measuring) return;
@@ -8908,7 +8909,7 @@ function magicMeasure(){
       magicMeasure();
     };
     const m = MB.measuring = { frame, word, key, width, settle: 0, most: setTimeout(done, MEASURE_MOST), done };
-    frame.srcdoc = MagicBox.pageDoc(have.box.html || "", word, true);
+    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(have.box.html || "", word, true));
     document.body.appendChild(frame);
     return;
   }

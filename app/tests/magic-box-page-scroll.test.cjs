@@ -113,7 +113,7 @@ function boardSide(hooks = {}) {
   const sent = [], heard = [];
   const win = { postMessage: (...a) => sent.push(a) };
   const vctx = vm.createContext({
-    MagicBox: { pageDoc: () => "" }, getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout() {}, Date, JSON,
+    MagicBox: { pageDoc: () => "", holderDoc: page => page }, getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout() {}, Date, JSON,
     document: { id: "document", body: { id: "body" } },
     addEventListener: (type, f) => { if (type === "message") onMessage = f; },
     h: () => ({ setAttribute() {}, addEventListener() {}, clientWidth: 398, contentWindow: win, isConnected: true }),
