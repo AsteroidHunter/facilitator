@@ -7,7 +7,9 @@ where it must never take a server lane's path for a folder there.
             (the key, the door, no proxy) for the account alone, and never
             prints the key; a join the board refuses, no server key, or no
             board says so; a ready join gives the first word of the name the
-            board sent, and none for no name or a join that is not ready
+            board sent, and none for no name or a join that is not ready; a
+            ready join whose key is not the shape of the board's keys keeps
+            nothing and says so
   wait      a claim is confirmed before it is printed, without its receipt;
             each /wait call is at most WAIT_CYCLE seconds and the lane is
             looked at once, not before every call; a held card, a missing
@@ -25,6 +27,7 @@ import http.server
 import importlib.util
 import json
 import os
+import secrets
 import shutil
 import socket
 import stat
@@ -158,6 +161,46 @@ class OnAServer(unittest.TestCase):
                            env={**os.environ, "http_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9"})
         self.assertEqual(json.loads(r.stdout), {"box": None, "messages": []})
         self.assertEqual(Handler.seen[-1][2], "Bearer " + KEY)
+
+    def test_a_ready_join_with_a_key_this_server_cannot_use(self):
+        # a quote and a line break would add curl options of the answer's
+        # choosing to the config every agent command here uses
+        written = self.home / "written-by-the-board-answer"
+        injected = KEY + '"\noutput = "' + str(written) + '"\nheader = "X: y'
+        self.serve()
+        for kind, bad in (("a quote and a line break", injected), ("too short", "short-" + "q" * 13),
+                          ("too long", "long-" + "q" * 96), ("a space", "spaced " + "q" * 30)):
+            with self.subTest(key=kind):
+                Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "server": "lab",
+                                                         "key": bad, "name": "Ada"})
+                printed, said = self.run_helper("inspect")
+                self.assertEqual(said, {"status": "protocol_error", "detail": "join answered a key this server cannot use",
+                                        "remote": True, "server": "lab"})
+                self.assertNotIn(bad, printed)
+                self.assertNotIn(json.dumps(bad)[1:-1], printed)
+                self.assertFalse((self.top / "agents" / "demo.key").exists())
+                self.assertFalse((self.top / "agents" / "demo.curl").exists())
+        self.assertFalse(written.exists())
+        # the shortest and longest the rule takes, and a key as the board makes them
+        for good in ("g" * 20, "g" * 100, secrets.token_urlsafe(32)):
+            with self.subTest(key=len(good)):
+                Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "key": good})
+                self.assertEqual(self.run_helper("inspect")[1]["status"], "ready")
+                self.assertEqual((self.top / "agents" / "demo.key").read_text(), good + "\n")
+
+    def test_save_key_refuses_a_key_this_server_cannot_use(self):
+        spec = importlib.util.spec_from_file_location("onboard_helper_save_key", self.script)
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        rec = {"home": str(self.top), "board": f"http://127.0.0.1:{self.port}"}
+        for bad in (KEY + '"\nheader = "X: y', "q" * 19, "q" * 101, "q" * 20 + " ", None):
+            with self.subTest(key=bad):
+                with self.assertRaises(ValueError):
+                    helper.save_key(rec, "demo", bad)
+                self.assertFalse((self.top / "agents" / "demo.key").exists())
+                self.assertFalse((self.top / "agents" / "demo.curl").exists())
+        helper.save_key(rec, "demo", KEY)
+        self.assertEqual((self.top / "agents" / "demo.key").read_text(), KEY + "\n")
 
     def test_a_join_the_board_refuses(self):
         Handler.answers["/remote/join"] = (401, {"error": "unknown"})
