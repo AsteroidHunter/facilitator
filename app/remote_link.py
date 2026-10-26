@@ -93,7 +93,9 @@ OPS = frozenset({"dirs", "mkdir", "describe"})
 # magic box is filled, closed, reopened and read back on the lane's own cards
 # as on the Mac; its body goes to its route unread here, so the route's own
 # limits and refusals answer it, and what the page reads (/magic/body,
-# /magic/img) stays the Mac's
+# /magic/img) stays the Mac's. A widget's agent answers in it and reads its
+# record the same way; what its page sends (/magic/send, /magic/state) is the
+# board's own page's and never an agent's
 AGENT_ROUTES = {
     ("GET", "/wait"): "owner", ("POST", "/ack"): "owner", ("GET", "/fresh"): "owner",
     ("GET", "/unread"): "owner", ("POST", "/create"): "owner",
@@ -101,7 +103,7 @@ AGENT_ROUTES = {
     ("POST", "/ping"): "box", ("POST", "/title"): "box", ("POST", "/testing"): "box",
     ("POST", "/park"): "box", ("POST", "/progress"): "box", ("POST", "/context"): "box",
     ("POST", "/magic"): "box", ("POST", "/magic/close"): "box", ("POST", "/magic/reopen"): "box",
-    ("GET", "/magic"): "box",
+    ("GET", "/magic"): "box", ("POST", "/magic/answer"): "box", ("GET", "/magic/widget"): "box",
     ("GET", "/remote/lane"): "lane",
 }
 # the door's own routes, which the gate answers itself

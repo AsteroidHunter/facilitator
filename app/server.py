@@ -234,7 +234,7 @@ Endpoints:
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
                                into this repo
-  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
+  POST /magic?box=ID&kind=K[&title=T][&widget=NAME] -> fill the card's magic box, the box
                                beside the card on the Mac board (and above
                                it on the phone, pulled in from the right edge),
                                and open it, in place of whatever it held.
@@ -274,7 +274,13 @@ Endpoints:
                                content. The phone bridge refuses every /magic
                                route; the agent door lets an agent on a server
                                fill, close, reopen and read back (GET /magic)
-                               the box of its own lane's cards and no other
+                               the box of its own lane's cards and no other.
+                               widget=NAME (1 to 40 lowercase letters, digits
+                               or -) makes an html page a widget: its page may
+                               talk with the board (see /magic/widget), and the
+                               card's magic field carries widget and wrev too.
+                               The same name on a later page keeps the
+                               widget's record
   POST /magic/close?box=ID  -> hide the box and keep what it holds; {ok, open}.
                                404 when the card has no box
   POST /magic/reopen?box=ID -> show it again; {ok, open}
@@ -286,6 +292,42 @@ Endpoints:
                                {title, description, site} for a website
   GET  /magic/img?box=ID    -> the box's picture, with nosniff and a sandbox
                                policy, as a panel picture is served
+  GET  /magic/widget?box=ID -> a widget's record, as JSON with nosniff: {box,
+                               widget, rev, wrev, thread, trev, state, srev}.
+                               thread is the person's messages typed in it and
+                               the agent's answers, oldest first, each {id, by
+                               (you or agent), about, text, ts[, agent]};
+                               state is the widget's own memory or null. Kept
+                               in magic-boxes/ per card and widget name, across
+                               the box's revisions, and gone with the card.
+                               404 when the box is not a widget
+  POST /magic/send?box=ID&rev=N[&op=OP] -> body = {"text", "about"}: the
+                               person's message typed in a widget, about one
+                               of the agent's own ids (or ""). Only from the
+                               board's own pages and the signed-in phone, never
+                               from an agent (403); the page passes it on only
+                               after the person's own click or key in the box.
+                               Not put on the card: it is kept in the widget's
+                               record, queues the card for its agent under the
+                               typing hold like a message, and reaches it as
+                               widget_messages in /wait and /fresh. 8000
+                               characters at most; one a second and 30 a minute
+                               from one box (429); a page replaced since (rev)
+                               is a 409; op as /send takes it. {ok, box, id}
+  POST /magic/state?box=ID&rev=N -> body = {"state": {...}}: the widget's own
+                               memory, at most 64 KiB, kept whole. From the
+                               board's own pages and the phone only; wakes no
+                               agent and writes no transcript row. {ok, srev}
+  POST /magic/answer?box=ID&about=A[&agent=NAME] -> body = the agent's answer
+                               (plain text, 8000 characters at most) about one
+                               of its own ids (or ""), shown in the widget's
+                               open page and kept in its record, never on the
+                               card. Only from an agent: a board page and the
+                               phone are refused. It answers the widget
+                               messages about A in the claim the agent holds on
+                               the card, and once that claim holds nothing
+                               else it is let go with the card as it was.
+                               {ok, box, id, answered, released}
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
                                fetched the first time the file navigator opens a file
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
@@ -938,7 +980,9 @@ Endpoints:
                                new messages come at once;
                                {"messages": [], "message_via": [], "message_by":
                                [], "message_agent": []} when nothing new or no
-                               card held
+                               card held. widget_messages, as /wait has it,
+                               when anything was typed in the card's widget
+                               since, on the same hold
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
                                queued box owned by O (facilitator or a project
                                lane; defaults to facilitator) + its pending
@@ -955,7 +999,11 @@ Endpoints:
                                message_agent run beside it the same way: "agent"
                                and the sending agent's name (null when it gave
                                none) for a message an agent sent for the reader
-                               (/send by=agent), null for the reader's own. Also returns
+                               (/send by=agent), null for the reader's own. A
+                               card whose widget has messages waiting adds
+                               widget_messages, each {from: "widget", widget,
+                               about, text, ts}, which are never in messages
+                               (messages may be empty). Also returns
                                {"idle":true} on timeout.
                                A card is not handed out until 3.5 seconds after
                                the reader's last change in its typing box or
@@ -2120,6 +2168,15 @@ MAGIC_FETCH_TOTAL = 15.0              # seconds
 MAGIC_REDIRECTS = 5
 MAGIC_PAGE_HEAD = 256 * 1024          # bytes of a page read for its preview
 MAGIC_ADDRESS_MAX = 8192              # bytes of one web address
+# a widget, an html box whose page talks with the board (see the widget
+# below): its name, the ids of the agent's own data its messages are about,
+# and how much a message, an answer and the widget's own memory may hold
+WIDGET_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+WIDGET_ABOUT = re.compile(r"[A-Za-z0-9._-]{1,64}")
+WIDGET_TEXT_MAX = 8000                # characters of one message or answer
+WIDGET_STATE_MAX = 64 * 1024          # bytes of the widget's own memory, as JSON
+WIDGET_SEND_GAP = 1.0                 # seconds between two of the person's messages in one box
+WIDGET_SEND_MINUTE = 30               # and the most of them in a minute
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
 # binary (an ascii-only payload, or bytes that merely validate), so the navigator
@@ -2263,6 +2320,7 @@ LANE_ROUTES = {
     "/reply": "box", "/working": "box", "/ping": "box", "/title": "box", "/testing": "box",
     "/park": "box", "/props": "box", "/context": "box", "/link": "from",
     "/magic": "box", "/magic/close": "box", "/magic/reopen": "box",
+    "/magic/answer": "box", "/magic/widget": "box",
 }
 
 
@@ -3523,10 +3581,14 @@ def _box(bid: str) -> dict | None:
 
 
 def _box_has_content(box: dict) -> bool:
-    """The persisted conversation test used by every destructive close path."""
+    """The persisted conversation test used by every destructive close path.
+    What was said in the card's widget counts: wrev moves with every message
+    and answer in it."""
     return (box.get("replies", 0) > 0 or
             bool((box.get("reply") or "").strip()) or
-            bool(box.get("pending")))
+            bool(box.get("pending")) or
+            bool(box.get("widget_pending")) or
+            bool((box.get("magic") or {}).get("wrev")))
 
 
 def _stamp_rest(box: dict, now: float) -> None:
@@ -3640,7 +3702,7 @@ def _restore_binned(entry: dict) -> dict:
     at = at if isinstance(at, int) and 0 <= at <= len(_state["boxes"]) else len(_state["boxes"])
     _register_owner(card.get("owner", "facilitator"))
     _state["boxes"].insert(at, card)
-    if card.get("pending") and card["id"] not in _state["inbox"]:
+    if (card.get("pending") or card.get("widget_pending")) and card["id"] not in _state["inbox"]:
         _state["inbox"].append(card["id"])
     _log("restore", card["id"], card["title"])
     return card
@@ -4033,14 +4095,35 @@ def _release_claim(b: dict, for_answer: bool = False) -> str:
     claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == b["id"] else set()
     b["pending"] = [m for m in b["pending"] if m["mid"] not in claimed]
     _consume_claim(b, claimed, for_answer)
+    # the widget messages the claim handed over go with it the same way: a
+    # reply on the card takes them, so they are never handed over again
+    _widget_let_go(b, _state["busy"][ow] == b["id"])
     if _state["busy"][ow] == b["id"]:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
-    if b["pending"] and b["id"] not in _state["inbox"]:
+    if _waiting(b) and b["id"] not in _state["inbox"]:
         _state["inbox"].append(b["id"])
-    if not b["pending"] and b["id"] in _state["inbox"]:
+    if not _waiting(b) and b["id"] in _state["inbox"]:
         _state["inbox"].remove(b["id"])
     return ow
+
+
+def _waiting(b: dict) -> bool:
+    """Whether anything on the card waits for its agent: the person's
+    messages on the card, or theirs typed in its widget. What puts a card in
+    its lane's queue and keeps it there."""
+    return bool(b["pending"] or b.get("widget_pending"))
+
+
+def _widget_let_go(b: dict, held: bool) -> None:
+    """The widget messages a claim on the card handed over leave the card's
+    widget queue with the claim (held: the lane's claim is this card's);
+    the record of what was handed over goes either way. Callers hold _lock."""
+    handed = set(b.pop("widget_held", None) or [])
+    if held and handed and b.get("widget_pending"):
+        b["widget_pending"] = [m for m in b["widget_pending"] if m.get("wid") not in handed]
+    if "widget_pending" in b and not b["widget_pending"]:
+        del b["widget_pending"]
 
 
 def _sender(m: dict) -> dict:
@@ -4251,7 +4334,7 @@ def _release_unacked() -> None:
         _state["claimed"][ow] = []
         _state["ack"][ow] = None
         box = _box(bid)
-        if box and box["pending"] and bid not in _state["inbox"]:
+        if box and _waiting(box) and bid not in _state["inbox"]:
             _state["inbox"].insert(0, bid)
         _debug("bounce", bid, owner=_owner_word(ow))
         _log("unacked", bid, f"{ow} hand-off unconfirmed after {ACK_GRACE:.0f}s, box re-queued")
@@ -5379,7 +5462,19 @@ def _get_unread(q: Query, _):
         queued = sum(1 for b in _state["boxes"]
                      if b.get("owner", "facilitator") == owner
                      for m in b["pending"] if m["mid"] not in held)
-        return 200, {"queued": queued, "claimed": len(held)}
+        # and the same for what was typed in the lane's widgets
+        claimed = len(held)
+        busy = _state["busy"].get(owner)
+        for b in _state["boxes"]:
+            if b.get("owner", "facilitator") != owner or not b.get("widget_pending"):
+                continue
+            handed = set(b.get("widget_held") or []) if b["id"] == busy else set()
+            for m in b["widget_pending"]:
+                if m["wid"] in handed:
+                    claimed += 1
+                else:
+                    queued += 1
+        return 200, {"queued": queued, "claimed": claimed}
 
 
 def _get_fresh(q: Query, _):
@@ -5401,6 +5496,10 @@ def _get_fresh(q: Query, _):
         # a voice card is never held, so its new messages come at once
         typing = _typing_left(fbid, time.monotonic())
         fresh = [] if typing else [m for m in fbox["pending"] if m["mid"] not in have]
+        # what was typed in the card's widget since, on the same hold, folded
+        # into the claim's widget part the same way
+        handed = set(fbox.get("widget_held") or [])
+        typed = [] if typing else [m for m in fbox.get("widget_pending") or [] if m["wid"] not in handed]
         if fresh:
             _state["claimed"][owner].extend(m["mid"] for m in fresh)
             # handed over, so the reply that follows covers them: folded into
@@ -5408,6 +5507,10 @@ def _get_fresh(q: Query, _):
             # extended in, and written durably by the save below
             _hand_over_more(fbox, fresh)
             _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
+        if typed:
+            fbox["widget_held"] = [*handed, *(m["wid"] for m in typed)]
+            _log("fresh", fbid, f"{len(typed)} mid-work widget message(s) handed over")
+        if fresh or typed:
             _save()
         # the same marker /wait hands over, in the same shape and order:
         # "mini" for the small card, "voice" for a spoken message, null for
@@ -5416,10 +5519,12 @@ def _get_fresh(q: Query, _):
         # that never sees the marker gets its reply refused out of nowhere.
         # message_by and message_agent say which came from an agent sending
         # for the reader, as /wait says it
+        # and widget_messages beside them, as /wait has it, only when there are any
         return 200, *_snapshot({"box": fbid, "messages": [m["text"] for m in fresh],
                                 "message_via": [m.get("via") for m in fresh],
                                 "message_by": [_sender(m).get("by") for m in fresh],
-                                "message_agent": [_sender(m).get("agent") for m in fresh]})
+                                "message_agent": [_sender(m).get("agent") for m in fresh],
+                                **({"widget_messages": [_widget_entry(m) for m in typed]} if typed else {})})
 
 
 def _get_thread(q: Query, _):
@@ -6509,7 +6614,7 @@ def _wait_poll(owner: str):
             if stale is not None and time.time() - _state["busy_ts"].get(ow, 0) > 900:
                 _state["busy"][ow] = None
                 _state["claimed"][ow] = []
-                if _box(stale) and _box(stale)["pending"] and stale not in _state["inbox"]:
+                if _box(stale) and _waiting(_box(stale)) and stale not in _state["inbox"]:
                     _state["inbox"].insert(0, stale)
                 _save()
         if _state["busy"][owner] is None:
@@ -6524,6 +6629,13 @@ def _wait_poll(owner: str):
                 box = _box(bid)
                 _state["busy"][owner] = bid
                 _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
+                # and the widget messages waiting on it, which the claim hands
+                # over beside them and never among them
+                typed = box.get("widget_pending") or []
+                if typed:
+                    box["widget_held"] = [m["wid"] for m in typed]
+                else:
+                    box.pop("widget_held", None)
                 # the hand-over itself, which is the one moment that can say
                 # what a reply was given: this claim's own messages are noted
                 # right here where the delivery happens. the claim is minted
@@ -6573,6 +6685,11 @@ def _wait_poll(owner: str):
                     # the receipt this hand-off has to come back with
                     "ack": token,
                 }
+                # what the person typed in the card's widget, in a list of its
+                # own, each marked as the widget's: only on a claim that has
+                # any, so every other claim reads exactly as it always did
+                if typed:
+                    payload["widget_messages"] = [_widget_entry(m) for m in typed]
                 return payload, None
             return None, min((_typing_left(i, now) for i in queued), default=None)
         return None, None
@@ -6741,20 +6858,23 @@ def _magic_write(path: Path, data: bytes) -> None:
 
 def _magic_sweep(bid: str) -> None:
     """Every file of a card's box but the revision the card names now, and all
-    of them for a card the board no longer has. Callers hold _lock."""
+    of them for a card the board no longer has. A widget's own record is kept
+    across the box's revisions, whatever the box holds now, and goes only with
+    the card. Callers hold _lock."""
     box = _box(bid)
     if box is None:   # a card in the Bin keeps its box until it is deleted for good
         entry = _binned(bid)
         box = entry["card"] if entry else None
     keep = (box.get("magic") or {}).get("rev") if box else None
     mine = re.compile(re.escape(_magic_stem(bid)) + r"-([0-9]+)\.[a-z]+")
+    widgets = re.compile(re.escape(_magic_stem(bid)) + r"@[a-z0-9-]+\.widget\.json")
     try:
         names = os.listdir(MAGIC_DIR)
     except OSError:
         return
     for name in names:
         hit = mine.fullmatch(name)
-        if hit and int(hit.group(1)) != keep:
+        if (hit and int(hit.group(1)) != keep) or (box is None and widgets.fullmatch(name)):
             (MAGIC_DIR / name).unlink(missing_ok=True)
 
 
@@ -7019,16 +7139,21 @@ def _magic_one_address(body: bytes) -> str | None:
     return text if re.match(r"(?i)[a-z][a-z0-9+.-]*://", text) else None
 
 
-def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict):
+def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict,
+                 widget: str | None = None):
     """The box's new content written and the card naming it, saved as one
-    change. Run through _run_state_request, so a failure puts the board back."""
+    change. Run through _run_state_request, so a failure puts the board back.
+    widget: the name of the widget an html page is, whose record (messages,
+    answers, memory) the same name finds again on the page that replaces it."""
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
         rev = int((box.get("magic") or {}).get("rev", 0)) + 1
+        wrev = int((box.get("magic") or {}).get("wrev", 0))
         now = time.time()
-        record = {"box": bid, "kind": kind, "title": title, "rev": rev, "ts": now, **record}
+        record = {"box": bid, "kind": kind, "title": title, "rev": rev, "ts": now, **record,
+                  **({"widget": widget} if widget else {})}
         try:
             if picture is not None:
                 _magic_write(_magic_file(bid, rev, record["ext"]), picture)
@@ -7036,7 +7161,8 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
         except OSError as e:
             _error("magicfail", bid, reason=e.strerror or type(e).__name__)
             return 500, {"error": "the box could not be written"}
-        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
+        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now,
+                        **({"widget": widget, "wrev": wrev} if widget else {})}
         _magic_sweep_due.append(bid)
         # the transcript keeps that a box was opened and what kind, never what
         # it holds, the way a quick note is kept by its length. The log line
@@ -7044,7 +7170,8 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
         _log("magic", bid, "", log_fields={k: v for k, v in note.items() if k != "host"}, **note)
         _save()
         _notify()
-        answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline")}
+        answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline"),
+                  **({"widget": widget} if widget else {})}
         for key in ("reason", "url"):
             if record.get(key):
                 answer[key] = record[key]
@@ -7055,11 +7182,16 @@ def _post_magic(q: Query, body: bytes):
     """Fill a card's box and open it, in place of whatever it held."""
     bid, kind = q.one("box"), q.one("kind")
     title = " ".join(q.one("title").split())
+    widget = q.one("widget") or None
     with _lock:
         if _box(bid) is None:
             return 400, {"error": "bad box"}
     if kind not in MAGIC_KINDS:
         return 400, {"error": "kind must be one of " + ", ".join(MAGIC_KINDS)}
+    if widget is not None and kind != "html":
+        return 400, {"error": "only an html page can be a widget"}
+    if widget is not None and not WIDGET_NAME.fullmatch(widget):
+        return 400, {"error": "a widget's name is 1 to 40 lowercase letters, digits or -, starting with a letter or digit"}
     if len(title) > MAGIC_TITLE_MAX:
         return 400, {"error": f"title over {MAGIC_TITLE_MAX} characters"}
     if not body.strip():
@@ -7094,7 +7226,7 @@ def _post_magic(q: Query, body: bytes):
     # the host of a website or a web picture, never the rest of its address
     note = {"action": "open", "magic": kind, "bytes": len(body), "title_chars": len(title),
             **({"host": host} if host else {})}
-    return _run_state_request(_magic_store, bid, kind, title, record, picture, note)
+    return _run_state_request(_magic_store, bid, kind, title, record, picture, note, widget)
 
 
 def _magic_flag(q: Query, opened: bool):
@@ -7152,7 +7284,7 @@ def _get_magic(q: Query, _):
         return _magic_missing(status)
     out = {"box": bid, "open": magic["open"], "kind": record["kind"], "title": record.get("title", ""),
            "rev": magic["rev"], "ts": record.get("ts", 0), "shown": record.get("shown", "inline")}
-    for key in ("reason", "url"):
+    for key in ("reason", "url", "widget"):
         if record.get(key):
             out[key] = record[key]
     return 200, out
@@ -7168,7 +7300,7 @@ def _get_magic_body(q: Query, _):
            "rev": magic["rev"]}
     if record["kind"] == "image":
         out["src"] = f"/magic/img?box={quote(bid, safe='')}&rev={magic['rev']}"
-    for key in ("text", "html", "url", "shown", "reason", "preview"):
+    for key in ("text", "html", "url", "shown", "reason", "preview", "widget"):
         if key in record:
             out[key] = record[key]
     return Response(json.dumps(out).encode(), media_type="application/json",
@@ -7192,6 +7324,285 @@ def _get_magic_img(q: Query, _):
     return Response(data, media_type=IMG_TYPES[ext],
                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                              "Content-Security-Policy": "sandbox"})
+
+
+# ---- a widget ----------------------------------------------------------------------
+# An html box filled with widget=NAME is a widget: its page may talk with the
+# board over the box's own message channel (MagicBox.pageDoc, magicView in
+# card-logic.js), and no other box's may. What the person types in it and sends
+# reaches the card's agent in /wait and /fresh as widget_messages, beside the
+# card's own messages and never among them, and the agent answers into the
+# widget with POST /magic/answer. Neither is put on the card: its messages, its
+# replies, its answered batches and /thread stay as they are. Both are kept in
+# the widget's own record, one file per card and widget name in MAGIC_DIR, with
+# the widget's own memory (its state, such as what it shows), and both are
+# written to the transcript as rows of their own kinds, widget and
+# widget_answer. The card carries magic.widget and magic.wrev, which moves with
+# every message and answer, so an open page reads the record again within one
+# reading of the board. The board's own page passes a message on only after a
+# click or key of the person's in the box, which no page can make (magicView);
+# here only the page's own routes take one, and no agent's request does. The
+# answer route is the agent's alone, and neither a page nor the phone reaches it.
+
+_widget_sends: dict[str, list] = {}   # card id -> time.monotonic() of the widget's recent sends, under _lock
+
+
+def _widget_of(box: dict) -> str | None:
+    """The name of the widget the card's box holds now, or None."""
+    magic = box.get("magic") or {}
+    name = magic.get("widget")
+    return name if magic.get("kind") == "html" and isinstance(name, str) and WIDGET_NAME.fullmatch(name) else None
+
+
+def _widget_file(bid: str, name: str) -> Path:
+    # an @ is never in a card's part of a name (_MAGIC_SAFE_ID), so no card's
+    # widget file can be taken for another card's
+    return MAGIC_DIR / f"{_magic_stem(bid)}@{name}.widget.json"
+
+
+def _widget_raw(bid: str, name: str) -> bytes | None:
+    try:
+        return _widget_file(bid, name).read_bytes()
+    except OSError:
+        return None
+
+
+def _widget_read(bid: str, name: str) -> dict:
+    """The widget's record: thread, the person's messages and the agent's
+    answers, oldest first; next, the next one's id; trev and srev, the
+    thread's and the state's revisions; state, the widget's own memory or
+    None. A record missing or unreadable reads empty."""
+    try:
+        rec = json.loads(_widget_raw(bid, name) or b"null")
+    except ValueError:
+        rec = None
+    rec = rec if isinstance(rec, dict) else {}
+    count = lambda v: v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+    thread = [m for m in rec.get("thread") or [] if isinstance(m, dict)] if isinstance(rec.get("thread"), list) else []
+    top = max((count(m.get("id")) for m in thread), default=0)
+    return {"thread": thread, "next": max(count(rec.get("next")), top + 1), "trev": count(rec.get("trev")),
+            "state": rec["state"] if isinstance(rec.get("state"), dict) else None, "srev": count(rec.get("srev"))}
+
+
+def _widget_write(bid: str, name: str, rec: dict) -> None:
+    _magic_write(_widget_file(bid, name), json.dumps({"box": bid, "widget": name, **rec}).encode())
+
+
+def _widget_saved(bid: str, name: str, before: bytes | None) -> None:
+    """The board saved after its widget's record was written: a save that
+    fails puts the record back as it was, so the two never disagree."""
+    try:
+        _save()
+    except BaseException:
+        try:
+            if before is None:
+                _widget_file(bid, name).unlink(missing_ok=True)
+            else:
+                _magic_write(_widget_file(bid, name), before)
+        except OSError:
+            pass
+        raise
+
+
+def _widget_entry(m: dict) -> dict:
+    """One message typed in a widget, as its agent is handed it, marked as
+    the widget's."""
+    return {"from": "widget", "widget": m.get("widget", ""), "about": m.get("about", ""),
+            "text": m.get("text", ""), "ts": m.get("ts", 0)}
+
+
+def _widget_card(q: Query):
+    """(status, error or None, the card, its widget's name) for a widget
+    route's box=, rev= checked against the page's revision when given.
+    Callers hold _lock."""
+    box = _box(q.one("box"))
+    if box is None:
+        return 400, {"error": "bad box"}, None, None
+    name = _widget_of(box)
+    if name is None:
+        return 404, {"error": "this card's box is not a widget"}, None, None
+    if "rev" in q and q.one("rev") != str(box["magic"]["rev"]):
+        return 409, {"error": "this page was replaced"}, None, None
+    return 200, None, box, name
+
+
+def _widget_body(text: str) -> dict | None:
+    try:
+        said = json.loads(text or "")
+    except ValueError:
+        return None
+    return said if isinstance(said, dict) else None
+
+
+def _get_magic_widget(q: Query, _):
+    """The widget's record, for the page showing it and for its agent."""
+    with _lock:
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        rec = _widget_read(box["id"], name)
+        out = {"box": box["id"], "widget": name, "rev": box["magic"]["rev"], "wrev": box["magic"].get("wrev", 0),
+               "thread": rec["thread"], "trev": rec["trev"], "state": rec["state"], "srev": rec["srev"]}
+    return Response(json.dumps(out).encode(), media_type="application/json",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _post_magic_send(q: Query, text: str):
+    """The person's message typed in a widget, about one of the agent's own ids
+    (about, which may be empty). The body is {text, about}; rev is the page's
+    revision and op the page's operation id, as /send takes one."""
+    if q.agent:
+        return 403, {"error": "a widget's messages come only from the board's own page"}
+    bid, op = q.one("box"), q.one("op")
+    if op and not _op_id_ok(op):
+        return 400, {"error": "bad operation id"}
+    said = _widget_body(text)
+    if said is None:
+        return 400, {"error": "a widget message is a JSON object"}
+    words, about = said.get("text"), said.get("about", "")
+    if not isinstance(words, str) or not words.strip():
+        return 400, {"error": "a widget message needs words"}
+    words = words.strip()
+    if len(words) > WIDGET_TEXT_MAX:
+        return 400, {"error": f"a widget message is at most {WIDGET_TEXT_MAX} characters"}
+    if not isinstance(about, str) or (about and not WIDGET_ABOUT.fullmatch(about)):
+        return 400, {"error": "about is one id of 1 to 64 letters, digits, ., - or _"}
+    now = time.monotonic()
+    with _lock:
+        fp = _fingerprint("widget", bid, about, words) if op else ""
+        if op:
+            found, rec = _op_lookup(op, fp)
+            if found == "mismatch":
+                return 409, {"error": "operation id reused with a different payload"}
+            if found == "same":
+                return 200, {**rec["result"], "replayed": True}
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        sent = [t for t in _widget_sends.get(bid, []) if now - t < 60]
+        if (sent and now - sent[-1] < WIDGET_SEND_GAP) or len(sent) >= WIDGET_SEND_MINUTE:
+            return 429, {"error": "too many messages from this widget; wait a moment"}
+        before = _widget_raw(bid, name)
+        rec = _widget_read(bid, name)
+        wid, ts = rec["next"], time.time()
+        rec["next"] += 1
+        rec["trev"] += 1
+        rec["thread"].append({"id": wid, "by": "you", "about": about, "text": words, "ts": ts})
+        try:
+            _widget_write(bid, name, rec)
+        except OSError as e:
+            _error("widgetfail", bid, reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the widget could not be written"}
+        msg = {"wid": wid, "widget": name, "about": about, "text": words, "ts": ts, **({"op": op} if op else {})}
+        box.setdefault("widget_pending", []).append(msg)
+        box["magic"]["wrev"] = int(box["magic"].get("wrev", 0)) + 1
+        ow = box.get("owner", "facilitator")
+        if bid not in _state["inbox"] and _state["busy"].get(ow) != bid:
+            _state["inbox"].append(bid)
+        result = {"ok": True, "box": bid, "id": wid}
+        if op:
+            _op_commit(op, fp, "widget", bid, result)
+        _log("widget", bid, words, log_fields={"widget": name}, widget=name, about=about, wid=wid,
+             **({"op": op} if op else {}))
+        _widget_saved(bid, name, before)
+        _widget_sends[bid] = sent + [now]
+        # one more change on the card, so the typing hold covers a quick run
+        # of them as it covers messages typed on the card
+        _typing_change(bid, time.monotonic())
+        _notify()
+        return 200, result
+
+
+def _post_magic_state(q: Query, text: str):
+    """The widget's own memory, a JSON object, whole: {state}. It is the
+    page's to keep, wakes nobody and puts nothing in the transcript."""
+    if q.agent:
+        return 403, {"error": "a widget's memory is kept only by the board's own page"}
+    said = _widget_body(text)
+    state = said.get("state") if said is not None else None
+    if not isinstance(state, dict):
+        return 400, {"error": "a widget's state is a JSON object"}
+    if len(json.dumps(state).encode()) > WIDGET_STATE_MAX:
+        return 413, {"error": f"a widget's state is at most {WIDGET_STATE_MAX // 1024} KiB"}
+    with _lock:
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        rec = _widget_read(box["id"], name)
+        rec["state"] = state
+        rec["srev"] += 1
+        try:
+            _widget_write(box["id"], name, rec)
+        except OSError as e:
+            _error("widgetfail", box["id"], reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the widget could not be written"}
+        return 200, {"ok": True, "srev": rec["srev"]}
+
+
+def _post_magic_answer(q: Query, text: str):
+    """The card's agent answers in its widget, about one of its own ids
+    (about, which may be empty). The answer goes into the widget's record and
+    the open page, never onto the card. The widget messages about that id the
+    agent holds in its claim on the card are answered by it; once its claim
+    holds nothing else, neither the card's messages nor the widget's, the
+    claim is let go, and the card is left as it was."""
+    if not q.agent:
+        return 403, {"error": "only the card's agent answers in its widget"}
+    bid, about = q.one("box"), q.one("about")
+    agent = q.one("agent").strip()[:24]
+    if about and not WIDGET_ABOUT.fullmatch(about):
+        return 400, {"error": "about is one id of 1 to 64 letters, digits, ., - or _"}
+    if not text:
+        return 400, {"error": "the answer is empty"}
+    if len(text) > WIDGET_TEXT_MAX:
+        return 400, {"error": f"an answer is at most {WIDGET_TEXT_MAX} characters: this one is {len(text)}"}
+    with _lock:
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        before = _widget_raw(bid, name)
+        rec = _widget_read(bid, name)
+        wid = rec["next"]
+        rec["next"] += 1
+        rec["trev"] += 1
+        rec["thread"].append({"id": wid, "by": "agent", "about": about, "text": text, "ts": time.time(),
+                              **({"agent": agent} if agent else {})})
+        try:
+            _widget_write(bid, name, rec)
+        except OSError as e:
+            _error("widgetfail", bid, reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the widget could not be written"}
+        ow = box.get("owner", "facilitator")
+        answered, released = 0, False
+        if _state["busy"].get(ow) == bid:
+            handed = box.get("widget_held") or []
+            done = {m["wid"] for m in box.get("widget_pending") or []
+                    if m["wid"] in handed and m.get("about", "") == about}
+            if done:
+                answered = len(done)
+                box["widget_pending"] = [m for m in box["widget_pending"] if m["wid"] not in done]
+                box["widget_held"] = [w for w in handed if w not in done]
+                if not box["widget_pending"]:
+                    del box["widget_pending"]
+                if not box["widget_held"]:
+                    del box["widget_held"]
+                if not box.get("widget_held") and not _state["claimed"][ow]:
+                    _state["busy"][ow] = None
+                    _state["claimed"][ow] = []
+                    _state["ack"][ow] = None
+                    box.pop("claim_agent", None)
+                    released = True
+                    if _waiting(box) and bid not in _state["inbox"]:
+                        _state["inbox"].append(bid)
+                    elif not _waiting(box) and bid in _state["inbox"]:
+                        _state["inbox"].remove(bid)
+        _last_wait[ow] = time.time()   # an answer proves the lane's agent is alive, as a reply does
+        box["magic"]["wrev"] = int(box["magic"].get("wrev", 0)) + 1
+        _log("widget_answer", bid, text, log_fields={"widget": name, "answered": answered},
+             widget=name, about=about, wid=wid, answered=answered, **({"agent": agent} if agent else {}))
+        _widget_saved(bid, name, before)
+        _notify()
+        return 200, {"ok": True, "box": bid, "id": wid, "answered": answered, "released": released}
 
 
 def _sweep_upload_parts() -> None:
@@ -8582,6 +8993,11 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
         if _state["busy"].get(ow) == bid:
             _state["busy"][ow] = None
             _state["claimed"][ow] = []
+        # what was typed in the card's widget is not the card's queue: it
+        # stays, and waits for its agent again
+        if box.get("widget_pending"):
+            box.pop("widget_held", None)
+            _state["inbox"].append(bid)
         # a live flag keeps its green through a dismissal; anything
         # else lands where the card rests, an unanswered reply beneath
         # the dropped queue showing again
@@ -10730,6 +11146,14 @@ ROUTES = [
     Route("/magic/reopen", _state_endpoint(_post_magic_reopen, "text"), methods=["POST"]),
     Route("/magic/body", _endpoint(_get_magic_body), methods=["GET"]),
     Route("/magic/img", _endpoint(_get_magic_img), methods=["GET"]),
+    # a widget: its record, read by its page and its agent; the person's
+    # messages and the page's memory, from the board's own page; the agent's
+    # answers (the widget section above)
+    Route("/magic/widget", _endpoint(_get_magic_widget), methods=["GET"]),
+    Route("/magic/send", _state_endpoint(_post_magic_send, "text", 64 * 1024), methods=["POST"]),
+    Route("/magic/state", _endpoint(_post_magic_state, "text", WIDGET_STATE_MAX + 4096,
+                                    "a widget's state is at most 64 KiB"), methods=["POST"]),
+    Route("/magic/answer", _state_endpoint(_post_magic_answer, "text"), methods=["POST"]),
     Route("/upload", _post_upload, methods=["POST"]),
     Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
@@ -11504,9 +11928,10 @@ def main() -> None:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
             _state["claimed"] = {ow: [] for ow in OWNERS}
             _state["ack"] = {ow: None for ow in OWNERS}   # and no token outlives it
-            # re-queue any box that still has unanswered messages
+            # re-queue any box that still has unanswered messages, its
+            # widget's included
             for b in _state["boxes"]:
-                if b["pending"] and b["id"] not in _state["inbox"]:
+                if _waiting(b) and b["id"] not in _state["inbox"]:
                     _state["inbox"].append(b["id"])
             _bin_expire()   # cards past their 30 days in the Bin go for good
             _save()

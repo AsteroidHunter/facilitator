@@ -832,8 +832,9 @@ test("every box draws these same lines: nothing is picked, kept or read from the
   assert.ok(!/\.2205|\.0601|\.436|\.0413|\.887|\.0959/.test(code), "an old layout's numbers are in the line's code");
   for (const gone of ["MAGIC_LINES", "_magic_lines", "magic_lines_last"])
     assert.ok(!server.includes(gone), gone + " is still in the server");
-  // what a box record keeps is no longer a style
-  assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now\}/);
+  // what a box record keeps is no longer a style: a widget's name and record
+  // revision are all it adds, and only for a widget
+  assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now,\s*\*\*\(\{"widget": widget, "wrev": wrev\} if widget else \{\}\)\}/);
 });
 
 test("the lines are plain dashes: no barbell, tabs, dots, brush, dabs or beads", () => {
@@ -1341,7 +1342,7 @@ function phoneBoxScript(page, { drawn = true } = {}) {
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
     magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false,
-      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {} }),
+      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {}, widgetSync() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
     menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
     drawerOpen: () => classes.has("open"),
@@ -2560,7 +2561,7 @@ test("a picture clicked open in the box expands it through the page, a picture i
 test("both pages hand the view their expand, say when the box is moving, and show the words again as it lands", () => {
   const html = read("index.html"), page = read("m.html");
   assert.match(html, /expand: from => \{ magicBig\(from\); return MB\.view\.big; \},\s*moving: \(\) => !!MB\.move,/);
-  assert.match(page, /expand: from => \{ phoneMagicBig\(from\); return PB\.view\.big; \},\s*moving: \(\) => !!PB\.move \}\);/);
+  assert.match(page, /expand: from => \{ phoneMagicBig\(from\); return PB\.view\.big; \},\s*moving: \(\) => !!PB\.move,/);
   // the Mac: the words come back as the box lands beside the card, or at once when it does not travel
   const { ctx, MB } = boardBig();
   const solos = [];

@@ -8783,6 +8783,7 @@ function magicView(el, hooks = {}){
   view.clear = () => {
     zoomOff(false);
     view.url = ""; view.page = null; view.natural = null; view.fade = null; view.lead = null; view.known = false;
+    view.widget = null;
     if (view.alone){ view.alone = null; view.body.classList.remove("alone"); }
     delete view.body.dataset.kind;
     view.body.textContent = "";
@@ -8822,6 +8823,8 @@ function magicView(el, hooks = {}){
       };
       own.src = box.src;
     } else if (box.kind === "html"){
+      // a page its agent named a widget talks with the board, for this card alone
+      view.widget = box.widget ? { box: box.box, rev: box.rev, name: box.widget } : null;
       page(box.html || "", 0);
     } else if (box.kind === "url" && box.shown === "frame"){
       const frame = h("iframe", "mbframe");
@@ -8860,7 +8863,7 @@ function magicView(el, hooks = {}){
     frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
     frame.setAttribute("referrerpolicy", "no-referrer");
     const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0,
-      seen: { top: 0, whole: 0, client: 0 }, sent: 0 };
+      seen: { top: 0, whole: 0, client: 0 }, sent: 0, ready: false, wrev: null, sends: [], save: null };
     // a board that sizes the box to the page waits a moment for its height
     // (view.waiting), then shows it at whatever size it has
     if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
@@ -8872,7 +8875,7 @@ function magicView(el, hooks = {}){
         if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
       }, 500);
     });
-    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall);
+    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall, !!view.widget);
     run.since = Date.now();
     view.body.append(frame, h("div", "mbcover"));
   };
@@ -8896,7 +8899,14 @@ function magicView(el, hooks = {}){
   };
   addEventListener("message", e => {
     const run = view.page;
-    if (!run || e.source !== run.frame.contentWindow || typeof e.data !== "string") return;
+    if (!run || e.source !== run.frame.contentWindow) return;
+    // a widget's request, heard only once the page has said its word since it
+    // last loaded (widgetNote, below)
+    if (e.data && typeof e.data === "object"){
+      if (run.said && run.said >= run.loads) widgetNote(run, e.data);
+      return;
+    }
+    if (typeof e.data !== "string") return;
     if (e.data === run.word) run.said++;
     // control+option+left typed inside the page, which the board never hears
     // from a sealed frame: the page relays it (MagicBox.pageDoc)
@@ -8942,6 +8952,115 @@ function magicView(el, hooks = {}){
       }
     }
   });
+  // a widget: a page its agent named one (box.widget) asks the board in plain
+  // JSON objects (MagicBox.WIDGET) and is answered here, for its own card and
+  // nothing else: its record (widget/ready), the person's message about one of
+  // the page's own ids (widget/send) and its own memory (widget/state); later
+  // answers and messages reach it as widget/data with no reload (widgetSync).
+  // A message is passed on only while the board's own window shows the
+  // person's fresh activation, which a click, tap or key of theirs in the
+  // frame gives every window above it and no script can make, and only while
+  // they are at the box (hooks.atBox), never more than one a second or 30 a
+  // minute. Nothing is heard from a website's frame or the Mac's measuring
+  // copy, which are never view.page, and nothing is told a page before it has
+  // asked widget/ready. The routes take a page's messages and memory only from
+  // the board's own pages, and the agent's answers only from an agent
+  const WIDGET_ID = /^[A-Za-z0-9_-]{8,64}$/, WIDGET_NOTE_MOST = 80 * 1024;
+  const widgetPost = (run, m) => {
+    if (view.page !== run) return;
+    try { run.frame.contentWindow.postMessage({ jsonrpc: "2.0", ...m }, "*"); } catch (_) {}
+  };
+  const widgetFail = (run, id, code, message) => widgetPost(run, { id, error: { code, message } });
+  const widgetAsk = async (route, init) => {
+    const r = await fetch(route, { cache: "no-store", credentials: "same-origin", ...init });
+    let body = null;
+    try { body = await r.json(); } catch (_) {}
+    return { status: r.status, body };
+  };
+  const widgetRead = w => widgetAsk("/magic/widget?box=" + encodeURIComponent(w.box));
+  const widgetAt = (route, w) => route + "?box=" + encodeURIComponent(w.box) + "&rev=" + encodeURIComponent(w.rev);
+  // a refusal in the page's terms: the page replaced, too fast, wrong, or try again
+  const widgetRefused = (run, id, status, body, again) => widgetFail(run, id,
+    status === 409 ? -32003 : status === 429 ? -32002 : status === 400 || status === 413 ? -32602 : -32005,
+    status === 409 ? "this page was replaced" : status === 429 ? "too many sends" :
+      (status === 400 || status === 413) && body && body.error ? body.error : again);
+  function widgetNote(run, m){
+    const w = view.widget;
+    if (!w || m.jsonrpc !== "2.0" || typeof m.id !== "string") return;
+    if (!WIDGET_ID.test(m.id) || typeof m.method !== "string") return m.id.length <= 64 && widgetFail(run, m.id, -32600, "invalid request");
+    let size = Infinity;
+    try { size = JSON.stringify(m).length; } catch (_) {}
+    if (size > WIDGET_NOTE_MOST) return widgetFail(run, m.id, -32602, "too large");
+    const p = m.params && typeof m.params === "object" ? m.params : {};
+    if (m.method === "widget/ready"){
+      widgetRead(w).then(({ status, body }) => {
+        if (status !== 200 || !body) return widgetRefused(run, m.id, status, body, "not read, try again");
+        if (body.rev !== w.rev) return widgetFail(run, m.id, -32003, "this page was replaced");
+        run.ready = true;
+        run.wrev = body.wrev;
+        widgetPost(run, { id: m.id, result: { thread: body.thread, trev: body.trev, state: body.state, srev: body.srev } });
+      }).catch(() => widgetFail(run, m.id, -32005, "not read, try again"));
+    } else if (m.method === "widget/send"){
+      const ua = navigator.userActivation;
+      if (!ua || !ua.isActive || !hooks.atBox || !hooks.atBox()) return widgetFail(run, m.id, -32001, "needs a click or key in the box");
+      if (typeof p.text !== "string" || !p.text.trim() || (p.about != null && typeof p.about !== "string"))
+        return widgetFail(run, m.id, -32602, "a message is words, about one id");
+      const now = Date.now();
+      run.sends = run.sends.filter(t => now - t < 60000);
+      if ((run.sends.length && now - run.sends[run.sends.length - 1] < 1000) || run.sends.length >= 30)
+        return widgetFail(run, m.id, -32002, "too many sends");
+      run.sends.push(now);
+      widgetAsk(widgetAt("/magic/send", w) + "&op=" + encodeURIComponent(m.id),
+        { method: "POST", body: JSON.stringify({ text: p.text, about: p.about || "" }) }).then(({ status, body }) => {
+        if (status !== 200 || !body) return widgetRefused(run, m.id, status, body, "not sent, try again");
+        widgetPost(run, { id: m.id, result: { id: body.id } });
+        widgetFresh(run, w);
+      }).catch(() => widgetFail(run, m.id, -32005, "not sent, try again"));
+    } else if (m.method === "widget/state"){
+      if (!p.state || typeof p.state !== "object" || Array.isArray(p.state)) return widgetFail(run, m.id, -32602, "state is an object");
+      // at most four saves a second: a save asked while one is on its way, or
+      // sooner, waits, and only the latest goes; one it replaces is answered
+      // that it was replaced
+      const save = run.save || (run.save = { busy: false, next: null, at: 0, timer: 0 });
+      if (save.next) widgetPost(run, { id: save.next.id, result: { srev: null, replaced: true } });
+      save.next = { id: m.id, state: p.state };
+      widgetSave(run, w);
+    } else widgetFail(run, m.id, -32601, "method not found");
+  }
+  function widgetSave(run, w){
+    const save = run.save;
+    if (!save || save.busy || !save.next || view.page !== run) return;
+    const wait = save.at + 250 - Date.now();
+    if (wait > 0){
+      if (!save.timer) save.timer = setTimeout(() => { save.timer = 0; widgetSave(run, w); }, wait);
+      return;
+    }
+    const { id, state } = save.next;
+    save.next = null; save.busy = true; save.at = Date.now();
+    widgetAsk(widgetAt("/magic/state", w), { method: "POST", body: JSON.stringify({ state }) })
+      .then(({ status, body }) => status === 200 && body ? widgetPost(run, { id, result: { srev: body.srev } })
+        : widgetRefused(run, id, status, body, "not saved, try again"))
+      .catch(() => widgetFail(run, id, -32005, "not saved, try again"))
+      .finally(() => { save.busy = false; widgetSave(run, w); });
+  }
+  // the record read again and told the page, once it has asked widget/ready
+  function widgetFresh(run, w){
+    if (!run.ready || run.reading) return;
+    run.reading = true;
+    widgetRead(w).then(({ status, body }) => {
+      if (status !== 200 || !body || body.rev !== w.rev) return;
+      run.wrev = body.wrev;
+      widgetPost(run, { method: "widget/data", params: { thread: body.thread, trev: body.trev } });
+    }).catch(() => {}).finally(() => { run.reading = false; });
+  }
+  // at every reading of the board, with the card's magic field: a widget's
+  // record that has moved (wrev, by a message or an answer) is read and told
+  // its open page
+  view.widgetSync = magic => {
+    const run = view.page, w = view.widget;
+    if (!run || !w || !run.ready || !magic || magic.rev !== w.rev || magic.wrev === run.wrev) return;
+    widgetFresh(run, w);
+  };
   // an agent's page as something control+S can scroll, in the shape the board's
   // hold-to-scroll motion (responseScrollKey) takes of a response: what it
   // reads and writes is the page's, through the words it and the board

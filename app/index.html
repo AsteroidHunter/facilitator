@@ -8718,7 +8718,10 @@ if (MB.el){
     expand: from => { magicBig(from); return MB.view.big; },
     moving: () => !!MB.move,
     pageHeight: width => magicHeight(MB.id + ":" + MB.rev, width),
-    heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); } });
+    heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); },
+    // the owner is at the box, for a widget's message: the pointer over it or
+    // the box holding the keys (magicPointer, magicHold)
+    atBox: () => MB.el.classList.contains("on") && (MB.over || MB.el.classList.contains("held")) });
   MB.body = MB.view.body;
   MB.el.querySelector(".mbclose").addEventListener("click", () => magicClose());
   // the green button expands the box and puts it back (magicBig). what held
@@ -8776,6 +8779,8 @@ function magicSync(){
     // opened again while it was sinking: it rises back from where it is
     boxBack(MB);
     magicPlace();
+    // and a widget's page hears what its agent answered since
+    MB.view.widgetSync(b.magic);
   }
 }
 // the box off the page with everything in it, so a frame that was showing
@@ -8908,7 +8913,7 @@ function magicMeasure(){
       magicMeasure();
     };
     const m = MB.measuring = { frame, word, key, width, settle: 0, most: setTimeout(done, MEASURE_MOST), done };
-    frame.srcdoc = MagicBox.pageDoc(have.box.html || "", word, true);
+    frame.srcdoc = MagicBox.pageDoc(have.box.html || "", word, true, false, !!have.box.widget);
     document.body.appendChild(frame);
     return;
   }

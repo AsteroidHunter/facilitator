@@ -373,6 +373,35 @@ class MagicFromAServer(unittest.TestCase):
                 said = here.stderr.replace("magic.py CARD", "facilitator magic CARD")
                 self.assertEqual(said.split("\n\n")[0], mac.stderr.split("\n\n")[0])
 
+    def test_g_a_widget_answered_from_a_server(self):
+        box = self.demo_box
+        made = self.filled(box, "html", "-", "--widget", "issues",
+                           stdin="<!doctype html><p>a widget</p><script>facilitator.ready()</script>")
+        self.assertEqual((made["kind"], made["widget"]), ("html", "issues"))
+        # the person's message, from the board's own page on the Mac
+        rev = made["rev"]
+        page = urllib.request.Request(f"http://127.0.0.1:{self.port}/magic/send?box={box}&rev={rev}&op=fromthepage1",
+                                      method="POST", data=json.dumps({"text": "Is t4 still needed?", "about": "t4"}).encode(),
+                                      headers={"Origin": f"http://127.0.0.1:{self.port}", "Sec-Fetch-Site": "same-origin"})
+        with NO_PROXY.open(page, timeout=30) as r:
+            self.assertEqual(r.status, 200)
+        claim = self.helper("wait", "--owner", "demo", "--agent", "opus", "--timeout", "20")
+        self.assertEqual((claim["status"], claim["box"], claim["messages"]), ("claim", box, []))
+        self.assertEqual([(m["from"], m["about"], m["text"]) for m in claim["widget_messages"]],
+                         [("widget", "t4", "Is t4 still needed?")])
+        # the server's agent answers in it, reads it back, and may not send or keep its memory
+        answered = self.filled(box, "answer", "t4", "Yes, still needed.", "--agent", "opus")
+        self.assertEqual((answered["answered"], answered["released"]), (1, True))
+        record = self.filled(box, "widget")
+        self.assertEqual([(m["by"], m["text"]) for m in record["thread"]],
+                         [("you", "Is t4 still needed?"), ("agent", "Yes, still needed.")])
+        for route in (f"/magic/send?box={box}&rev={rev}", f"/magic/state?box={box}&rev={rev}"):
+            with self.subTest(route=route):
+                self.assertEqual(self.curl("POST", route, json.dumps({"text": "x", "state": {}})),
+                                 (403, {"error": "an agent on a server may not use this"}))
+        self.refused("this key is for another project", self.mac_box, "answer", "t4", "not yours")
+        self.refused("this key is for another project", self.mac_box, "widget")
+
 
 class Door:
     """A stand-in for the board's agent door on a raw socket, so what the

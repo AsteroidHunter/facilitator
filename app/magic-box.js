@@ -241,6 +241,43 @@
   // there. It stands ahead of the agent's own styles, which may still say
   // otherwise
   const TAPS = "<style>*{touch-action:manipulation}</style>";
+  // a widget's page (an html box its agent named a widget) talks with the
+  // board in plain JSON objects, JSON-RPC 2.0's shape, over the same channel:
+  // a request {jsonrpc, id, method, params} is answered once with {jsonrpc, id,
+  // result} or {jsonrpc, id, error: {code, message}}, and the board's own notes
+  // carry no id. This gives the page one way to do it, window.facilitator,
+  // ahead of the agent's own script:
+  //   facilitator.ready()            -> {thread, trev, state, srev}: what was
+  //                                     said in it so far and its own memory
+  //   facilitator.send(text, about)  -> {id}: the person's message, about one
+  //                                     of the page's own ids; the board takes
+  //                                     it only just after the person's own
+  //                                     click or key in the box
+  //   facilitator.save(state)        -> {srev}: the widget's own memory
+  //   facilitator.on("data", fn)     -> fn({thread, trev}) each time the
+  //                                     agent answers, or another copy of the
+  //                                     page sends, with no reload
+  // It adds no power: a page could post the same objects itself. Its requests
+  // go once the page has said its word on load, so the board has heard the
+  // word first (magicView)
+  const WIDGET = "(() => {" +
+    "const waiting = new Map(), early = [], heard = { data: [] }; let n = 0, loaded = false, ready = null;" +
+    "const post = m => parent.postMessage(m, '*');" +
+    "addEventListener('load', () => { loaded = true; for (const m of early.splice(0)) post(m); });" +
+    "const ask = (method, params) => new Promise((resolve, reject) => {" +
+    "const id = 'w' + (++n).toString(36) + Math.random().toString(36).slice(2, 10); waiting.set(id, { resolve, reject });" +
+    "const m = { jsonrpc: '2.0', id, method, params }; if (loaded) post(m); else early.push(m); });" +
+    "addEventListener('message', e => { const m = e.data;" +
+    "if (e.source !== parent || !m || typeof m !== 'object' || m.jsonrpc !== '2.0') return;" +
+    "if (typeof m.id === 'string' && waiting.has(m.id)) { const w = waiting.get(m.id); waiting.delete(m.id);" +
+    "if (m.error) w.reject(m.error); else w.resolve(m.result); return; }" +
+    "if (m.method === 'widget/data') for (const fn of heard.data) { try { fn(m.params); } catch (_) {} } });" +
+    "Object.defineProperty(window, 'facilitator', { value: Object.freeze({" +
+    "ready: () => ready || (ready = ask('widget/ready', {}))," +
+    "send: (text, about) => ask('widget/send', { text: String(text == null ? '' : text), about: about == null ? '' : String(about) })," +
+    "save: state => ask('widget/state', { state })," +
+    "on: (what, fn) => { if (heard[what] && typeof fn === 'function') heard[what].push(fn); } }) });" +
+    "})();";
   // word: when given, the page tells the board it is still itself each time it
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back.
@@ -249,12 +286,14 @@
   // scrolls and says its keys for control+S (PAGE_SCROLL); the Mac's box asks
   // for it. tall: the page says its height and Escape and nothing more, for the
   // phone's drawer, which lays the page out that tall and scrolls the box, and
-  // keeps a second tap from zooming (TAPS)
-  function pageDoc(html, word, sized, tall) {
+  // keeps a second tap from zooming (TAPS). widget: the page is a widget and is
+  // given its way to talk with the board (WIDGET), after the word, so the word
+  // is said first on load
+  function pageDoc(html, word, sized, tall, widget) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
     const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_ESCAPE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT + PAGE_ESCAPE : "";
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
-      (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
+      (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + (widget ? ";" + WIDGET : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
       '<meta name="referrer" content="no-referrer">' + (sized ? CALM : tall ? TAPS : "") + '<script>' + KEYS_GUARD + ZOOM_GUARD + '</script>' + hello +
       String(html == null ? "" : html);
@@ -263,5 +302,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, WIDGET, pageDoc, SITE_SANDBOX };
 })(globalThis);

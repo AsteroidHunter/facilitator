@@ -75,6 +75,31 @@ test("close hides the magic box, reopen shows it, show prints what it holds", as
   assert.equal(JSON.parse(run.out).open, true);
 });
 
+test("--widget makes a page a widget, answer puts the agent's answer in it and widget prints its record", async () => {
+  let run = magic(["1.1", "html", "<p>a widget</p>", "--widget", "issues"]);
+  assert.equal(run.code, 0, run.err);
+  assert.equal(JSON.parse(run.out).widget, "issues");
+  run = magic(["1.1", "answer", "t3-sound", "Yes, it plays once.", "--agent", "opus"]);
+  assert.equal(run.code, 0, run.err);
+  assert.deepEqual([JSON.parse(run.out).ok, JSON.parse(run.out).answered, JSON.parse(run.out).released], [true, 0, false]);
+  run = magic(["1.1", "answer", "", "-"], "about nothing in particular");
+  assert.equal(run.code, 0, run.err);
+  run = magic(["1.1", "widget"]);
+  assert.equal(run.code, 0, run.err);
+  const record = JSON.parse(run.out);
+  assert.deepEqual(record.thread.map(m => [m.by, m.about, m.text, m.agent]),
+    [["agent", "t3-sound", "Yes, it plays once.", "opus"], ["agent", "", "about nothing in particular", undefined]]);
+  // what the board refuses, and what the command refuses before asking it
+  for (const [args, words] of [[["0", "answer", "t1", "no widget here"], /^magic: this card's box is not a widget$/],
+    [["1.1", "answer", "t 1", "x"], /^magic: about is one id/], [["1.1", "text", "x", "--widget", "issues"], /only an html page/],
+    [["1.1", "answer"], /^magic: answer needs the id/], [["1.1", "widget", "extra"], /^magic: widget takes only the card$/],
+    [["1.1", "text", "x", "--agent", "opus"], /^magic: --agent goes with answer$/]]) {
+    run = magic(args);
+    assert.equal(run.code, 1, args.join(" "));
+    assert.match(run.err, words, args.join(" "));
+  }
+});
+
 test("the board's refusals come back in its own words with exit 1", () => {
   const cases = [
     [["nope", "text", "x"], /^magic: bad box$/],
