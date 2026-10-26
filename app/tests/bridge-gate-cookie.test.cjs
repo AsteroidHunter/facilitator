@@ -1,7 +1,8 @@
 // The sign-in cookie is SameSite=Lax, a signed-in page open sends it again, a
 // turned-away request writes one rate-limited log line, and cross-site writes
 // are still refused with the Lax cookie present, and so is a cross-site GET of
-// any route but the page opens. A copied server on spare ports
+// any route but the page opens; wrong passwords lock out only the phone
+// address that sent them. A copied server on spare ports
 // with its own state folder, log folder and a password made for this run.
 const assert = require("node:assert/strict");
 const { test, before, after } = require("node:test");
@@ -318,4 +319,23 @@ test("a typing report through the phone's door is a write of its own page, as a 
   }
   assert.equal((await write(route)).status, 200);
   assert.equal(board(), before, "a typing report changed the board file");
+});
+
+test("wrong passwords lock out only the phone address that sent them", async () => {
+  const signIn = (password, address) => request(fixture.bridge, "/auth/login", "POST", JSON.stringify({ password }),
+    { Origin: fixture.origin, "X-Forwarded-For": address });
+  for (let n = 0; n < 5; n++) assert.equal((await signIn("Wrong-guess-1", "100.64.7.1")).status, 401, `try ${n}`);
+  const locked = await signIn(PASS, "100.64.7.1");
+  assert.equal(locked.status, 429);
+  assert.equal(locked.headers["retry-after"], "60");
+  assert.deepEqual(JSON.parse(locked.text), { error: "Too many attempts. Try again in a minute." });
+  assert.equal((await signIn(PASS, "100.64.7.9, 100.64.7.1")).status, 429,
+    "an address put in front of the one Serve adds escaped the lock");
+  const other = await signIn(PASS, "100.64.7.2");
+  assert.equal(other.status, 200, other.text);
+  const cookie = other.cookies[0].split(";")[0];
+  assert.equal((await request(fixture.bridge, "/state", "GET", null, { Cookie: cookie })).status, 200);
+  assert.equal((await request(fixture.bridge, "/auth/logout", "POST", null, { Origin: fixture.origin, Cookie: cookie })).status, 200);
+  assert.equal((await request(fixture.bridge, "/state", "GET", null, fixture.cookie)).status, 200,
+    "the first sign-in stopped working");
 });
