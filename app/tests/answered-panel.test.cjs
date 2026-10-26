@@ -2055,7 +2055,10 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     for (const name of retired)
       assert.ok(!text.includes(name), `${where} still carries the old sent box's ${name}`);
   // the file tray sits between the sent panel and the row, on both pages
-  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, tray, bottombar"],
+  // the desktop holds the tray and the row in one box (composebox), which lays
+  // out nothing of its own unless the new layout takes it out of the card
+  assert.ok(DESKTOP.includes("composebox.append(tray, bottombar);"), "the desktop's tray is not over its row");
+  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, composebox"],
     ["the phone", PHONE, "meta, sentwrap, tray, bottombar"]]) {
     assert.match(text, /const sentwrap = h\("div", "sentwrap"\);/, `${where} builds no seat for the sent panel`);
     assert.ok(text.includes(`pendwrap.append(${foot});`), `${where} does not seat it over the row`);
