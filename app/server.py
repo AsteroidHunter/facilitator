@@ -82,7 +82,7 @@ Endpoints:
                                could still be sending means it never landed; a
                                much later query cannot tell a never-landed id
                                from one whose receipt has since aged out
-  POST /send?box=ID[&via=mini|voice][&by=agent[&agent=NAME]][&op=OP] -> body = the human's message text (plain text).
+  POST /send?box=ID[&via=mini|voice][&by=agent][&agent=NAME][&op=OP] -> body = the message text (plain text).
                                via states where it was typed: mini is the small
                                card in the corner, voice is words spoken through
                                the voice layer (app/voice), whose reply is read
@@ -95,7 +95,12 @@ Endpoints:
                                by states who sent it, apart from how: by=agent
                                is an agent that put the message on the card for
                                the reader (a voice or text assistant), and agent
-                               is its name, cut to 24 characters. Only the
+                               is its name, cut to 24 characters. Every send an
+                               agent makes (_agent_request: no browser headers
+                               on this port, or through the agent door) is
+                               stored as an agent's, whether or not it says
+                               by=agent, so only the board's own pages and the
+                               phone send the reader's own words. Only the
                                literal "agent" is stored (as the message's by
                                field, with agent beside it when named), and a
                                message without it is the reader's own, which is
@@ -984,7 +989,8 @@ Endpoints:
                                [], "message_agent": []} when nothing new or no
                                card held. widget_messages, as /wait has it,
                                when anything was typed in the card's widget
-                               since, on the same hold
+                               since, on the same hold. Agents only, as /wait:
+                               a page asking it is a 403
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
                                queued box owned by O (facilitator or a project
                                lane; defaults to facilitator) + its pending
@@ -1015,7 +1021,11 @@ Endpoints:
                                token and the claim counts as provisional until
                                POST /ack names it. There is no unconfirmed mode.
                                An ack=1 in the query is accepted and ignored, so
-                               a loop that learned the flag still works
+                               a loop that learned the flag still works.
+                               Agents only (_agent_request): no page of the
+                               board asks it, so a page that does, such as a
+                               board link opened in a tab, is a 403 before a
+                               card is claimed
   POST /ack?owner=O&token=T -> confirms the provisional claim that token was
                                minted for and answers {"ok": true}; acking an
                                already confirmed claim again says the same, so a
@@ -2355,6 +2365,12 @@ def _agent_request(scope: dict) -> bool:
         return False
     names = {k.lower() for k, _ in scope.get("headers") or ()}
     return b"origin" not in names and b"sec-fetch-site" not in names
+
+
+# what /wait and /fresh answer a page. They claim a lane's card and hand over
+# the messages waiting on it, which only the lane's agent does, and no page
+# of the board asks either, so one opened from a link in a card claims nothing
+AGENT_ONLY = "only the lane's agent asks this"
 
 
 def _lane_of_request(q: Query) -> str | None:
@@ -5482,7 +5498,10 @@ def _get_unread(q: Query, _):
 def _get_fresh(q: Query, _):
     # mid-work delivery: while an agent holds a card, hand over anything
     # that landed on that card after the claim and fold it into the
-    # claim, so the one reply covers it and nothing arrives twice
+    # claim, so the one reply covers it and nothing arrives twice. A page is
+    # refused before anything is handed over (AGENT_ONLY)
+    if not q.agent:
+        return 403, {"error": AGENT_ONLY}
     owner = q.one("owner", "facilitator")
     if owner not in OWNERS:
         return 400, {"error": "unknown owner"}
@@ -7772,7 +7791,9 @@ SEND_BYS = ("agent",)
 def _post_send(q: Query, text: str):
     bid = q.one("box")
     via = q.one("via") if q.one("via") in SEND_VIAS else ""
-    by = q.one("by") if q.one("by") in SEND_BYS else ""
+    # an agent's send is an agent's whatever it says: only the board's own
+    # pages and the phone put the reader's own words on a card
+    by = "agent" if q.agent else q.one("by") if q.one("by") in SEND_BYS else ""
     # the sending agent's own name, cut as /wait cuts agent=, and kept only
     # beside by: a name alone says nothing about who sent the message
     agent = q.one("agent").strip()[:24] if by else ""
@@ -7802,9 +7823,10 @@ def _post_send(q: Query, text: str):
         if via:
             msg["via"] = via
         # who sent it, separate from where: by=agent is an agent that put the
-        # message on the card for the reader (a voice or text assistant), with
-        # its name in agent when it gave one. the reader's own messages carry
-        # neither, so every message stored before the field reads as theirs
+        # message on the card (every agent's send, and a page's that says
+        # by=agent), with its name in agent when it gave one. the reader's own
+        # messages carry neither, so every message stored before the field
+        # reads as theirs
         if by:
             msg["by"] = by
             if agent:
@@ -10790,6 +10812,10 @@ class WaitRoute:
         global _waits_open
         q = _query(scope)
         route = q.path
+        if not q.agent:
+            # a page: refused before a seat is taken or anything is claimed
+            await _answer(403, {"error": AGENT_ONLY}, route=route)(scope, receive, send)
+            return
         try:
             timeout = float(q.one("timeout", "570"))
         except ValueError:

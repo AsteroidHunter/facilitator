@@ -239,21 +239,30 @@ test("a cross-site GET of a route that acts is refused with the Lax cookie prese
   for (const secret of [fixture.value, PASS, "first words", "owner=facilitator", "none.png", STUB, "iPhone"])
     assert.equal(text.includes(secret), false, `the log holds ${secret.slice(0, 6)}`);
 
-  // the same requests from the bridge's own page do act: the claim lands, and the second message is folded in
+  // the same requests from the bridge's own page pass the gate, and the board
+  // answers /wait and /fresh to the lane's agent alone, so they claim nothing
+  // either; the agent's own, on the board's port, do act: the claim lands, and
+  // the second message is folded in
   assert.equal(JSON.parse((await read("/machines", { "Sec-Fetch-Site": "same-origin" })).text).machines[0].top, fixture.home);
-  const claim = await read("/wait?owner=facilitator&timeout=0", { "Sec-Fetch-Site": "same-origin" });
+  const page = await read("/wait?owner=facilitator&timeout=0", { "Sec-Fetch-Site": "same-origin" });
+  assert.equal(page.status, 403);
+  assert.deepEqual(JSON.parse(page.text), { error: "only the lane's agent asks this" });
+  assert.equal(board(), before, "the phone page's /wait claimed the card");
+  const claim = await request(fixture.port, "/wait?owner=facilitator&timeout=0");
   assert.equal(claim.status, 200);
   assert.deepEqual(JSON.parse(claim.text).messages, ["first words"]);
-  assert.notEqual(board(), before, "the same-origin claim changed nothing, so the check above proved nothing");
+  assert.notEqual(board(), before, "the agent's claim changed nothing, so the check above proved nothing");
 
   assert.equal((await write(`/send?box=${card}`, "second words")).status, 200);
   const held = board();
   assert.equal((await read("/fresh?owner=facilitator", CROSS)).status, 403);
   assert.equal(board(), held, "a refused cross-site GET of /fresh folded a message in");
-  const handed = await read("/fresh?owner=facilitator", { "Sec-Fetch-Site": "same-origin" });
+  assert.equal((await read("/fresh?owner=facilitator", { "Sec-Fetch-Site": "same-origin" })).status, 403);
+  assert.equal(board(), held, "the phone page's /fresh folded a message in");
+  const handed = await request(fixture.port, "/fresh?owner=facilitator");
   assert.equal(handed.status, 200);
   assert.deepEqual(JSON.parse(handed.text).messages, ["second words"]);
-  assert.notEqual(board(), held, "the same-origin /fresh changed nothing, so the check above proved nothing");
+  assert.notEqual(board(), held, "the agent's /fresh changed nothing, so the check above proved nothing");
   assert.equal(reasonLines().filter(line => line.route === "/fresh").length, 1, "repeats inside the window made lines");
 });
 
@@ -296,10 +305,17 @@ test("a cross-site open of the phone page or / is served with the cookie recogni
 test("same-origin, typed-address and header-less GETs of the same routes still work", async () => {
   const before = refusals().lines.length;
   for (const site of [{ "Sec-Fetch-Site": "same-origin" }, { "Sec-Fetch-Site": "none" }, { "Sec-Fetch-Site": "same-site" }, {}]) {
-    for (const route of ["/m/state", "/fresh?owner=facilitator", "/wait?owner=facilitator&timeout=0", "/state", "/m", "/"]) {
+    for (const route of ["/m/state", "/state", "/m", "/"]) {
       const answer = await read(route, site);
       assert.equal(answer.status, 200, `${route} ${JSON.stringify(site)}`);
       if (route !== "/m" && route !== "/") JSON.parse(answer.text);
+    }
+    // the gate lets these through as well, and the board answers them to the
+    // lane's agent alone, never to anything through the phone's door
+    for (const route of ["/fresh?owner=facilitator", "/wait?owner=facilitator&timeout=0"]) {
+      const answer = await read(route, site);
+      assert.equal(answer.status, 403, `${route} ${JSON.stringify(site)}`);
+      assert.deepEqual(JSON.parse(answer.text), { error: "only the lane's agent asks this" }, route);
     }
   }
   assert.equal(refusals().lines.length, before, "an allowed GET wrote a refusal line");
