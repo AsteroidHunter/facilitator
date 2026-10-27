@@ -1050,11 +1050,22 @@ Endpoints:
                                box goes back to the FRONT of its lane's queue and
                                the card falls back to the queued grey, exactly
                                like an unpicked card, never yellow. That clock is
-                               swept wherever the 15 minute steal-back is swept
-                               and on every /state, which the board polls about
-                               once a second, so it runs even with no /wait open.
+                               swept wherever the 15 minute steal-back is swept,
+                               on every reading and every second by the board
+                               clock, so it runs with no /wait open and no page
+                               reading the board.
                                A loop that claims and never acks gets the same
                                card handed back every 90 seconds
+  GET  /events              -> the pages' live line, Server-Sent Events, one way:
+                               retry: 3000, then data: {"rev": R, "quiet": Q}
+                               when it opens, whenever the revision on disk or
+                               the board clock's mark Q of what moves with no
+                               save changes, and every 15 seconds regardless.
+                               A page that holds another R or Q reads the board.
+                               Ends after 10 minutes, on the stop, and through
+                               the phone's door when the sign-in is gone (checked
+                               every beat). 16 lines at once, then 503. Pages
+                               only in use; the agent door does not let it through
   GET  /unread?owner=O      -> {"queued": N, "claimed": M} for that lane: messages
                                still waiting to be handed over, and messages in
                                the claim that lane's agent holds right now. Read
@@ -2163,6 +2174,7 @@ DOOR_PORT, DOOR_LOOPBACK = _door_port()
 LISTEN_BACKLOG = 128
 CONNECTION_LIMIT = 200          # connections open at once before uvicorn answers 503
 WAIT_SLOTS = 8                  # agent long polls held open at once
+STREAM_SLOTS = 16               # pages' live lines (GET /events) held open at once
 READ_SLOTS = 32                 # board readings in flight at once, their sending included
 THREAD_POOL_SIZE = 64           # worker threads the routes' locked work may use
 FIRST_REQUEST_TIMEOUT = 15.0    # seconds a new connection may sit before its request arrives
@@ -2666,8 +2678,11 @@ def _agent_class(owner: str) -> str:
 
 
 # ---- waking the listeners --------------------------------------------------------
-# The agents' long polls wait on the event loop, not on the condition above.
-# Every change to the board comes through _notify: it moves a version number
+# The agents' long polls and the pages' live lines (GET /events) wait on the
+# event loop, not on the condition above. Every change to the board comes
+# through _notify: every save that lands calls it (_save), the board clock
+# calls it when a field that moves with no save changes (_board_tick), and a
+# typing change calls it for the typing hold. It moves a version number
 # and asks the loop to wake every waiter, and a waiter that reads the version
 # before sleeping and again on waking can never miss a change that landed in
 # between. _LOOP is the running loop, set by the application's lifespan; a
@@ -3604,6 +3619,10 @@ def _migrate() -> None:
 # save that fails can put memory back to what the disk holds. None until the
 # first durable write of this run, which is the migration's own save
 _last_durable: str | None = None
+# the revision those bytes hold. The pages' live line names this one and never
+# _state's own, which a save moves before its file is written and puts back if
+# the write fails, so the line never names a revision the disk does not hold
+_committed_rev = 0
 # ---- what waits for the commit ----------------------------------------------------
 # A mutation is one held stretch of _lock: change the state, note the events,
 # save. Two kinds of thing must not happen before the save has installed the
@@ -3742,8 +3761,12 @@ def _save() -> None:
     flushed does not undo the commit, since the rename has already happened and
     going back to old memory then would lie about the file that is installed,
     but it is written down as a syncfail line rather than passed over. None of
-    this certifies a hardware power cut; it is as far as the calls reach."""
-    global _last_durable
+    this certifies a hardware power cut; it is as far as the calls reach.
+
+    Every save that lands rings: the committed revision moves and _notify
+    wakes the agents' long polls and the pages' live lines (GET /events), so
+    no route has to remember to ring after its save."""
+    global _last_durable, _committed_rev
     _state["rev"] = int(_state.get("rev", 0)) + 1
     payload = json.dumps(_state, indent=1)
     tmp = STATE_PATH.with_suffix(".tmp")
@@ -3768,6 +3791,8 @@ def _save() -> None:
     # not silent either: a folder that cannot be flushed is a durability gap
     # worth a line, even though the commit stands
     _last_durable = payload
+    _committed_rev = _state["rev"]
+    _notify()
     try:
         fd = os.open(STATE_PATH.parent, os.O_RDONLY)
         try:
@@ -3988,7 +4013,6 @@ def _bin_clock() -> None:
         with _lock:
             if _bin_expire():
                 _save()
-                _notify()
 
 
 def _section_name(card: dict) -> str:
@@ -4239,9 +4263,9 @@ def _pages(owner: str) -> list:
 #                 quiet for LANE_QUIET        lands yours; working/note land at _rest
 #                 /dismiss                 -> _rest, a live flag excepted
 # _rest, the landing rule: pending -> queued, never touched -> new, ball
-# "you" -> yours, else rest. Expiry is swept lazily at /state and /wait,
-# beside the unacked-claim clock, by /working itself and when a quiet lane
-# is heard again (_heard).
+# "you" -> yours, else rest. Expiry is swept every second by the board clock
+# and again at /state and /wait, beside the unacked-claim clock, by /working
+# itself and when a quiet lane is heard again (_heard).
 
 # note stays green, so a card saved in it still leaves it when its flag goes,
 # exactly as it did while /note was taken
@@ -4594,17 +4618,17 @@ def _release_unacked() -> None:
         moved = True
     if moved:
         _save()
-        _notify()
 
 
 def _sweep(persist: bool = True) -> bool:
     """The lazy clock behind green: a flag whose lane's agent has gone quiet
     (_lane_in_touch) comes down, and a card whose flag is not live leaves the
     green states, deferred handing its turn over on the way out (a claim still
-    held keeps showing green through _shown's mask regardless). Runs at /state
-    and /wait, exactly where the ack clock is swept, inside /working itself,
-    so a drop or an expiry lands within about a second, and when a quiet lane
-    is heard again (_heard). Callers hold _lock. Ordinarily it saves and
+    held keeps showing green through _shown's mask regardless). Runs every
+    second on the board clock and at /state and /wait, exactly where the ack
+    clock is swept, so a drop or an expiry lands within about a second whether
+    or not anything reads the board, inside /working itself, and when a quiet
+    lane is heard again (_heard). Callers hold _lock. Ordinarily it saves and
     notifies when it moves anything; a route that is already building a
     larger mutation passes persist=False and includes the sweep in its one
     final save."""
@@ -4619,7 +4643,6 @@ def _sweep(persist: bool = True) -> bool:
             moved = True
     if moved and persist:
         _save()
-        _notify()
     return moved
 
 
@@ -5119,7 +5142,7 @@ def _phone_box(b: dict) -> dict:
 def _live_section() -> dict:
     now = time.time()
     return {
-        "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
+        "listening": _listening(),
         "listenerGap": {ow: round(now - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
         "agents": {ow: {
             "name": _agent_names.get(ow) or "claude",
@@ -5419,7 +5442,7 @@ def _ui_state() -> dict:
         # the one tab bar both pages draw: the lane order and the lanes that
         # are closed. An empty order means no arrangement has been saved
         "tabs": st.get("tabs", {"order": [], "closed": []}),
-        "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
+        "listening": _listening(),
         "everListened": st.get("ever_listened", {}),
         "workspaces": st.get("workspaces", {}),
         # each project's view pages, in the order the foot of the workspace
@@ -5428,26 +5451,37 @@ def _ui_state() -> dict:
         "pages": st.get("pages", {}),
         # the quick notes without their words: enough for a card to show that a
         # note is attached to it. the words travel only on the note routes, so
-        # a reading taken every second never carries them
+        # a reading, taken far more often, never carries them
         **({"quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])]} if QUICK_NOTES_ON else {}),
         "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
-        # the row tag's truth: the lane's last stated agent name, and alive
-        # meaning connected now, seen within the steal window, or holding a card
-        "agents": {ow: {
-            "name": _agent_names.get(ow) or "claude",
-            "alive": _waiters.get(ow, 0) > 0
-                     or (time.time() - _last_wait.get(ow, 0.0)) < 900
-                     or bool(st["busy"].get(ow)),
-            # alive but absent from the listening call for over a minute,
-            # holding nothing and with no live job registered: the agent is
-            # working off the record and the bar says so
-            "offrecord": _waiters.get(ow, 0) == 0 and st["busy"].get(ow) is None
-                         and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
-                         and not any(
-                             _flag_live(b)
-                             for b in st["boxes"] if b.get("owner", "facilitator") == ow),
-        } for ow in OWNERS},
+        "agents": _agents_reading(),
     }
+
+
+def _listening() -> dict:
+    """Whether each lane has a listener's /wait open now. Callers hold _lock."""
+    return {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS}
+
+
+def _agents_reading() -> dict:
+    """The row tag's truth, as the board's reading carries it: the lane's last
+    stated agent name, and alive meaning connected now, seen within the steal
+    window, or holding a card. Callers hold _lock."""
+    st = _state
+    return {ow: {
+        "name": _agent_names.get(ow) or "claude",
+        "alive": _waiters.get(ow, 0) > 0
+                 or (time.time() - _last_wait.get(ow, 0.0)) < 900
+                 or bool(st["busy"].get(ow)),
+        # alive but absent from the listening call for over a minute,
+        # holding nothing and with no live job registered: the agent is
+        # working off the record and the bar says so
+        "offrecord": _waiters.get(ow, 0) == 0 and st["busy"].get(ow) is None
+                     and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
+                     and not any(
+                         _flag_live(b)
+                         for b in st["boxes"] if b.get("owner", "facilitator") == ow),
+    } for ow in OWNERS}
 
 
 # ---- what the Mac board reads, lean ---------------------------------------------
@@ -5617,13 +5651,14 @@ def _get_compose_format(q: Query, _):
 
 
 def _sweep_clocks() -> None:
-    """The two lazy clocks a reading runs before it answers: the unconfirmed
-    hand-off clock and the working flags' lanes going quiet. Callers hold
-    _lock. Either can move a card and save; if that save fails, the state has
-    already been put back to the file and the failure written down, and the
-    reading answers that restored board rather than failing too. A reader
-    must not be blacked out by a disk the commands are already refusing; the
-    clock runs again on the next reading and lands when the disk is back."""
+    """The two clocks the board clock runs every second, and a reading again
+    before it answers: the unconfirmed hand-off clock and the working flags'
+    lanes going quiet. Callers hold _lock. Either can move a card and save; if
+    that save fails, the state has already been put back to the file and the
+    failure written down, and the reading answers that restored board rather
+    than failing too. A reader must not be blacked out by a disk the commands
+    are already refusing; the clock runs again on the next pass and lands
+    when the disk is back."""
     try:
         _release_unacked()
         _sweep()
@@ -5631,12 +5666,80 @@ def _sweep_clocks() -> None:
         pass
 
 
+# ---- the board clock ------------------------------------------------------------
+# One thread that keeps the board's own time, so nothing waits on a page
+# reading the board: every BOARD_TICK, under the lock, it runs the 90 second
+# hand-off clock and the 10 minute green clock (_sweep_clocks), each of which
+# saves when it moves a card and so rings, and then works out the mark of what
+# the readings carry that moves with no save at all (_quiet_fields). When that
+# mark changes it rings too. The pages' live line (GET /events) sends the
+# committed revision and this mark, so between them every field a reading
+# carries is covered: saved, marked, or worked out on the page from the time
+# (now, listenerGap). The readings still sweep the clocks themselves, which
+# finds nothing to move when the clock has just run.
+
+BOARD_TICK = 1.0     # seconds between the board clock's passes
+_quiet = ""          # the mark as the board clock last worked it out
+
+
+def _quiet_fields() -> dict:
+    """What the readings carry that moves with no save, as they carry it:
+    who is listening, each lane's agent (its name, alive and off the
+    record), each server's link, what is off while Serve is held, the update,
+    the onboarding, the settings' own revision and the version a phone
+    reloads onto. Callers hold _lock."""
+    return {
+        "listening": _listening(),
+        "agents": _agents_reading(),
+        "remote": _remote_reading(),
+        "phoneOff": _serve_hold,
+        "update": _update_reading(),
+        "onboarding": _profile_needed(),
+        "settingsRev": _settings_rev(),
+        "version": _reading_version(),
+    }
+
+
+def _quiet_mark() -> str:
+    """A short mark of _quiet_fields: twelve hex characters that move when any
+    of them does. Callers hold _lock."""
+    text = json.dumps(_quiet_fields(), sort_keys=True, separators=(",", ":"))
+    return hashlib.blake2b(text.encode(), digest_size=6).hexdigest()
+
+
+def _board_tick() -> None:
+    """One pass of the board clock: the two clocks, then the mark, rung when
+    it moved. Callers hold _lock."""
+    global _quiet
+    _sweep_clocks()
+    mark = _quiet_mark()
+    if mark != _quiet:
+        _quiet = mark
+        _notify()
+
+
+def _board_clock() -> None:
+    """The board clock's thread, from the start until the stop. A pass that
+    fails is written down once for each kind of failure and the clock goes on;
+    while it fails the readings still run the two clocks, as they did before
+    there was a board clock."""
+    said: set = set()
+    while True:
+        try:
+            with _lock:
+                _board_tick()
+        except Exception as error:
+            if type(error).__name__ not in said:
+                said.add(type(error).__name__)
+                _error("boardclock", **_crash_fields(error))
+        if _STOPPING.wait(BOARD_TICK):
+            return
+
+
 def _get_state(q: Query, _):
     with _lock:
-        # the board polls this about once a second, so the 90 second ack
-        # clock gets swept even when no /wait is running to sweep it,
-        # and an expired working flag drops out of green (handing over
-        # a deferred turn) within about that same second
+        # the board clock runs these every second; a reading runs them as
+        # well, so it never answers a hand-off or a green a moment past due
         _sweep_clocks()
         reading = _ui_state()
         # while no profile is kept, every reading says so: a page loaded before
@@ -6970,7 +7073,6 @@ def _rollback_claim(owner: str, bid: str, token: str) -> bool:
             _state["inbox"].insert(0, bid)
         _log("dropped", bid, f"{owner} hand-off died on the wire, box re-queued")
         _save()
-        _notify()
         return True
 
 
@@ -7069,7 +7171,7 @@ def _svg_carries_script(path: Path) -> bool:
 # ---- the magic box -----------------------------------------------------------------
 # One box per card, beside it on the Mac board, that the card's agent fills with
 # text, markdown, a page of its own or a picture. The card carries magic =
-# {open, kind, rev, ts} and nothing more, since /state is read every second;
+# {open, kind, rev, ts} and nothing more, since /state is read so often;
 # what the box holds is one file in MAGIC_DIR named by the card and the
 # revision. A save that fails leaves the card naming the file it had, and the
 # files of older revisions go only once the save that replaced them has landed
@@ -7425,7 +7527,6 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
         # leaves out the host as well: which site someone opened is theirs
         _log("magic", bid, "", log_fields={k: v for k, v in note.items() if k != "host"}, **note)
         _save()
-        _notify()
         answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline"),
                   **({"widget": widget} if widget else {})}
         for key in ("reason", "url"):
@@ -7500,7 +7601,6 @@ def _magic_flag(q: Query, opened: bool):
             action = "reopen" if opened else "close"
             _log("magic", bid, "", log_fields={"action": action}, action=action)
             _save()
-            _notify()
         return 200, {"ok": True, "box": bid, "open": opened, "rev": magic["rev"]}
 
 
@@ -7857,7 +7957,6 @@ def _post_magic_answer(q: Query, text: str):
         _log("widget_answer", bid, text, log_fields={"widget": name, "answered": answered},
              widget=name, about=about, wid=wid, answered=answered, **({"agent": agent} if agent else {}))
         _widget_saved(bid, name, before)
-        _notify()
         return 200, {"ok": True, "box": bid, "id": wid, "answered": answered, "released": released}
 
 
@@ -8229,7 +8328,6 @@ def _post_reply(q: Query, text: str):
              reply_id=box["reply_id"], reply_ts=now,
              answered=box["answered"], agent_kind=_agent_kind(answerer))
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -8262,7 +8360,6 @@ def _post_done(q: Query, text: str):
         _stamp_rest(box, time.time())
         _log("done" if box["done"] else "undone", bid, "")
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -8286,7 +8383,6 @@ def _post_working(q: Query, text: str):
         _sweep(persist=False)
         _log("working" if box["flag"] else "workdone", bid, "")
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -8329,7 +8425,6 @@ def _post_testing(q: Query, text: str):
         box["testing"] = want
         _log("testmark" if want else "testclear", bid, "")
         _save()
-        _notify()
         return 200, {"ok": True, "testing": want}
 
 
@@ -8477,7 +8572,6 @@ def _post_shelf(q: Query, flag: str, event: str):
         _stamp_rest(box, time.time())
         _log(event if want else "un" + event, bid, "")
         _save()
-        _notify()
         return 200, {"ok": True, **_section_fields(box)}
 
 
@@ -8505,7 +8599,6 @@ def _post_worktree(q: Query, text: str):
         box["worktree"] = name
         _log("worktree", bid, name)
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -8519,7 +8612,6 @@ def _post_context(q: Query, text: str):
             return 400, {"error": "context strip over 50 words"}
         box["context"] = text  # agent-maintained; refused over 50 words
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -8545,7 +8637,6 @@ def _post_link(q: Query, text: str):
         _set_links(card, links + [made])
         _log("link", src, "", log_fields={"to": dst}, to=dst, agent=agent)
         _save()
-        _notify()
         return 200, {"ok": True, "added": True, "from": src, **made}
 
 
@@ -8566,7 +8657,6 @@ def _post_unlink(q: Query, text: str):
         _set_links(card, kept)
         _log("unlink", src, "", log_fields={"to": dst}, to=dst, agent=agent)
         _save()
-        _notify()
         return 200, {"ok": True, "removed": True}
 
 
@@ -8684,7 +8774,6 @@ def _post_props(q: Query, text: str):
             saved = True
         if saved:
             _save()
-            _notify()
         return 200, {"ok": True, "saved": saved, "id": bid,
                      **{name: _card_prop(card, name) for name in CARD_PROPS}}
 
@@ -8791,7 +8880,6 @@ def _post_title(q: Query, text: str):
             box["title"] = _entered_title(box.get("owner", "facilitator"), text)
         _log("title", bid, box["title"])
         _save()
-        _notify()
         return 200, {"ok": True, "title": box["title"]}
 
 
@@ -8825,7 +8913,6 @@ def _post_create(q: Query, text: str):
         _log("create", bid_new, title, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
              **({"op": op} if op else {}))
         _save()
-        _notify()
         # the card itself rides back, so a phone can draw it from this answer
         # instead of waiting for its next reading of the board
         return 200, {**result, "rev": _state["rev"], "card": _phone_box(made)}
@@ -8937,7 +9024,6 @@ def _post_project(q: Query, text: str, found: dict | None = None, sample: bool =
         # earlier would have left a lane the reads and waits index that the
         # state does not know, until a restart
         _register_owner(slug)
-        _notify()
         return 200, {"ok": True, "id": slug, "name": name, "dir": str(d),
                      **({"machine": found["server"]} if found is not None else {})}
 
@@ -9051,7 +9137,6 @@ def _post_close(q: Query, text: str):
             return 200, {"ok": False, "stale": "superseded", **_section_fields(box)}
         action = _close_box(box)
         _save()
-        _notify()
         return 200, {"ok": True, "action": action}
 
 
@@ -9065,7 +9150,6 @@ def _post_delete(q: Query, text: str):
         # the current persisted record decides, never their stale copy.
         action = _close_box(box)
         _save()
-        _notify()
         return 200, {"ok": True, "action": action}
 
 
@@ -9077,7 +9161,6 @@ def _post_bin(q: Query, text: str):
             return 400, {"error": "bad box"}
         _bin_box(box)
         _save()
-        _notify()
         return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
@@ -9110,7 +9193,6 @@ def _post_bin_restore(q: Query, text: str):
             return 400, {"error": "not in the bin"}
         _restore_binned(entry)
         _save()
-        _notify()
         return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
@@ -9196,7 +9278,6 @@ def _post_pages_new(q: Query, text: str):
         # event and there is nothing in it to keep out of the file
         _log("page+", pid, "", log_fields={"owner": _owner_word(ow)}, owner=ow)
         _save()
-        _notify()
         return 200, {"ok": True, "id": pid, "pages": pages, "rev": _state["rev"]}
 
 
@@ -9218,7 +9299,6 @@ def _post_pages_del(q: Query, text: str):
         pages.remove(page)
         _log("page-", pid, "", log_fields={"owner": _owner_word(ow)}, owner=ow)
         _save()
-        _notify()
         return 200, {"ok": True, "pages": pages, "rev": _state["rev"]}
 
 
@@ -9271,7 +9351,6 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
             box["state"] = _rest(box)
         _log("dismiss", bid, f"{n} queued dropped")
         _save()
-        _notify()
         return 200, {"ok": True, "dropped": n}
 
 
@@ -9350,7 +9429,6 @@ def _post_tabs(q: Query, text: str):
             _overwrite("tabs", "", field, stored.get(field), clean[field])
         _state["tabs"] = clean
         _save()
-        _notify()
         return 200, {"ok": True, "tabs": clean}
 
 
@@ -9380,7 +9458,6 @@ def _post_seen(q: Query, text: str):
             box["seen"] = n
             out[box["id"]] = n
         _save()
-        _notify()
         return 200, {"ok": True, "seen": out}
 
 
@@ -9796,7 +9873,7 @@ _profile_seen: tuple = (None, False)   # (the file's stamp, complete) as last re
 
 def _profile_needed() -> bool:
     """Whether the onboarding is still to be done on this board: no complete
-    profile. Asked on every /state, about once a second for each open page, so
+    profile. Asked on every /state and by the board clock every second, so
     the file is read again only when its stamp has moved; a missing file is
     always a board that needs it."""
     global _profile_seen
@@ -10538,9 +10615,9 @@ QUICK_NOTES_ON = False
 # the card field and drawn beside the card, and whoever keeps it current, the
 # owner or later an agent, writes it through the same save route.
 # the text is never written anywhere but state.json: no transcript row and no
-# log line carries it, only the note's id, its card and its length. and no
-# note route wakes the agents' long polls, since nothing they wait on is a note
-# and an autosave would otherwise wake every one of them as the owner types
+# log line carries it, only the note's id, its card and its length. a note's
+# save rings as every save does (_save), which wakes each agent's long poll for
+# one short pass and tells the pages' live line the revision moved
 def _quicknote(nid: str) -> dict | None:
     return next((n for n in _state.get("quicknotes", []) if n.get("id") == nid), None)
 
@@ -11142,6 +11219,103 @@ class WaitRoute:
             _waits_open -= 1
 
 
+# ---- the pages' live line ---------------------------------------------------------
+# GET /events is one-way (Server-Sent Events): the board talks, the page
+# listens, and sends everything else with its ordinary requests. The line
+# carries one short line, data: {"rev": R, "quiet": "Q"}, the revision on disk
+# and the board clock's mark of what moves with no save. It is sent when the
+# line opens, the moment either moves (every save rings, and so does the board
+# clock when the mark moves), and again every STREAM_BEAT whether or not
+# anything moved, so a page that missed one finds out at the next and a line
+# with no beat for a while is known to be dead. The page reads the board as it
+# always has when what it holds differs; nothing about a reading changes.
+#
+# It is the pages' own: the Mac board's, the /page view's and the phone's. On
+# the board's port it is behind the lock as every route is (a page's
+# EventSource sends the window cookie); through the phone's door the gate
+# signs it in as every request, and the line checks that sign-in again at
+# every beat without counting as a use of it, so a sign-out elsewhere or the
+# 30 day expiry ends it within a beat. A line ends on the stop, when the peer
+# goes, and after STREAM_LIFE, when the browser opens another after the retry
+# time it was told, which lets the lock and the gate decide again. Lines hold
+# STREAM_SLOTS of their own and none of the readings' slots, and the line is
+# never compressed, since compression would hold a ring back. Agents wait on
+# /wait and never ask this; the agent door does not let it through.
+
+STREAM_BEAT = 15.0      # seconds between the line's repeats of the revision and mark
+STREAM_LIFE = 600.0     # seconds a line stays open before it ends and the browser opens another
+STREAM_RETRY = 3000     # milliseconds a browser waits before it opens the line again
+_streams_open = 0
+
+
+def _stream_line(rev: int, quiet: str) -> bytes:
+    return ("data: " + json.dumps({"rev": rev, "quiet": quiet}, separators=(",", ":")) + "\n\n").encode()
+
+
+def _stream_session() -> str:
+    """The digest of the sign-in a request through the phone's door came
+    with, or "" for none. In a worker thread: it reads the sign-in file."""
+    return _BRIDGE_AUTH.current_session_digest() if _BRIDGE_AUTH is not None else ""
+
+
+def _stream_signed_in(digest: str) -> bool:
+    """Whether that sign-in still stands. It is read and never stamped as a
+    use, so a line left open does not keep a sign-in alive. In a worker
+    thread, as above."""
+    return _BRIDGE_AUTH is not None and _BRIDGE_AUTH.has_session_digest(digest)
+
+
+class EventsRoute:
+    async def __call__(self, scope, receive, send) -> None:
+        global _streams_open
+        route = scope.get("path", "")
+        session = None
+        if _via_gate(scope):
+            # the gate signed it in; what it signed in with is kept, to be
+            # asked about again at every beat
+            session = await run_in_threadpool(_stream_session)
+            if not session:
+                await _answer(401, {"error": "sign in required"}, route=route)(scope, receive, send)
+                return
+        if _streams_open >= STREAM_SLOTS:
+            _overload("streams", route)
+            await _plain(503, {"error": "too many pages listening"}, retry_after=5)(scope, receive, send)
+            return
+        _streams_open += 1
+        gone = asyncio.Event()
+        watcher = asyncio.ensure_future(_watch_disconnect(receive, gone))
+        try:
+            await send({"type": "http.response.start", "status": 200, "headers": [
+                (b"content-type", b"text/event-stream"), (b"cache-control", b"no-store"),
+                (b"x-content-type-options", b"nosniff")]})
+            if scope.get("method") == "HEAD":
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                return
+            ends = time.monotonic() + STREAM_LIFE
+            head = b"retry: %d\n\n" % STREAM_RETRY
+            sent, beat = None, 0.0
+            while not gone.is_set() and not _STOPPING.is_set():
+                seen = _change_version
+                now = time.monotonic()
+                if now >= ends:
+                    break
+                due = now >= beat
+                if due and session is not None and sent is not None:
+                    if not await run_in_threadpool(_stream_signed_in, session):
+                        break
+                line = (_committed_rev, _quiet)
+                if due or line != sent:
+                    await send({"type": "http.response.body", "body": head + _stream_line(*line),
+                                "more_body": True})
+                    head, sent, beat = b"", line, now + STREAM_BEAT
+                await _changed(seen, max(0.0, min(beat, ends) - time.monotonic()), gone)
+            if not gone.is_set():
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        finally:
+            watcher.cancel()
+            _streams_open -= 1
+
+
 # -- what the board does when too many ask at once ---------------------------------
 # The fences, from the outside in, and what each one truly bounds.
 #
@@ -11156,7 +11330,8 @@ class WaitRoute:
 # the lock plus the handover; once the bytes are in the transport buffer the
 # slot is released, so a peer that then stops reading holds no slot. That makes
 # READ_SLOTS a bound on concurrent serialization work, the expensive part, and
-# not a bound on stalled peers. Long polls have WAIT_SLOTS of their own above.
+# not a bound on stalled peers. Long polls have WAIT_SLOTS of their own above,
+# and the pages' live lines STREAM_SLOTS.
 # Commands, the ack, the unread count and the operation lookups are counted
 # against neither, so a phone that cannot read the board can still send and an
 # agent can still answer.
@@ -11173,8 +11348,9 @@ _reads_open = 0
 _waits_open = 0
 _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
-# answers that a command loop or a waking phone depends on
-UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
+# answers that a command loop or a waking phone depends on, and the two that
+# stay open, which hold seats of their own (WAIT_SLOTS, STREAM_SLOTS)
+UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/events", "/push/key", "/worktrees",
                             "/dirs", "/machines", "/upload",
                             "/remote/servers"})
 
@@ -11345,6 +11521,7 @@ ROUTES = [
     Route("/worktrees", _endpoint(_get_worktrees), methods=["GET"]),
     Route("/unread", _endpoint(_get_unread), methods=["GET"]),
     Route("/wait", WaitRoute(), methods=["GET"]),
+    Route("/events", EventsRoute(), methods=["GET"]),
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
@@ -12302,6 +12479,7 @@ def main() -> None:
         threading.Thread(target=_update_clock, name="update-check", daemon=True).start()
         _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
+        threading.Thread(target=_board_clock, name="board-clock", daemon=True).start()
         if _serve_hold is not None:
             threading.Thread(target=_serve_watch, name="serve-check", daemon=True).start()
         if _remote is not None:
