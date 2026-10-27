@@ -331,7 +331,7 @@ def inspect_remote(args, rec):
     try:
         server_key = (Path(rec["home"]) / "server.key").read_text().strip()
     except OSError:
-        output("key_refused", detail="this server has no key: pair it again with facilitator remote pair on the Mac",
+        output("key_refused", detail="this server has no key: pair it again with facilitator remote pair --name NAME on the Mac",
                **common)
         return
     try:
@@ -341,7 +341,7 @@ def inspect_remote(args, rec):
         return
     if status == 401:
         output("key_refused", detail="the board does not know this server's key: "
-                                     "pair it again with facilitator remote pair on the Mac", **common)
+                                     "pair it again with facilitator remote pair --name NAME on the Mac", **common)
         return
     if status != 200 or not isinstance(answer, dict) or not isinstance(answer.get("status"), str):
         output("different_server", **common)
