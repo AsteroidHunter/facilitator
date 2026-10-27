@@ -131,7 +131,7 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
     // only the port changed, the file's own text and every other key kept
     assert.equal(fs.readFileSync(path.join(place.data, "run.config.json"), "utf8"),
                  before.replace(`"port": ${base}`, `"port": ${next}`));
-    const st = await (await fetch(`http://127.0.0.1:${next}/state`)).json();
+    const st = await (await fetch(`http://127.0.0.1:${next}/state`, { headers: box.keyed(place) })).json();
     assert.equal(st.pwd, place.clone, "the board on the new pair is not this folder's");
     assert.equal(held(place).port, next);
     assert.equal(await (await fetch(`http://127.0.0.1:${base}/`)).text(), "<html>another program</html>",
@@ -151,7 +151,8 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
     assert.equal(back.code, 0, back.stderr);
     assert.deepEqual(back.said, up(next), "the board went back to the old pair");
     assert.equal(box.readConfig(place).port, next);
-    assert.equal((await (await fetch(`http://127.0.0.1:${next}/state`)).json()).pwd, place.clone);
+    assert.equal((await (await fetch(`http://127.0.0.1:${next}/state`, { headers: box.keyed(place) })).json()).pwd,
+                 place.clone);
     assert.equal(await canBind(base), true, "something took the old pair");
 
     // the commands that read the config follow the move
@@ -373,10 +374,11 @@ test("the agent skill's helper follows the port the config names, on every call"
     seen = await inspect();
     assert.equal(seen.status, "ready", JSON.stringify(seen));
     assert.equal(seen.port, moved);
-    // a port where another folder's board answers is never taken for this one
+    // a port where another folder's board answers is never taken for this one:
+    // that board does not take this folder's key
     box.writeConfig(mine.app, { port: theirPort, lanes: [] });
     seen = await inspect();
-    assert.equal(seen.status, "different_board");
+    assert.equal(seen.status, "key_refused");
     assert.equal(seen.port, theirPort);
   } finally {
     await box.cleanup(mine);

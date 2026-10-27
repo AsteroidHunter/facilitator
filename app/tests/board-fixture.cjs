@@ -5,6 +5,7 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { request } = require("node:http");
 const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
+const { readFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
@@ -20,9 +21,12 @@ const SEED = { title: "fixture board", items: [
 // seed, config: the board's first words and its run.config.json. env: extra
 // environment. extra: more files from the repo to copy beside the server.
 // prepare: called with the folders once the files are in place, before the
-// server starts. The copy is laid out as a checkout: the code in app/ and the
-// board's files (seed, config, state, profile) in data/ beside it
-async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare } = {}) {
+// server starts. lock: the copy asks every caller on its own port for the
+// agent key or the window's cookie, as a real board does; a test's copy does
+// not unless asked, so the tests about something else run as they always did.
+// The copy is laid out as a checkout: the code in app/ and the board's files
+// (seed, config, state, profile) in data/ beside it
+async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare, lock = false } = {}) {
   const outer = await mkdtemp(path.join(tmpdir(), "facilitator-fixture-"));
   const app = path.join(outer, "app");
   const data = path.join(outer, "data");
@@ -45,10 +49,15 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
 
   const origin = `http://127.0.0.1:${port}`;
   const board = { app, data, logs, origin, outer, port, child: null };
+  // the agent key the board made at its first start, and the header that
+  // carries it; none before the board has started once
+  const key = () => { try { return readFileSync(path.join(data, "agent.key"), "utf8").trim(); } catch { return ""; } };
+  const keyed = () => (key() ? { Authorization: `Bearer ${key()}` } : {});
   async function launch() {
     const child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(app, "server.py")], {
       cwd: app,
-      env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs, ...env },
+      env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs,
+             ...(lock ? { FACILITATOR_TEST_LOCK: "1" } : {}), ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -56,7 +65,7 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
     const deadline = Date.now() + 10000;
     for (;;) {
       if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
-      try { if ((await fetch(origin + "/state")).ok) break; } catch {}
+      try { if ((await fetch(origin + "/state", { headers: keyed() })).ok) break; } catch {}
       if (Date.now() > deadline) throw new Error(`fixture server did not start:\n${output}`);
       await new Promise(resolve => setTimeout(resolve, 25));
     }
@@ -68,6 +77,7 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
   }
   await launch();
   return Object.assign(board, {
+    key, keyed,
     // one raw request to the board's own port, as its own page would make it
     call(method, route, body, headers = {}) {
       return new Promise((resolve, reject) => {

@@ -198,7 +198,9 @@ test("the board's worker is served from the root as a script, and keeps nothing"
 test("the board page links its manifest, and asks for no picture of its own", async () => {
   const source = await readFile(path.join(ROOT, "index.html"), "utf8");
   const head = source.slice(0, source.indexOf("</head>"));
-  assert.match(head, /<link rel="manifest" href="\/manifest\.json">/);
+  // with the window's cookie, which the board asks its window for and Chrome
+  // leaves off a manifest unless the link asks for it
+  assert.match(head, /<link rel="manifest" href="\/manifest\.json" crossorigin="use-credentials">/);
   // the install reads its picture from the manifest, so the page's own icon
   // link stays the empty one it has always been and asks the board for nothing
   assert.match(head, /<link rel="icon" href="data:,">/);

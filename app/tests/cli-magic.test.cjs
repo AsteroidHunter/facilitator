@@ -1,8 +1,10 @@
 // `facilitator magic`, the one call an agent makes to open, fill and close
 // a card's magic box on its own. A copy of the command runs beside a fixture
 // board on spare ports, finding the port the way it does on a real install,
-// in the run.config.json beside it. No browser is started and no site is
-// asked for: the web addresses used here are refused before any fetch.
+// in the run.config.json beside it, and the board's agent key in data/ beside
+// it: the board is locked as a real one is, so every call carries the key. No
+// browser is started and no site is asked for: the web addresses used here
+// are refused before any fetch.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawnSync } = require("node:child_process");
@@ -17,7 +19,7 @@ let board, cli;
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"), Buffer.alloc(64, 7)]);
 
 before(async () => {
-  board = await startBoard();
+  board = await startBoard({ lock: true });
   cli = path.join(board.app, "facilitator");
   await copyFile(path.join(ROOT, "facilitator"), cli);
   await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cli), "data_folder.py"));
@@ -32,7 +34,7 @@ function magic(args, input, command = cli, name = "magic") {
   });
   return { code: run.status, out: run.stdout.trim(), err: run.stderr.trim() };
 }
-const body = async id => (await fetch(`${board.origin}/magic/body?box=${id}`)).json();
+const body = async id => (await fetch(`${board.origin}/magic/body?box=${id}`, { headers: board.keyed() })).json();
 
 test("each kind fills the card's magic box from an argument, a file or standard input", async () => {
   // a card never filled has none to show, and says so
@@ -60,7 +62,7 @@ test("each kind fills the card's magic box from an argument, a file or standard 
   assert.equal(run.code, 0, run.err);
   const shown = await body("0");
   assert.equal(shown.kind, "image");
-  assert.deepEqual(Buffer.from(await (await fetch(board.origin + shown.src)).arrayBuffer()), PNG);
+  assert.deepEqual(Buffer.from(await (await fetch(board.origin + shown.src, { headers: board.keyed() })).arrayBuffer()), PNG);
 });
 
 test("close hides the magic box, reopen shows it, show prints what it holds", async () => {
