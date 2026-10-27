@@ -5,7 +5,9 @@
 // sees it (a page open of / or /m gets the page saying to open the board with
 // facilitator run), whatever browser headers it makes up; /unread alone
 // answers. The key works, the cookie works, a launch code works once, ends,
-// sets the cookie and sends the window on to /. The phone's door is the bridge
+// sets the cookie and sends the window on to /. A board page the lock refuses
+// opens itself again once, so the board's own page says what to do, rather
+// than drawing the refusal as a reading. The phone's door is the bridge
 // gate's and is not asked for either. One locked fixture board on a free pair
 // of ports, plus a copy of the command beside it; the suite never touches 8877,
 // starts no browser and opens no window. Every card and message is invented.
@@ -16,6 +18,7 @@ const { request } = require("node:http");
 const { chmod, copyFile, readFile, readdir, stat, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const vm = require("node:vm");
 const { ROOT, startBoard } = require("./board-fixture.cjs");
 
 const execFileAsync = promisify(execFile);
@@ -164,6 +167,68 @@ test("the window's cookie opens the board, and what the window sends is the pers
   assert.equal(box.pendingBy.at(-1), null, "the window's message was not stored as the person's");
   // the cookie alone does not mint launch codes
   assert.equal((await raw("POST", "/window/launch", { headers: { ...page(), Cookie: cookie } })).status, 401);
+});
+
+// a page's own reading code, cut from its file between start and end and run
+// in a vm against this board, with read set up by tail. Its asks carry the
+// window cookie cookie() gives, if any; its opens and its tab's marks are kept
+function pageCode(source, start, end, tail, cookie) {
+  const block = source.slice(source.indexOf(start), source.indexOf(end));
+  assert.ok(source.includes(start) && source.includes(end) && block.length > 200, `${start} was not found`);
+  const opened = [], marks = new Map();
+  const ctx = vm.createContext({
+    MessageChannel,
+    reportProblem() {},
+    sessionStorage: { getItem: k => (marks.has(k) ? marks.get(k) : null), setItem: (k, v) => marks.set(k, String(v)),
+                      removeItem: k => marks.delete(k) },
+    location: { reload: () => opened.push("reload"), replace: to => opened.push(to) },
+    async fetch(route) {
+      const r = await raw("GET", route, { headers: { ...page(), ...(cookie() ? { Cookie: cookie() } : {}) } });
+      return { status: r.status, ok: r.status >= 200 && r.status < 300, json: async () => JSON.parse(r.text) };
+    },
+  });
+  vm.runInContext(block + "\n" + tail, ctx);
+  return { read: () => ctx.read(), opened, marks };
+}
+
+test("a window the lock refuses opens itself again once, and the refusal is never drawn as a reading", async () => {
+  let cookie = "";
+  const index = await readFile(path.join(ROOT, "index.html"), "utf8");
+  const board = pageCode(index, "// ---- the board's reading, lean", "// ---- the board's reading ends",
+                         "globalThis.read = () => readState();", () => cookie);
+  // refused: thrown rather than handed on, and the page opens itself again
+  // once; a second refusal before any good reading opens nothing
+  await assert.rejects(board.read(), /the board's lock refused this window/);
+  await assert.rejects(board.read(), /the board's lock refused this window/);
+  assert.deepEqual(board.opened, ["reload"]);
+  // a window with its cookie reads the board and lets the mark go, and never
+  // opens itself again while its cookie is good
+  cookie = await windowCookie();
+  assert.equal((await board.read()).title, "fixture board");
+  assert.equal((await board.read()).title, "fixture board");
+  assert.equal(board.marks.size, 0, "a good reading kept the mark");
+  assert.deepEqual(board.opened, ["reload"]);
+  // so a later refusal opens it again, once
+  cookie = "";
+  await assert.rejects(board.read(), /the board's lock refused this window/);
+  await assert.rejects(board.read(), /the board's lock refused this window/);
+  assert.deepEqual(board.opened, ["reload", "reload"]);
+
+  // the /page view goes to / rather than opening itself again, since an open
+  // of /page gets the bare refusal and an open of / the board's own page
+  const view = await readFile(path.join(ROOT, "page.html"), "utf8");
+  assert.match(view, /state = await lockChecked\(await fetch\("\/state"\)\);/);
+  const pageView = pageCode(view, "const LOCK_RELOAD_MARK", "let pollFails = 0;",
+                            'globalThis.read = async () => lockChecked(await fetch("/state"));', () => cookie);
+  await assert.rejects(pageView.read(), /the board's lock refused this window/);
+  await assert.rejects(pageView.read(), /the board's lock refused this window/);
+  assert.deepEqual(pageView.opened, ["/"]);
+  const openedPage = await raw("GET", "/page", { headers: OPEN });
+  assert.deepEqual([openedPage.status, json(openedPage)], [401, { error: REFUSAL }]);
+  cookie = await windowCookie();
+  assert.equal((await pageView.read()).title, "fixture board");
+  assert.equal(pageView.marks.size, 0, "a good reading kept the mark");
+  assert.deepEqual(pageView.opened, ["/"]);
 });
 
 test("a launch code works once, as a page, sets the cookie and sends the window on to /", async () => {

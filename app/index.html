@@ -13300,6 +13300,28 @@ async function deskCopy(reading, pause){
   }
   return out;
 }
+// a 401 is the board's lock refusing this window: one opened before the lock
+// came in, or one whose cookie the board no longer keeps (server.py BoardLock).
+// It is no reading, so it is thrown rather than handed on, and the page opens
+// itself again once; the board answers that open with its own page saying to
+// open the board with facilitator run. The mark kept for this tab stops a page
+// that is refused again from opening itself over and over, and the next good
+// reading lets it go
+const LOCK_RELOAD_MARK = "facilitator-lock-reload";
+function lockRefused(){
+  try {
+    if (!sessionStorage.getItem(LOCK_RELOAD_MARK)){
+      sessionStorage.setItem(LOCK_RELOAD_MARK, "1");
+      location.reload();
+    }
+  } catch (e) {}
+  return new Error("the board's lock refused this window");
+}
+async function lockChecked(answer){
+  if (answer.status === 401) throw lockRefused();
+  if (answer.ok) try { sessionStorage.removeItem(LOCK_RELOAD_MARK); } catch (e) {}
+  return answer.json();
+}
 // one reading, as the board's state at this moment, new objects for the draw. An
 // answer that is no reading at all (a busy or failed board's {error}) is handed
 // on as it came, as it always was, and the reading held stays held. same says
@@ -13308,7 +13330,7 @@ async function deskCopy(reading, pause){
 async function readState(same = false, pause = null){
   const base = deskHeld;
   const ask = base && base.epoch !== null ? "/state?since=" + base.rev + "&delta=" + encodeURIComponent(base.epoch) : "/state?since=";
-  const data = await (await fetch(ask)).json();
+  const data = await lockChecked(await fetch(ask));
   if (data === null || typeof data !== "object" || (data.delta == null && !Array.isArray(data.boxes))) return data;
   let held = null;
   try { held = deskMerge(base, data); } catch (e) { held = null; }
@@ -13321,7 +13343,7 @@ async function readState(same = false, pause = null){
     // check should make impossible: written down, and the whole board read now
     if (typeof reportProblem === "function") reportProblem("error", new Error("a lean reading did not fit the reading held"));
     deskHeld = null;
-    const whole = await (await fetch("/state?since=")).json();
+    const whole = await lockChecked(await fetch("/state?since="));
     if (whole === null || typeof whole !== "object" || !Array.isArray(whole.boxes)) return whole;
     held = deskMerge(null, whole);
   }
