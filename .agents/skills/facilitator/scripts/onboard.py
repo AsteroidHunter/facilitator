@@ -3,7 +3,7 @@
 
 On the Mac every call carries the board's agent key, which the board keeps in
 data/agent.key with a curl config beside it, data/agent.curl, and inspect
-names that file for the runbook's curl lines.
+names that file for the runbook's curl lines once the board has made it.
 
 On one of the owner's servers, where the setup program (scripts/pair.py) put
 this skill in ~/.facilitator/skill with remote.json beside it, the board is
@@ -489,8 +489,12 @@ def inspect(args):
                available=sorted(state["busy"]))
         return
     owner = matches[0]
-    common = {"owner": owner, "port": port(), "runbook": str(RUNBOOK),
-              "curl": f"-K {AGENT_CURL}", "base": f"http://127.0.0.1:{port()}"}
+    common = {"owner": owner, "port": port(), "runbook": str(RUNBOOK)}
+    # the key file goes with the runbook once the board has made it: a board
+    # older than the key, still running after an update, makes none and asks
+    # for none, and curl -K on a missing file stops before it calls
+    if AGENT_CURL.is_file():
+        common.update(curl=f"-K {AGENT_CURL}", base=f"http://127.0.0.1:{port()}")
     # the person's first name goes with the runbook, and none for no name
     name = profile_name()
     if name:

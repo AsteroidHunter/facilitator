@@ -91,6 +91,22 @@ class LocalNetworkErrors(unittest.TestCase):
                 self.assertNotIn("box", said)
                 self.assertEqual(called.call_count, 1)
 
+    def test_inspect_names_the_key_file_only_once_the_board_made_it(self):
+        # a board older than the key, still running after an update, made no
+        # key file, and the runbook's curl lines go without -K
+        with tempfile.TemporaryDirectory() as folder:
+            curl = Path(folder) / "agent.curl"
+            with patch.object(onboard, "AGENT_CURL", curl), patch.object(onboard, "profile_name", return_value=None):
+                said, _ = self.invoke(onboard.inspect, [self.state])
+                self.assertEqual(said, {"status": "ready", "owner": "demo", "port": 8877,
+                                        "runbook": str(onboard.RUNBOOK)})
+                curl.write_text('header = "Authorization: Bearer ' + "k" * 43 + '"\n')
+                said, _ = self.invoke(onboard.inspect, [self.state])
+        self.assertEqual(said["curl"], f"-K {curl}")
+        self.assertTrue(Path(said["curl"][len("-K "):]).is_absolute())
+        self.assertEqual(said["base"], "http://127.0.0.1:8877")
+        self.assertEqual(list(said), ["status", "owner", "port", "runbook", "curl", "base"])
+
     def test_every_local_call_carries_the_key_and_no_proxy(self):
         sent = []
 
