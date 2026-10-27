@@ -6414,11 +6414,14 @@ for (const type of ["pointerdown", "touchstart", "keydown", "input"]){
 //                it is asked for again here after 30 s), dead (nothing for 40 s:
 //                closed and asked for again at once), hidden or pagehide (the
 //                app was put away; asked for again when it is back on screen)
-// The Mac's narrow view hears the board's line through the board around it and
-// opens none here.
-const LINE_PROBE_DEAD_MS = 40000, LINE_PROBE_CLOSED_MS = 30000;
+// Every 5 minutes while the line is wanted, and once more when the app is put
+// away, the history sums those entries up and sends them to the board's client
+// log as one linereport (card-report.js lineReport), so hours of normal use show
+// on the Mac whether the line holds. The Mac's narrow view hears the board's
+// line through the board around it and opens none here, and so reports none.
+const LINE_PROBE_DEAD_MS = 40000, LINE_PROBE_CLOSED_MS = 30000, LINE_REPORT_MS = 300000;
 const lineProbe = (() => {
-  let source = null, opened = false, held = null, last = 0, dead = 0, again = 0;
+  let source = null, opened = false, held = null, last = 0, dead = 0, again = 0, reporting = 0;
   const wanted = () => !macHost && phoneDeveloperMode && !document.hidden && typeof EventSource === "function";
   const note = (event, detail) => { tracePhone("note", event, detail); };
   // ms since the line's last entry, and this is the last one now
@@ -6475,14 +6478,25 @@ const lineProbe = (() => {
       note("lifecycle", { lifecycle: "stream-lost", why: "error", ms: since() });
     };
   }
+  // the report's clock runs only while the line is wanted; put away, the
+  // stretch is reported once with why, and switched off it is not reported
+  function every(){
+    clearTimeout(reporting);
+    reporting = setTimeout(() => { tracePhone("lineReport", "period"); every(); }, LINE_REPORT_MS);
+  }
+  function finish(why){
+    if (!reporting) return;
+    clearTimeout(reporting); reporting = 0;
+    if (why) tracePhone("lineReport", why);
+  }
   return {
     // shown again, or developer mode switched: open while wanted, else close
     check(){
-      if (wanted()){ open(); return; }
+      if (wanted()){ open(); if (!reporting) every(); return; }
       clearTimeout(again); again = 0;
-      if (document.hidden) lost("hidden"); else shut();
+      if (document.hidden){ lost("hidden"); finish("hidden"); } else { shut(); finish(""); }
     },
-    put(why){ clearTimeout(again); again = 0; lost(why); },
+    put(why){ clearTimeout(again); again = 0; lost(why); finish(why); },
   };
 })();
 document.addEventListener("visibilitychange", () => {

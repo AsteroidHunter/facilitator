@@ -323,6 +323,21 @@
     // and the losses the check reads are kept
     const STREAM_AGE = 900000, STREAM_ENTRIES = 64;
     const streamWords = new Set(["stream-open", "stream-lost"]);
+    // The line's report (lineReport, asked for by m.html's probe every 5 minutes
+    // on screen and once when the app is put away): one short linereport line in
+    // the board's client log, summed up from the same entries the stream lane
+    // keeps and never cut short by its cap. How many lines came and how many of
+    // them were the board's 15 second repeats, the longest silence between two
+    // lines and each one over LINE_GAP, and each open and loss with why. A send
+    // that fails is not tried again; the next report's unsent says how many
+    // before it went missing, and n numbers them on this page load
+    const LINE_GAP = 20000, LINE_LIST = 16, LINE_DAY = 86400000;
+    const lineReasons = new Set(["period", "hidden", "pagehide"]);
+    const nets = new Set(["bluetooth", "cellular", "ethernet", "mixed", "none", "other", "unknown", "wifi", "wimax"]);
+    // the stretch being counted; when the line last said anything (null once the
+    // app is put away); whether the next line is the first since the line opened
+    let tally = lineTally(performance.now()), lineSince = null, lineFirst = false;
+    let lineN = 0, lineUnsent = 0;
     const timingRows = [], scrollWindows = [];
     const timingJobs = new Set(["board", "json", "list", "reply", "glass"]);
     let timingLost = 0, timingSerial = 0, activeScroll = null, longObserver = null;
@@ -418,6 +433,7 @@
       timingLost = 0; activeScroll = null;
       configureLongTasks();
       for (const lane of [important, work, life, pollBuckets, observerBuckets, stream]) lane.length = 0;
+      tally = lineTally(performance.now()); lineSince = null; lineFirst = false;
       lost = sparseLost = suppressed = 0;
       activeRequest = viewport = held = beaconed = null;
       clearTimeout(viewportTimer); viewportTimer = null;
@@ -577,6 +593,71 @@
         stream.splice(rang >= 0 ? rang : 0, 1); sparseLost = cap(sparseLost + 1, 1000000000);
       }
     }
+    function lineTally(now) {
+      return { from: now, start: Date.now(), entries: 0, lines: 0, beats: 0, gapMax: 0,
+        gaps: [], stream: [], omitted: 0 };
+    }
+    function lineList(list, item) {
+      if (list.length < LINE_LIST) list.push(item);
+      else tally.omitted = cap(tally.omitted + 1, 1000000000);
+    }
+    // One of the line's entries, counted into the stretch. A gap is the time
+    // the phone went without a line while it wanted one: from the line before,
+    // or from asking for the line when none has come since the app was shown,
+    // through any losses and reopenings between
+    function lineCount(entry) {
+      const t = tally, at = cap(entry.time - t.from, LINE_DAY);
+      t.entries++;
+      if (lineSince === null) lineSince = entry.time - (entry.ms || 0);
+      if (entry.event === "beat") {
+        const gap = cap(entry.time - lineSince, LINE_DAY);
+        lineSince = entry.time;
+        t.lines = cap(t.lines + 1, 1000000);
+        if (!entry.changed && !lineFirst) t.beats = cap(t.beats + 1, 1000000);
+        lineFirst = false;
+        t.gapMax = Math.max(t.gapMax, gap);
+        if (gap > LINE_GAP) lineList(t.gaps, { at, ms: gap });
+        return;
+      }
+      if (entry.lifecycle === "stream-open") lineFirst = true;
+      if (entry.lifecycle === "stream-lost" && !entry.why) { t.omitted = cap(t.omitted + 1, 1000000000); return; }
+      const item = { at, event: entry.lifecycle, ms: cap(entry.ms || 0, 600000), online: entry.online };
+      if (entry.why) item.why = entry.why;
+      lineList(t.stream, item);
+      if (entry.why === "hidden" || entry.why === "pagehide") lineSince = null;
+    }
+    // The stretch so far as one report, and a new stretch from now. A stretch
+    // the line said nothing in is reported too, with nothing in it: that is
+    // what a line that never reaches the phone looks like. Put away, it goes by
+    // beacon, the one send that survives the page going; on screen, by fetch,
+    // so a refusal is known
+    function lineReport(reason) {
+      if (!enabled || !lineReasons.has(reason)) return false;
+      const t = tally, now = performance.now();
+      tally = lineTally(now);
+      lineN = cap(lineN + 1, 1000000000);
+      let net = "unknown";
+      try { if (nets.has(navigator.connection?.type)) net = navigator.connection.type; } catch (_) {}
+      const report = { kind: "linereport", v: 7, build, n: lineN, unsent: lineUnsent, reason,
+        start: t.start, ms: cap(now - t.from, LINE_DAY), net, lines: t.lines, beats: t.beats,
+        gapMax: t.gapMax, gaps: t.gaps, stream: t.stream, omitted: t.omitted };
+      const missed = () => { lineUnsent = cap(lineUnsent + 1, 1000000000); };
+      // a board that has not offered schema 7 has no name for the line
+      if (schema < 7 || navigator.onLine === false) { missed(); return false; }
+      const body = batchOf([report]);
+      if (reason !== "period") {
+        let queued = false;
+        try { queued = !!navigator.sendBeacon?.("/clientlog", new Blob([body], { type: "application/json" })); } catch (_) {}
+        if (!queued) missed();
+        return queued;
+      }
+      realFetch.call(window, "/clientlog", { method: "POST", headers: { "content-type": "application/json" },
+        body, keepalive: true })
+        .then(response => response.ok ? response.json() : null)
+        .then(answer => { if (!(answer?.ok === true && answer.written === 1)) missed(); }, missed)
+        .catch(() => {});
+      return true;
+    }
     function append(event, detail, time = performance.now()) {
       evict(time);
       const entry = { ...detail, event, time, visible: !document.hidden,
@@ -597,8 +678,10 @@
       if (!events.has(event) || (schema < 3 && v3Events.has(event))) return;
       const fields = clean(detail), now = performance.now();
       if (isStream({ ...fields, event })) {
-        streamKeep({ ...fields, event, time: now, visible: !document.hidden,
-          online: navigator.onLine !== false, resume: generation });
+        const entry = { ...fields, event, time: now, visible: !document.hidden,
+          online: navigator.onLine !== false, resume: generation };
+        streamKeep(entry);
+        lineCount(entry);
         return;
       }
       if (event === "viewport") {
@@ -999,6 +1082,10 @@
       }
       generation = cap(generation + 1, 1000000000);
       lastResume = performance.now();
+      // the line's stretch: put away, the next line's gap starts afresh; shown
+      // again after a report, the next stretch starts now and not at the hide
+      if (value === "hidden" || value === "pagehide") lineSince = null;
+      if ((value === "visible" || value === "pageshow") && !tally.entries) tally = lineTally(lastResume);
       if (schema >= 3 || value !== "pagehide")
         note("lifecycle", schema >= 3 ? { lifecycle: value, ...detail } : { lifecycle: value });
     }
@@ -1070,6 +1157,7 @@
       }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
       noScroll: safe(noScroll, false),
+      lineReport: safe(lineReport, false),
       problem: safe((kind, message) => {
         if (!choices.problem.includes(kind)) return;
         // Browsers may emit these while settling a normal responsive layout.

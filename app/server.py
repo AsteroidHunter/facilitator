@@ -773,7 +773,12 @@ Endpoints:
                                whether it moved) and when it was lost and why,
                                and only these reach back 15 minutes.
                                All versions share four writes per minute across
-                               incident reasons.
+                               incident reasons. A linereport (schema 7 only)
+                               sums the same line up for one stretch on screen:
+                               lines, beats (the 15 second repeats), gapMax,
+                               each gap over 20 s and each open and loss with
+                               why, sent in developer mode every 5 minutes on
+                               screen and once when the app is put away.
                                Six more kinds come from the phone alone, each
                                with fixed fields and nothing else: pushreceived
                                (its worker's record of one push, shown or
@@ -1657,7 +1662,7 @@ def _log_file() -> Path:
 # counters die on reload, so a page throwing during boot and reloading in a
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
-CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
+CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident", "linereport",
                 "pushreceived", "notifycheck", "notifylost",
                 "notifytapready", "notifytap", "notifyarrive", "notifyresult")
 # the kind of window a page is open in, and its id for one page load: the same
@@ -1978,6 +1983,66 @@ def _notice_valid(page: str, report: dict) -> bool:
     return True
 
 
+# What the phone's live line did in one stretch on screen (card-report.js
+# lineReport, sent by m.html's line probe in developer mode every 5 minutes on
+# screen and once when the app is put away). Only under incident schema 7, the
+# one that names the line; an older v is refused. Counts and ms only: lines,
+# the board's 15 second repeats among them, the longest silence between two
+# lines and each one over LINE_REPORT_GAP, and each open and loss with why, at
+# ms into the stretch, which began at start (the phone's clock, ms since 1970)
+LINE_REPORT_FIELDS = ("kind", "v", "build", "n", "unsent", "reason", "start", "ms", "net",
+                      "lines", "beats", "gapMax", "gaps", "stream", "omitted")
+LINE_REPORT_REASONS = ("period", "hidden", "pagehide")
+LINE_REPORT_NETS = ("bluetooth", "cellular", "ethernet", "mixed", "none", "other", "unknown", "wifi", "wimax")
+LINE_REPORT_LIST = 16          # gaps and stream entries each; the rest are counted in omitted
+LINE_REPORT_GAP = 20000        # a gap is listed past this many ms
+LINE_REPORT_DAY = 86400000
+
+
+def _line_report_valid(page: str, report: dict) -> bool:
+    """Exactly the fields a line report has, each a bounded number, a flag or
+    a fixed word, in order of time within its stretch. Anything else refuses
+    the batch."""
+    if (page != "phone" or set(report) != set(LINE_REPORT_FIELDS)
+            or type(report["v"]) is not int or report["v"] != 7
+            or not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])
+            or not _incident_integer(report["n"], 1, 1000000000)
+            or not _incident_integer(report["unsent"], 0, 1000000000)
+            or report["reason"] not in LINE_REPORT_REASONS
+            or not _incident_integer(report["start"], 0, 10000000000000)
+            or not _incident_integer(report["ms"], 0, LINE_REPORT_DAY)
+            or report["net"] not in LINE_REPORT_NETS
+            or not _incident_integer(report["lines"], 0, 1000000)
+            or not _incident_integer(report["beats"], 0, report["lines"])
+            or not _incident_integer(report["gapMax"], 0, LINE_REPORT_DAY)
+            or not _incident_integer(report["omitted"], 0, 1000000000)):
+        return False
+    gaps, stream = report["gaps"], report["stream"]
+    if (not isinstance(gaps, list) or not isinstance(stream, list)
+            or len(gaps) > LINE_REPORT_LIST or len(stream) > LINE_REPORT_LIST):
+        return False
+    previous = 0
+    for gap in gaps:
+        if (not isinstance(gap, dict) or set(gap) != {"at", "ms"}
+                or not _incident_integer(gap["at"], previous, report["ms"])
+                or not _incident_integer(gap["ms"], LINE_REPORT_GAP + 1, report["gapMax"])):
+            return False
+        previous = gap["at"]
+    previous = 0
+    for entry in stream:
+        if not isinstance(entry, dict) or entry.get("event") not in INCIDENT_STREAM_LIFECYCLES:
+            return False
+        lost = entry["event"] == "stream-lost"
+        if (set(entry) != ({"at", "event", "ms", "online", "why"} if lost else {"at", "event", "ms", "online"})
+                or not _incident_integer(entry["at"], previous, report["ms"])
+                or not _incident_integer(entry["ms"], 0, INCIDENT_NUMBERS["ms"])
+                or type(entry["online"]) is not bool
+                or (lost and entry["why"] not in INCIDENT_STREAM_WHY)):
+            return False
+        previous = entry["at"]
+    return True
+
+
 # the page reports that still reach the client file when the level is error: the
 # page's throws, and the phone marker someone asked for by hand
 CLIENT_ERROR_KINDS = ("error", "rejection", "incident")
@@ -2007,6 +2072,8 @@ def _client_key(page: str, report: dict) -> str:
     the same line are one key, however many times they happen."""
     if report["kind"] == "incident":
         return "incident|phone"
+    if report["kind"] == "linereport":
+        return "linereport|phone"
     return "|".join(str(report.get(part, "")) for part in
                     ("kind", "message", "file", "line")) + "|" + page
 
@@ -2017,6 +2084,8 @@ def _client_fields(report: dict) -> dict:
     if report["kind"] == "incident":
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
         return {k: report[k] for k in (*names, "build", "worker", "session", "timing") if k in report}
+    if report["kind"] == "linereport":
+        return {k: report[k] for k in LINE_REPORT_FIELDS if k != "kind"}
     if report["kind"] in NOTICE_FIELDS:
         # a card's id is the line's own box, written beside the kind
         out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k not in ("ago", "box")}
@@ -2087,9 +2156,11 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
                 lost[key] = (count + 1, report)
                 continue
             fields = _client_fields(report)
-            if report["kind"] == "incident":
-                record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, "incident", (), None,
-                                                  extra={"box": report["box"], "fields": {"page": page, **who, **fields}})
+            if report["kind"] in ("incident", "linereport"):
+                # written and flushed before the answer, so the phone's written
+                # count is the file's and not the logging module's hope
+                record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, report["kind"], (), None,
+                                                  extra={"box": report.get("box", ""), "fields": {"page": page, **who, **fields}})
                 _client_file.emit_confirmed(record)
             else:
                 _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **who, **fields)
@@ -8071,6 +8142,8 @@ def _post_clientlog(q: Query, raw: bytes):
         return 400, {"error": "bad incident history"}
     if any(r["kind"] in NOTICE_FIELDS and not _notice_valid(page, r) for r in reports):
         return 400, {"error": "bad notification report"}
+    if any(r["kind"] == "linereport" and not _line_report_valid(page, r) for r in reports):
+        return 400, {"error": "bad line report"}
     if (_usage_sender is not None and who.get("client") == "phone"
             and any(r["kind"] == "notifycheck" for r in reports)):
         # the phone app opened or came back: kept for the daily usage counts
