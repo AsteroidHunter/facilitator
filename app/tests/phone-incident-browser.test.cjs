@@ -1,5 +1,9 @@
 // All pages belong to invented fixtures in agent-profile Chrome. Targets are
-// created in the background and are never activated.
+// created in the background and are never activated. The current server is
+// locked as a real board is: this file's own calls carry the agent key it
+// makes, and each page's browser context holds the window's cookie, as
+// `facilitator run` leaves one in Chrome. An older server (schema 2 and 3)
+// makes no key and asks for neither.
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
@@ -9,6 +13,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { before, after, test } = require("node:test");
 const puppeteer = require("puppeteer-core");
+const box = require("./board-sandbox.cjs");
 const ROOT = path.resolve(__dirname, "..");
 const EVIDENCE = process.env.FACILITATOR_INCIDENT_EVIDENCE || path.join(os.tmpdir(), "facilitator-incident-browser");
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
@@ -46,6 +51,9 @@ async function saveFinished(page, saved = true) {
 async function fixture(t, options = {}) {
   // the copy's code in app/ of a sandbox of its own, its files in data/ beside it
   const dir = require("./fixture-auth.cjs").appFolder("facilitator-incident-browser-");
+  // the agent key a current server made in data/ at its start, as a header
+  const place = { data: require("./fixture-auth.cjs").dataOf(dir) };
+  const keyed = () => box.keyed(place);
   let child, context, page;
   const errors = [], requests = [];
   t.after(async () => {
@@ -109,9 +117,15 @@ async function fixture(t, options = {}) {
   for (const stream of [child.stdout, child.stderr]) stream.on("data", part => { output += part; });
   await wait(async () => {
     if (child.exitCode !== null) throw new Error(output);
-    return fetch(origin + "/state").then(r => r.ok).catch(() => false);
+    return fetch(origin + "/state", { headers: keyed() }).then(r => r.ok).catch(() => false);
   });
   context = await browser.createBrowserContext();
+  if (Object.keys(keyed()).length) {
+    const cookie = await box.windowCookie(place, port);
+    const at = cookie.indexOf("=");
+    await context.setCookie({ name: cookie.slice(0, at), value: cookie.slice(at + 1), domain: "127.0.0.1",
+                              path: "/", httpOnly: true, sameSite: "Strict" });
+  }
   const cdp = await browser.target().createCDPSession();
   const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank", background: true, browserContextId: context.id });
   const target = await browser.waitForTarget(t => t._targetId === targetId);
@@ -165,7 +179,7 @@ async function fixture(t, options = {}) {
     }
     return lines;
   }
-  return { page, origin, requests, errors, readLog,
+  return { page, origin, requests, errors, readLog, keyed,
     telemetry: value => { telemetry = value; }, stateLatency: value => { stateLatency = value; } };
 }
 
@@ -545,7 +559,7 @@ test("the shortcut preserves draft and focus; broken instrumentation cannot stop
   await page.waitForFunction(() => ops.length === 0, { polling: 25 });
   await page.evaluate(() => { clearTimeout(autoNext); createCard(); });
   await page.waitForFunction(() => !pendingCreate(), { polling: 25 });
-  const state = await (await fetch(f.origin + "/state")).json();
+  const state = await (await fetch(f.origin + "/state", { headers: f.keyed() })).json();
   assert.ok(state.boxes.find(b => b.id === "m3").pendingTexts.includes("Invented send despite diagnostics"));
   assert.ok(state.boxes.length > 21);
   assert.deepEqual(f.errors, []);
