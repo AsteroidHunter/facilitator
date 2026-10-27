@@ -1,7 +1,8 @@
 // Settings' Shut down Facilitator on the Mac board, in Chrome. The button
 // shows in Settings, in a section of its own. With agents listening on two
-// projects the click asks first, naming the two; Cancel leaves the board
-// running, and Shut down stops it and the page says it is shut down and how to
+// projects the click asks first, naming the two; Cancel, by mouse or Escape,
+// leaves the board running, Settings open and the focus back on the button,
+// and Shut down stops it and the page says it is shut down and how to
 // start it again. With no agent the board shuts down at once. A window opened
 // straight on the board, as facilitator run opens one, closes itself.
 //
@@ -185,7 +186,17 @@ test("with agents listening on two projects it asks first; Cancel keeps the boar
 
   await press(page, "Cancel");
   await until(page, () => !document.getElementById("sdtitle").closest(".up-veil").classList.contains("open"), "Cancel");
-  await until(page, () => !document.getElementById("setshutdown").disabled, "the button back");
+  await until(page, () => document.activeElement === document.getElementById("setshutdown"),
+    "the focus back on the button after Cancel");
+  // Escape is Cancel too, and leaves Settings open with the focus on the button
+  await page.click("#setshutdown");
+  await until(page, () => document.getElementById("sdtitle").closest(".up-veil").classList.contains("open"), "the question");
+  await page.keyboard.press("Escape");
+  await until(page, () => !document.getElementById("sdtitle").closest(".up-veil").classList.contains("open"), "Escape");
+  await until(page, () => document.activeElement === document.getElementById("setshutdown"),
+    "the focus back on the button after Escape");
+  assert.equal(await page.evaluate(() => !!document.querySelector(".sp-veil:not(.up-veil).open")), true,
+               "Escape on the question closed Settings too");
   await settle(1500);
   await running(board, "after Cancel");
   assert.equal(await page.evaluate(() => window.closes), 0, "the window was closed after Cancel");

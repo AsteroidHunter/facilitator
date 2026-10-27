@@ -14625,11 +14625,10 @@ function updateWatch(state){
     },
     close: () => window.close(),
   });
-  shutBtn.addEventListener("click", async () => {
-    shutBtn.disabled = true;
-    await shutdown.begin();
-    shutBtn.disabled = false;
-  });
+  // the button stays enabled: begin() ignores a click while a shut down is
+  // under way, and a disabled button would lose the focus the pop-up hands
+  // back on Cancel, leaving Escape with nothing to close Settings
+  shutBtn.addEventListener("click", () => { shutdown.begin(); });
 }
 
 // ---- settings --------------------------------------------------------------
