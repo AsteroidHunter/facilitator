@@ -29,6 +29,9 @@
     let child = null, childWindow = null, frame = null, wanted = false, active = false;
     let transferring = false, timer = null, failed = false;
     let composing = false, lastPhone = null, recovering = false;
+    // the phone document hears the board's live line through the board's own
+    // (options.line, board-line.js relay) and opens none of its own
+    let relay = null;
     const doc = options.window.document, win = options.window;
     const status = doc.createElement("div");
     status.id = "phoneviewstatus"; status.setAttribute("role", "status"); status.hidden = true;
@@ -123,11 +126,18 @@
         tick(); return true;
       },
       accepts(source) { return !!frame && source === frame.contentWindow; },
+      listen(source, page) {
+        if (!options.line || source !== childWindow) return null;
+        if (relay) relay.stop();
+        relay = options.line.relay(page);
+        return relay;
+      },
       current() { return active && child ? child.capture() : null; },
       active() { return active; },
       refresh: tick,
       lost(source) {
         if (source !== childWindow) return;
+        if (relay) { relay.stop(); relay = null; }
         if (active) {
           // pagehide can follow a navigation or the whole app closing. Take
           // a final text copy even if preparing an attachment or repaint fails.

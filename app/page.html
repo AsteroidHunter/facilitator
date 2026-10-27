@@ -1421,6 +1421,7 @@
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script src="/hover-labels.js"></script>
+<script src="/board-line.js"></script>
 <script>
 // "Open a new folder" opens the board's own folder picker (folder-picker.js),
 // as the board does. this page loads no card-logic.js, so the two pieces of it
@@ -4595,8 +4596,49 @@ if (DOC){
 }
 
 applySavedLayout();
+// ---- the board's live line ---------------------------------------------------
+// as on the board (index.html, board-line.js): a ring reads the board, the same
+// whole reading the 1.2 s timer made and drawn whole, on screen or hidden, and
+// while the line is down, and until the first line comes, that timer runs
+// exactly as it did (pageTimed). The ages and the line naming a lane whose
+// agent has gone quiet move with the clock alone: while the line is up and the
+// page is on screen the reading held is drawn again every PAGE_TICK_MS, and at
+// once when the page is shown again, each lane's quiet counted on from the
+// board's clock in that reading. Never while the banner says the board is
+// unreachable, which the draw would take down
+let pageTicker = 0;
+function pageTimed(on){
+  if (on && !pageTicker) pageTicker = setInterval(poll, 1200);
+  else if (!on && pageTicker){ clearInterval(pageTicker); pageTicker = 0; }
+}
+const PAGE_TICK_MS = 30000;
+let pageLine = null;
+function pageTick(){
+  if (document.hidden || !pageLine || !pageLine.up || pollFails >= 3 || !lastState) return;
+  const gone = typeof lastState.now === "number" ? Math.max(0, Date.now() / 1000 - lastState.now) : 0;
+  const listenerGap = {};
+  for (const [ow, gap] of Object.entries(lastState.listenerGap || {})) listenerGap[ow] = gap + gone;
+  try { apply({ ...lastState, listenerGap }); } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("render", e);
+  }
+}
 if (MOCK) docMockBoot();   // no poll in the sandbox: the clock ticks off the browser, the rest is fake
-else { poll(); setInterval(poll, 1200); }
+else {
+  // the reading at load is the first; a page whose board-line.js did not load
+  // keeps the timer for good
+  pageLine = typeof BoardLine === "object" ? BoardLine.connect({
+    held: () => lastState ? lastState.rev : null,
+    read: poll,
+    failed: () => pollFails > 0,
+    up: () => pageTimed(false),
+    down: () => pageTimed(true),
+    first: poll(),
+  }) : null;
+  if (!pageLine){ poll(); pageTimed(true); }
+  setInterval(pageTick, PAGE_TICK_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pageTick(); });
+}
+// ---- the board's live line ends
 </script>
 </body>
 </html>

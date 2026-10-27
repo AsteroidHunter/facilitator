@@ -5989,6 +5989,17 @@ let drewBoard = false;
 // card and the title editor that the confirmed answer has just drawn.
 let createRevFloor = null;
 let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
+// the Mac's narrow view reads when the board around it hears the board's live
+// line ring (macHost.listen, at the end of this page), and on the timer only
+// while that line is down, after a reading that did not get through, and while
+// a send waits for its receipt, which only a reading asking after it brings.
+// The phone itself has no line here (pollRings stays null) and reads on the
+// timer as it always has
+let pollRings = null;
+function pollTimed(){
+  return !pollRings || !pollRings.up || pollFails > 0 ||
+    ops.some(o => o.state === "pending" || o.state === "unsure");
+}
 // a timed reading that falls due while a panel on the card runs, or a page turns,
 // is put off a moment and not dropped (cardsMoving in card-logic.js): a reading
 // that brings a change has to be drawn, since the revision it carries is only
@@ -6105,7 +6116,7 @@ function poll(){
   pollRun = readBoard().finally(() => {
     pollRun = null;
     if (pollAgain){ pollAgain = false; poll(); }
-    else schedulePoll(pollGap);
+    else if (pollTimed()) schedulePoll(pollGap);
   });
   return pollRun;
 }
@@ -8115,6 +8126,22 @@ if (macHost) {
     },
   };
   macHost.connect(window, adapter);
+  // the board's live line, heard through the board around this page: a ring
+  // reads at once (schedulePoll, which waits out a card's motion or a finger on
+  // the list, and reads nothing while hidden), and while the line is down the
+  // readings go back to the timer (pollTimed). The ages in the ticket list move
+  // with the clock alone, so while the line is up and this view is on screen
+  // the list is drawn again from the reading held every MAC_TICK_MS
+  const MAC_TICK_MS = 30000;
+  pollRings = typeof macHost.listen === "function" ? macHost.listen(window, {
+    held: () => lastRev,
+    read: () => schedulePoll(0),
+    up: () => {},
+    down: () => { if (!pollRun) schedulePoll(pollGap); },
+  }) : null;
+  setInterval(() => {
+    if (pollRings && pollRings.up && !document.hidden && !window.macPhoneInactive && lastState) renderTickets(lastState);
+  }, MAC_TICK_MS);
   addEventListener("pagehide", () => macHost.lost(window));
 }
 </script>
