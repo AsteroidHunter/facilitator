@@ -4199,6 +4199,11 @@
         <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</small></label>
       <input type="checkbox" role="switch" id="setformat">
     </div>
+    <div class="setrow">
+      <label class="setlabel" for="setcurses"><span>Replace curse words</span>
+        <small class="sethelp">Curse words in the messages you send are saved as [expletive], so the board, its history and agents only see the tag. Messages sent before stay as they are.</small></label>
+      <input type="checkbox" role="switch" id="setcurses">
+    </div>
   </div>
   <div data-section="improvements" data-label="Improvements">
     <div class="setrow fbrow">
@@ -14627,6 +14632,11 @@ function updateWatch(state){
   // (applyNewLayout)
   const layout = document.getElementById("setlayout");
   const layoutOn = () => settingsStore.getItem("newlayout") === "1";
+  // whether the reader's curse words are saved as [expletive] (_curse_free in
+  // server.py): the board's expletives setting, "1" for on and absent for
+  // off, so every window and the phone's drawer show the same choice
+  const curses = document.getElementById("setcurses");
+  const masking = () => settingsStore.getItem("expletives") === "1";
   // the profile (GET and POST /profile in server.py): what the onboarding
   // saved, read from the board each time the page opens and saved a field at a
   // time as each is changed. a change the board refuses (an empty name, an
@@ -14748,6 +14758,7 @@ function updateWatch(state){
       updateCheck.checked = checking();
       showWait();
       layout.checked = layoutOn();
+      curses.checked = masking();
       readProfile();
       readBin();
     },
@@ -14782,6 +14793,11 @@ function updateWatch(state){
     if (layout.checked) settingsStore.setItem("newlayout", "1");
     else settingsStore.removeItem("newlayout");
     applyNewLayout();
+  });
+  curses.checked = masking();
+  curses.addEventListener("change", () => {
+    if (curses.checked) settingsStore.setItem("expletives", "1");
+    else settingsStore.removeItem("expletives");
   });
   btn.addEventListener("click", () => view.open());
   const feedbackBtn = document.getElementById("feedbackbtn");

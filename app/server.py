@@ -142,7 +142,17 @@ Endpoints:
                                could still be sending its id, so a retry always
                                finds it rather than landing twice. A send with
                                no op lands as it always did and is never
-                               deduplicated
+                               deduplicated.
+                               With the board's expletives setting on
+                               (Settings, Editor, "Replace curse words"), the
+                               reader's own words are saved with each curse
+                               word on expletives.txt replaced by [expletive]
+                               (_curse_free), so the stored message, its
+                               transcript row and every reading of it hold
+                               only the masked words; an agent's message is
+                               stored as it came. The receipt's fingerprint is
+                               taken over the words as sent. A word list that
+                               cannot be read is a 503 and nothing is stored
   POST /done?box=ID&v=1|0[&sid=S&seq=N] -> mark a box done / not done
   POST /close?box=ID[&sid=S&seq=N] -> atomically close from the authoritative card:
                                a card with a reply, reply count, or pending
@@ -339,7 +349,8 @@ Endpoints:
                                widget_messages in /wait and /fresh. 8000
                                characters at most; one a second and 30 a minute
                                from one box (429); a page replaced since (rev)
-                               is a 409; op as /send takes it. {ok, box, id}
+                               is a 409; op as /send takes it, and its words
+                               lose their curse words as /send's do. {ok, box, id}
   POST /magic/state?box=ID&rev=N -> body = {"state": {...}}: the widget's own
                                memory, at most 64 KiB, kept whole. From the
                                board's own pages and the phone only; wakes no
@@ -546,7 +557,9 @@ Endpoints:
                                waiting on the reader are listed newest first
                                (waitnewest, "1" when so), whether the project
                                tabs wear the new layout (newlayout, "1" when
-                               so), the home chart,
+                               so), whether the reader's curse words are saved
+                               as [expletive] (expletives, "1" when so), the
+                               home chart,
                                the typed page's tasks and the one-time layout
                                passes, under the key names and
                                text values the browsers kept them under. They
@@ -8082,6 +8095,11 @@ def _post_magic_send(q: Query, text: str):
         return 400, {"error": f"a widget message is at most {WIDGET_TEXT_MAX} characters"}
     if not isinstance(about, str) or (about and not WIDGET_ABOUT.fullmatch(about)):
         return 400, {"error": "about is one id of 1 to 64 letters, digits, ., - or _"}
+    # the words lose their curse words as a card's messages do (_curse_free);
+    # the receipt's fingerprint is over the words as sent
+    kept = _curse_free(words)
+    if kept is None:
+        return 503, {"error": EXPLETIVES_UNREADABLE}
     now = time.monotonic()
     with _lock:
         fp = _fingerprint("widget", bid, about, words) if op else ""
@@ -8097,6 +8115,7 @@ def _post_magic_send(q: Query, text: str):
         sent = [t for t in _widget_sends.get(bid, []) if now - t < 60]
         if (sent and now - sent[-1] < WIDGET_SEND_GAP) or len(sent) >= WIDGET_SEND_MINUTE:
             return 429, {"error": "too many messages from this widget; wait a moment"}
+        words = kept
         before = _widget_raw(bid, name)
         rec = _widget_read(bid, name)
         wid, ts = rec["next"], time.time()
@@ -8378,6 +8397,38 @@ def _post_navsave(q: Query, raw: bytes):
     return 200, {"ok": True, "mtime": _nav_stamp(p)}
 
 
+# ---- curse words saved as [expletive] ---------------------------------------------
+# With the board's expletives setting "1" (Settings, Editor, "Replace curse
+# words", on the Mac and the phone; off unless turned on), the words of each
+# message the reader sends, typed or spoken, on a card or in its widget, from
+# the Mac board or the phone, are saved with every curse word on
+# expletives.txt replaced by [expletive]; expletives.py says how a word is
+# matched. The swap happens here, before anything is kept, so state.json, the
+# transcript, the search index, every page and every agent route only ever
+# hold the masked words, and nothing swaps them back. An agent's own message
+# (by=agent) is kept as it came, and so are card titles typed as titles,
+# replies and attachments. A list that cannot be read refuses the message
+# (None) rather than keep the words unmasked.
+EXPLETIVES_SETTING = "expletives"
+EXPLETIVES_UNREADABLE = "the curse word list could not be read, so the message was not saved"
+
+
+def _curse_free(text: str) -> str | None:
+    """The reader's words as they are to be kept: with the switch off, as
+    sent; with it on, with their curse words replaced, or None when the word
+    list cannot be read. Takes _settings_lock, so callers do not hold _lock."""
+    with _settings_lock:
+        on = _settings_file()["values"].get(EXPLETIVES_SETTING) == "1"
+    if not on or not text:
+        return text
+    try:
+        import expletives
+        return expletives.mask(text)
+    except (ImportError, OSError, ValueError) as e:
+        _error("expletivesfail", reason=getattr(e, "strerror", None) or type(e).__name__)
+        return None
+
+
 # the via values /send keeps on a message: the small card, and the voice layer
 SEND_VIAS = ("mini", "voice")
 # the by values /send keeps on a message: an agent that sent it for the reader
@@ -8396,9 +8447,17 @@ def _post_send(q: Query, text: str):
     op = q.one("op")
     if op and not _op_id_ok(op):
         return 400, {"error": "bad operation id"}
+    # the words to keep: the reader's lose their curse words while the switch
+    # is on (_curse_free), an agent's are kept as they came. Read before the
+    # board's lock, since the switch is behind the settings' own
+    kept = text if by else _curse_free(text)
+    if kept is None:
+        return 503, {"error": EXPLETIVES_UNREADABLE}
     with _lock:
         # the sender joins the payload only when there is one, so the reader's
-        # own sends keep the fingerprint their receipts were committed under
+        # own sends keep the fingerprint their receipts were committed under.
+        # it is taken over the words as sent, so a retry matches its first
+        # try whatever the switch says now
         fp = _fingerprint("send", bid, via, text, *((by, agent) if by else ())) if op else ""
         if op:
             # the receipt is read before the box is even looked at: a message
@@ -8411,6 +8470,7 @@ def _post_send(q: Query, text: str):
         box = _box(bid)
         if box is None or not text:
             return 400, {"error": "bad box or empty text"}
+        text = kept
         msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
         # where it was typed: via=mini means the small card in the corner,
         # via=voice that it was spoken through the voice layer. Only those
@@ -9745,7 +9805,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|newlayout|home\.chart|folderview"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|newlayout|expletives|home\.chart|folderview"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096

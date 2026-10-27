@@ -1966,6 +1966,11 @@ for (const type of ["gesturestart", "gesturechange"])
             <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</small></label>
           <input type="checkbox" role="switch" id="setformat">
         </div>
+        <div class="setrow">
+          <label class="setlabel" for="setcurses"><span>Replace curse words</span>
+            <small class="sethelp">Curse words in the messages you send are saved as [expletive], so the board, its history and agents only see the tag. Messages sent before stay as they are.</small></label>
+          <input type="checkbox" role="switch" id="setcurses">
+        </div>
       </div>
       <div data-section="notifications" data-label="Notifications">
         <div class="setrow">
@@ -7840,6 +7845,31 @@ function keyBytes(b64url){
 // the editor it is drawn with is fetched once, early, so the row is already
 // wearing it by the time anybody types in it
 ComposeFormat.preload();
+// whether the reader's curse words are saved as [expletive]: the board's
+// expletives setting, "1" for on and absent for off, since the board does the
+// swap for the Mac and this phone alike (_curse_free in server.py). Like the
+// usage switch it is read from the board when the page starts and again when
+// its section is opened, and a flip goes straight back to the board; one the
+// board does not take flips back
+{
+  const curses = document.getElementById("setcurses");
+  let asked = 0;
+  const shown = answer => { if (answer && answer.values) curses.checked = answer.values.expletives === "1"; };
+  const read = () => {
+    const mine = ++asked;
+    fetch("/settings").then(r => r.ok ? r.json() : null)
+      .then(answer => { if (mine === asked) shown(answer); }, () => {});
+  };
+  curses.addEventListener("change", () => {
+    const on = curses.checked, mine = ++asked;
+    fetch("/settings", { method: "POST", body: JSON.stringify({ expletives: on ? "1" : null }) })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(answer => { if (mine === asked) shown(answer); },
+            () => { if (mine === asked) curses.checked = !on; });
+  });
+  document.querySelector('#setpage .sp-item[data-section="editor"]')?.addEventListener("click", read);
+  read();
+}
 // the profile the Mac keeps (GET /profile): shown here and changed only on the
 // Mac, where it lives. Read when the page starts and again when its section is
 // opened. The picture is the one the Mac drew for it (none until the Mac has
