@@ -33,7 +33,8 @@ function appFolder(prefix) {
 // it. tokens.py is left out on purpose: with it the server reads the real token
 // logs, so only the tests that open home copy it. The desktop pages load their
 // settings store, board-settings.js, before anything else. "Open a new folder"
-// fetches the folder picker and its sheet, on every page.
+// fetches the folder picker and its sheet, on every page. The board and the
+// /page view hear the board's live line through board-line.js and its worker.
 // A board with no profile lays the onboarding over everything until it is
 // done, so a copied board is given one that has been through it, as an owner's
 // board has; a test of the onboarding itself removes it (noProfile) before the
@@ -44,7 +45,8 @@ const PROFILE = { name: 'Fixture Owner', email: null, email_yes: false, work: nu
 function copyBridgeFiles(dir) {
   for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
                       'home-widgets.css', 'home-widgets.js', 'board-settings.js', 'mac-phone-view.js',
-                      'magic-box.js', 'folder-picker.js', 'folder-picker.css', 'data_folder.py'])
+                      'magic-box.js', 'folder-picker.js', 'folder-picker.css', 'board-line.js',
+                      'board-line-worker.js', 'data_folder.py'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
   const anchor = 'return shutil.which("codex", path=path)';
   const limits = fs.readFileSync(path.join(ROOT, 'limits.py'), 'utf8');

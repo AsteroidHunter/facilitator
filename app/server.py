@@ -370,6 +370,10 @@ Endpoints:
                                heatmap and line chart, the pill that switches
                                them, and their sheet, fetched by the board the
                                first time its home page opens
+  GET  /board-line.js, /board-line-worker.js -> the pages' side of the live
+                               line (GET /events): what a page does with each
+                               line it hears, and the shared worker that holds
+                               the one line for every board window of a browser
   GET  /mac-phone-view.js   -> the Mac's retained phone-view host and draft handoff;
                                /m on the local board port allows only same-origin
                                framing, while the root and bridge remain unframeable
@@ -11545,6 +11549,9 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/board-line.js", _static("board-line.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/board-line-worker.js", _static("board-line-worker.js", "application/javascript; charset=utf-8"),
+          methods=["GET"]),
     Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/hover-labels.js", _static("hover-labels.js", "application/javascript; charset=utf-8"), methods=["GET"]),
