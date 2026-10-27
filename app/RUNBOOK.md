@@ -177,6 +177,15 @@ Every worker brief carries six parts: the goal as one checkable sentence, with t
 
 When a worker finishes, do not review and merge its result yourself: hand both to a separate review agent (or worker) and keep answering cards, so no card waits while a review runs. The review agent checks the work against the brief and the person's own words, merges it when it passes or reports what is wrong, and returns the facts for the done note, the final reply saying the work is finished.
 
+Before merging, the review agent looks beyond the files the change edits, at what depends on what changed:
+- Code: other code that calls, imports or copies it, and the tests that cover it.
+- Saved data: files, settings or records the old version wrote that the new one must still read.
+- Descriptions: documents and agent instructions (this runbook, skills, CLAUDE.md or AGENTS.md) that describe the old behaviour.
+- Other work: unmerged branches built on the changed code.
+- Anything shipped with it, if the project ships at all.
+
+It changes nothing outside the job's own files. It lists each thing it finds in its report, and the person decides what gets changed.
+
 Any work belonging to a card carries that card's green flag for exactly as long as it is happening: worker runs, but also verifying a worker's result, post-build checks, and committing that card's code after the claim is released. `POST /working?box=ID&v=1` before starting, `v=0` the moment the card's work truly ends. Post the final reply first, while the flag is still on, and only then turn the flag off; turning it off first hands the card to the reader at once, so it shows a stale yellow card with the old reply until the final reply lands. Green means exactly the machine's two green states: working (claimed right now, or that card's work happening anywhere) and deferred (the same, with a reply already waiting to become the owner's turn when the work ends).
 
 Green is checked, not trusted: a raised flag stays green while your lane is in touch with the board, and after 10 minutes with no request from your lane (an open `/wait` counts for as long as it is open) the green expires and the flag drops, so a dead agent can never leave a card stuck green. Every call you make for your lane with the key counts, listening and replying included, so no pinger is needed. When `GET /limits` shows numbers, check it while workers run; near a limit, start no new worker and pause the running ones.
