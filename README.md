@@ -44,6 +44,7 @@ cd facilitator
 
 1. On a new tab on your favorite terminal, then run:
 `facilitator run`
+(to stop the board, run `facilitator stop`; a board left unused for three days stops itself)
 2. Open the project you want to work one via the facilitator
 3. Navigate to that folder on your terminal, start your terminal agent you usually do, and run `/facilitator onboard` on claude (or `$facilitator onboard` on codex)
 
