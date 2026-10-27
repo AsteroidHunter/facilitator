@@ -24,10 +24,11 @@
       process is stopped: the one holding the listening socket, read back as
       this folder's server.py first, by SIGTERM and never by SIGKILL, and the
       port is polled until it is really free before the replacement starts.
-      The browser is read, never driven: a window or tab already showing the
-      board is left exactly as it is and a line asks for a reload, and a new
-      chromeless app window is opened only when nothing is showing the board.
-      When the browser cannot be read nothing is opened and nothing is said.
+      Every Chrome tab already showing the board then loads it again on a
+      launch link, in the tab it is in, so a window from before the board's
+      lock is let in too, and a new chromeless app window is opened only when
+      nothing is showing the board. When Chrome cannot be asked, a window is
+      opened only if the board has let no window in yet, and nothing is said.
       Touches no lane, no tmux session and no bridge, and never moves the
       board to another port. --dry-run says what it would do and does nothing.
   facilitator stop [--dry-run] [--force]
@@ -187,7 +188,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlencode, urlparse
+from urllib.parse import unquote_plus, urlencode, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -213,7 +214,7 @@ LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 # set by the board on an update it starts when the person says yes to its
 # pop-up (server.py, the update): the update then writes the stage it has
 # reached on lines of their own for the page's progress bar, and its restart
-# opens no window
+# asks Chrome only when macOS lets it without asking the person (cmd_restart)
 FROM_BOARD_VARIABLE = "FACILITATOR_UPDATE_FROM_BOARD"
 FROM_BOARD = os.environ.get(FROM_BOARD_VARIABLE) == "1"
 TAILSCALE_STATUS_TIMEOUT = 30
@@ -1428,35 +1429,71 @@ def start_and_confirm(port, wait=START_WAIT):
         time.sleep(POLL_EVERY)
 
 
-def chrome_page_urls():
-    """Every URL Chrome is showing right now, ordinary tabs and chromeless app
-    windows alike, or None when that could not be established.
+# --- restart: Chrome's tabs, read and sent on --------------------------------
+# After a restart every Chrome tab showing the board is sent, where it is, to
+# its own page with a launch code (relaunch_board_tabs). These two scripts are
+# all of it, and they ask Chrome alone: whether Chrome is running is read by
+# AppleScript itself, which neither starts Chrome nor asks System Events, so
+# the one permission they can ever need is the one to control Chrome. A tab
+# is named by its window's id and its place in that window, both going in as
+# arguments with the page it must still show and the address, never as script
+# text. Chrome opens the address in that tab as one typed there: the window is
+# not brought to the front.
+CHROME_TABS_SCRIPT = "\n".join([
+    'if not (application "Google Chrome" is running) then return "NOTRUNNING"',
+    # inside Chrome's block the bare word tab means Chrome's tab class, so the
+    # separator is made out here
+    'set sep to character id 9',
+    'set listed to {}',
+    'tell application "Google Chrome"',
+    '  repeat with w in every window',
+    '    set entry to ((id of w) as text)',
+    '    repeat with t in every tab of w',
+    '      set entry to entry & sep & (URL of t as text)',
+    '    end repeat',
+    '    set end of listed to entry',
+    '  end repeat',
+    'end tell',
+    "set AppleScript's text item delimiters to linefeed",
+    'return listed as text',
+])
+SEND_TAB_SCRIPT = "\n".join([
+    'on run argv',
+    '  if (count of argv) is not 4 then return "BADARGS"',
+    '  set wanted to (item 1 of argv) as integer',
+    '  set place to (item 2 of argv) as integer',
+    '  set expected to item 3 of argv',
+    '  set goal to item 4 of argv',
+    '  if not (application "Google Chrome" is running) then return "GONE"',
+    '  tell application "Google Chrome"',
+    '    set candidates to (every window whose id is wanted)',
+    '    if (count of candidates) is not 1 then return "GONE"',
+    '    set win to item 1 of candidates',
+    '    if (count of tabs of win) < place then return "GONE"',
+    '    set seen to (URL of (tab place of win)) as text',
+    '    set agreed to false',
+    '    considering case',
+    '      set agreed to (seen = expected)',
+    '    end considering',
+    '    if not agreed then return "CHANGED"',
+    '    set URL of (tab place of win) to goal',
+    '  end tell',
+    '  return "SENT"',
+    'end run',
+])
 
-    This only reads. Nothing is activated, navigated, reloaded or closed, and
-    Chrome is not started either: System Events is asked whether it is running
-    first, and when it is not the answer is an empty list, which is a real
-    absence. A refusal (no automation permission) comes back as None, which is
-    an unknown and not an absence."""
+
+def chrome_tabs():
+    """Every Chrome window as (id, [tab URLs]), ordinary windows and chromeless
+    app windows alike, or None when that could not be established. An empty
+    list is a real absence: Chrome is not running, which is read without
+    starting it. A refusal (no automation permission) is None, an unknown and
+    not an absence. This only reads."""
     osascript = shutil.which("osascript")
     if not osascript:
         return None
-    script = "\n".join([
-        'tell application "System Events"',
-        '  if not (exists process "Google Chrome") then return "NOTRUNNING"',
-        'end tell',
-        'set found to {}',
-        'tell application "Google Chrome"',
-        '  repeat with w in every window',
-        '    repeat with t in every tab of w',
-        '      set end of found to (URL of t as text)',
-        '    end repeat',
-        '  end repeat',
-        'end tell',
-        "set AppleScript's text item delimiters to linefeed",
-        'return found as text',
-    ])
     try:
-        seen = subprocess.run([osascript, "-e", script],
+        seen = subprocess.run([osascript, "-e", CHROME_TABS_SCRIPT],
                               capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1465,7 +1502,31 @@ def chrome_page_urls():
     out = seen.stdout.strip()
     if out == "NOTRUNNING":
         return []
-    return [line.strip() for line in out.splitlines() if line.strip()]
+    windows = []
+    for line in out.splitlines():
+        first, *urls = line.strip("\r\n").split("\t")
+        if first.strip().isdigit():
+            windows.append((int(first), [u.strip() for u in urls]))
+    return windows
+
+
+def send_tab(wid, place, expected, goal):
+    """Send one tab, by its window's id and its place there counted from 1, to
+    that address: "SENT" when it went, "GONE" when no such tab (or no Chrome)
+    is there any more, "CHANGED" when the tab no longer shows the page it was
+    read showing and was left alone, None when Chrome could not be asked."""
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return None
+    try:
+        done = subprocess.run([osascript, "-e", SEND_TAB_SCRIPT, str(wid), str(place), expected, goal],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    answer = done.stdout.strip()
+    return answer if answer in ("SENT", "GONE", "CHANGED") else None
 
 
 def loopback_host(host):
@@ -1510,16 +1571,107 @@ def same_board_page(url, board):
     return here is not None and here == there
 
 
-def board_page_open(cfg):
-    """True when Chrome is already showing this board, False when it is
-    certainly showing it nowhere, None when Chrome could not be asked. A
-    refusal is never read as absence: reading it that way is exactly how a
-    second window gets opened on top of the first."""
-    urls = chrome_page_urls()
-    if urls is None:
+def board_tabs(cfg, windows):
+    """Every tab of those windows that shows this board, as (window id, place
+    counted from 1, URL)."""
+    boards = board_addresses(cfg, cfg["port"])
+    return [(wid, place, url) for wid, urls in windows for place, url in enumerate(urls, 1)
+            if any(same_board_page(url, board) for board in boards)]
+
+
+def launch_link(cfg, url):
+    """That tab's own page and query (a pulled-out window's project) with a
+    fresh launch code in place of any code it was left holding (launch_url)."""
+    bits = urlparse(url)
+    kept = "&".join(part for part in bits.query.split("&")
+                    if part and unquote_plus(part.split("=", 1)[0]) != "launch")
+    return launch_url(cfg, bits._replace(query=kept).geturl())
+
+
+def relaunch_board_tabs(cfg):
+    """After a restart, send every Chrome tab showing this board to its own
+    page with a launch code of its own. A window the board opened before its
+    lock came in (v0.3.37) carries no window cookie, and the board started
+    again refuses it; it gets the cookie this way, the way a window facilitator
+    run opens gets it, and a tab that has the cookie already just loads the
+    board again, which is the reload a restart needs anyway. Each code still
+    comes from the board for its key alone. Returns how many board tabs there
+    were, or None when Chrome could not be asked, or could not be asked to
+    send any of them."""
+    windows = chrome_tabs()
+    if windows is None:
         return None
-    board = window_url(cfg)
-    return any(same_board_page(url, board) for url in urls)
+    tabs = board_tabs(cfg, windows)
+    answers = [send_tab(wid, place, url, launch_link(cfg, url)) for wid, place, url in tabs]
+    if tabs and all(answer is None for answer in answers):
+        return None
+    return len(tabs)
+
+
+# macOS's own check of whether one app may send another Apple Events, asked
+# with asking turned off: the numbers and the bundle id it takes
+CHROME_BUNDLE = "com.google.Chrome"
+AE_BUNDLE_TYPE = int.from_bytes(b"bund", "big")   # typeApplicationBundleID
+AE_ANY = int.from_bytes(b"****", "big")           # typeWildCard: every event
+
+
+def chrome_allowed():
+    """True when this command may script Chrome without macOS asking the
+    person first: Chrome is running and the app this command runs under was
+    already allowed to control it. macOS answers for the app at the head of
+    the process chain, so for an update the board started that is the app
+    that started the board (Terminal, for a board facilitator run started
+    there). Nothing is sent to Chrome and nothing comes up on the screen.
+    False for every other answer (not allowed, never asked, Chrome not
+    running) and when the check cannot be made."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        services = ctypes.CDLL("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+        create, dispose = services.AECreateDesc, services.AEDisposeDesc
+        check = services.AEDeterminePermissionToAutomateTarget
+    except (OSError, AttributeError):
+        return False
+
+    class Desc(ctypes.Structure):
+        _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
+
+    create.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_long, ctypes.POINTER(Desc)]
+    create.restype = ctypes.c_int16
+    dispose.argtypes = [ctypes.POINTER(Desc)]
+    dispose.restype = ctypes.c_int16
+    check.argtypes = [ctypes.POINTER(Desc), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_bool]
+    check.restype = ctypes.c_int32
+    target = Desc()
+    bundle = CHROME_BUNDLE.encode()
+    try:
+        if create(AE_BUNDLE_TYPE, bundle, len(bundle), ctypes.byref(target)) != 0:
+            return False
+        try:
+            return check(ctypes.byref(target), AE_ANY, AE_ANY, False) == 0
+        finally:
+            dispose(ctypes.byref(target))
+    except (OSError, ValueError, ctypes.ArgumentError):
+        return False
+
+
+# the hashes of the window cookies the board keeps (server.py, _lock_up), read
+# as the server reads them
+WINDOW_KEYS = DATA / "window-keys.json"
+WINDOW_HASH_SHAPE = re.compile(r"[0-9a-f]{64}")
+
+
+def window_key_kept():
+    """Whether the board keeps any window's cookie. None kept means no window
+    was ever let in, so the board refuses every window open on it."""
+    try:
+        raw = json.loads(WINDOW_KEYS.read_text())
+    except (OSError, ValueError):
+        return False
+    keys = raw.get("keys") if isinstance(raw, dict) else None
+    return isinstance(keys, list) and any(
+        isinstance(k, dict) and isinstance(k.get("hash"), str) and WINDOW_HASH_SHAPE.fullmatch(k["hash"])
+        for k in keys)
 
 
 # --- stop: closing the board's own window ------------------------------------
@@ -1808,10 +1960,16 @@ def cmd_run(args):
                   f"or rerun with --spawn: {lane['instruction']}")
 
 
+# set once a restart has sent the board's own tabs on (cmd_restart), so an
+# update's last lines do not ask for a reload that has already happened
+tabs_reloaded = False
+
+
 def cmd_restart(args):
-    """Stop this board's server, start it again, and leave the browser as it
-    is. Nothing here touches a lane, a tmux session or the bridge: restart is
-    about the server and, at most, one new window. Unknown words are refused
+    """Stop this board's server, start it again, and load the board again in
+    every Chrome tab showing it (relaunch_board_tabs). Nothing here touches a
+    lane, a tmux session or the bridge: restart is about the server, the
+    board's own tabs and, at most, one new window. Unknown words are refused
     rather than ignored, so a run flag typed here cannot quietly turn into
     attaching, spawning or forcing anything."""
     extra = [a for a in args[1:] if a != "--dry-run"]
@@ -1841,12 +1999,14 @@ def cmd_restart(args):
             print(f"restart: would SIGTERM pid {owner[0]} on {port}, wait up to "
                   f"{STOP_WAIT:.0f}s for the port to be free, then start "
                   f"{HERE / 'server.py'} again")
-        showing = board_page_open(cfg)
-        if showing is None:
-            print("window: cannot read Chrome's pages, so a real run would open "
-                  f"nothing and say to open or reload {url} by hand")
-        elif showing:
-            print(f"window: {url} is already open; would leave it alone")
+        windows = chrome_tabs()
+        tabs = None if windows is None else board_tabs(cfg, windows)
+        if tabs is None:
+            print("window: cannot read Chrome's tabs, so a real run would open "
+                  + ("nothing" if window_key_kept()
+                     else "one app window, since the board has let no window in yet"))
+        elif tabs:
+            print(f"window: {url} is open; would load it again on a launch link, in the tab it is in")
         else:
             print(f"window: nothing is showing {url}; would open one app window")
         return
@@ -1875,15 +2035,24 @@ def cmd_restart(args):
         stop_here(refusal)
     print("Board restarted." if owner is not None else "Board started.")
 
-    # an update the board started opens no window and asks Chrome nothing: the
-    # page that said yes reloads itself, and a window opened here would come up
-    # on the Mac's screen whoever said yes and wherever
-    if FROM_BOARD:
-        return
-    showing = board_page_open(cfg)
-    if showing:
-        print("Reload the board (command + R).")
-    elif showing is False:
+    # every tab showing the board loads it again on a launch link, so a window
+    # from before the lock is let in and needs nothing from the person. An
+    # update the board started asks Chrome only when macOS lets it without
+    # asking the person, who is at the board and not here
+    global tabs_reloaded
+    if FROM_BOARD and not chrome_allowed():
+        found = None
+    else:
+        found = relaunch_board_tabs(cfg)
+    tabs_reloaded = bool(found)
+    # a window opens when Chrome shows the board nowhere, and, when no tab
+    # could be reached, only if the board has let no window in yet: then every
+    # window open on it is one it refuses. An update the board started opens
+    # one only in that second case, since the page that said yes is open
+    # somewhere, in Chrome or not
+    if found == 0 and not FROM_BOARD:
+        open_app(cfg, False)
+    elif not found and not window_key_kept():
         open_app(cfg, False)
 
 
@@ -4130,7 +4299,10 @@ def cmd_update_steps(args):
         print(f"{green} Facilitator updated.\n")
         print(f"Old version: {old_version or 'unknown'}")
         print(f"New version: {new_version}\n")
-        print("Reload the board in your browser and reopen the phone app.\n")
+        if tabs_reloaded:
+            print("The board has reloaded in Chrome. Reopen the phone app.\n")
+        else:
+            print("Reload the board in your browser and reopen the phone app.\n")
     else:
         print(f"{green} Already up to date ({new_version}).\n")
     if not restarted:

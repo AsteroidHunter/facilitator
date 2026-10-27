@@ -32,9 +32,10 @@ Endpoints:
   GET  /                    -> index.html, the card board
   GET  /?launch=CODE        -> a launch code from /window/launch, spent: opened
                                as a page it sets the window's cookie (HttpOnly,
-                               SameSite=Strict) and answers 303 to /, so the
-                               code leaves the address bar. A code is good
-                               once, for 60 seconds
+                               SameSite=Strict) and answers 303 to /, with
+                               the rest of the query, so the code leaves the
+                               address bar. A code is good once, for 60
+                               seconds
   POST /window/launch       -> {code, seconds}: a launch code for the window
                                `facilitator run` opens. With the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
@@ -1195,7 +1196,7 @@ import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urljoin, urlparse, quote
+from urllib.parse import parse_qs, urljoin, urlparse, quote, unquote_plus
 
 # the owner's servers and their links. A copy of the board without the file,
 # as the tests' fixtures make, has no links, no socket for them and no gate
@@ -11833,9 +11834,10 @@ class BoardLock(SiteGuard):
     async def _launch(self, scope, receive, send, code: str, windowed: bool) -> bool:
         """A page open of /?launch=CODE, answered: a code still good, opened
         as a page, sets a new window cookie (or keeps the one the window
-        already has) and sends the window on to /, and so does any code
-        opened by a window that has one. True when answered; False passes a
-        dead code on as a plain open of /."""
+        already has) and sends the window on to /, with the rest of its
+        query (a pulled-out window's project) and without the code, and so
+        does any code opened by a window that has one. True when answered;
+        False passes a dead code on as a plain open of /."""
         fetch = {key: _fetch_header(scope, key) for key in ("mode", "dest")}
         opened = fetch["mode"] == "navigate" and fetch["dest"] in NAVIGATION_DESTS
         good = opened and _spend_launch(code)
@@ -11844,7 +11846,9 @@ class BoardLock(SiteGuard):
                 return False
             await self._refuse(scope, receive, send, "launch code not good")
             return True
-        headers = {"Cache-Control": "no-store", "Location": "/"}
+        rest = "&".join(part for part in scope.get("query_string", b"").decode("latin-1").split("&")
+                        if part and unquote_plus(part.split("=", 1)[0]) != "launch")
+        headers = {"Cache-Control": "no-store", "Location": "/" + ("?" + rest if rest else "")}
         if good and not windowed:
             try:
                 value = _new_window_key()
