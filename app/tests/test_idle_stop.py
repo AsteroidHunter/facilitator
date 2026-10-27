@@ -15,6 +15,11 @@ version and will not be in the native Mac app; these tests go with it.
             from-board mark, after one log line and the marker; a stop that
             fails takes the marker back and starts the three days again; a
             copy of the file that main never ran never stops
+  wake      the first pass after the Mac slept three days and more, with the
+            line Chrome closed for the sleep, starts no stop and leaves it at
+            least two minutes away; a window that opens its line again or
+            reads the board in that time keeps the board up, and nothing
+            coming back in that time stops it
   marks     the constant is three days, and the code, the docs and the
             README say what the timer is and that it is temporary
 
@@ -178,7 +183,7 @@ class Idle(unittest.TestCase):
             UPLOADS=self.dir / "uploads", OLD_UPLOADS=self.dir / "uploads-old",
             SETTINGS_PATH=self.dir / "settings.json", PROFILE_PATH=self.dir / "profile.json",
             IDLE_STOP_MARK=self.dir / "idle-stop.json", TYPING_HOLD=0.0, subprocess=fake,
-            _STOPPING=threading.Event(), _idle_stopping=False,
+            _STOPPING=threading.Event(), _idle_stopping=False, _idle_last_pass=None,
             _info=lambda kind, *a, **f: self.lines.append(("info", kind, f)),
             _error=lambda kind, *a, **f: self.lines.append(("error", kind, f)))
         patches.start()
@@ -416,6 +421,80 @@ class Stop(Idle):
             stop.set()
             clock.join(2)
         self.assertEqual(len(self.started), 1, "a failing board pass kept the board up")
+
+
+class Wake(Idle):
+    """The Mac asleep for three days and more with a board window open. Chrome
+    closes the window's line as the Mac goes to sleep, so the first pass after
+    waking finds none open. The board's wall clock is stood in for, so a pass
+    can come three days after the one before it."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = [time.time()]
+        clock = types.SimpleNamespace(**{n: getattr(time, n) for n in dir(time) if not n.startswith("__")})
+        clock.time = lambda: self.now[0]
+        patch = mock.patch.object(S, "time", clock)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def pass_(self, seconds):
+        """The clock moves on by seconds and the board clock makes a pass."""
+        self.now[0] += seconds
+        S._idle_tick()
+
+    def sleep_and_wake(self):
+        """In use until the Mac goes to sleep, one pass with the line already
+        closed, and the first pass after three days and an hour asleep."""
+        S._last_active = self.now[0]
+        self.pass_(0)
+        self.pass_(S.IDLE_STOP_AFTER + 3600)
+
+    def left(self):
+        """Seconds until the stop would start."""
+        return S._last_active + S.IDLE_STOP_AFTER - self.now[0]
+
+    def test_the_first_pass_after_a_long_sleep_starts_no_stop(self):
+        self.sleep_and_wake()
+        self.assertEqual(self.started, [], "the board stopped on the first pass after waking")
+        self.assertFalse(S.IDLE_STOP_MARK.exists())
+        self.assertGreaterEqual(self.left(), S.IDLE_WAKE_GRACE - 1, "the grace after waking is short")
+
+    def test_nothing_coming_back_within_the_grace_stops_the_board(self):
+        self.sleep_and_wake()
+        for _ in range(int(S.IDLE_WAKE_GRACE) - 1):
+            self.pass_(1)
+        self.assertEqual(self.started, [], "the stop came before the grace was up")
+        for _ in range(3):
+            self.pass_(1)
+        self.assertEqual(len(self.started), 1, "a board nobody came back to did not stop")
+        self.assertEqual(self.idle_lines(), [("info", {"days": 3})])
+
+    def test_a_window_that_opens_its_line_again_within_the_grace_keeps_the_board_up(self):
+        async def go():
+            self.sleep_and_wake()
+            self.pass_(3)
+            line = Line(self.app)
+            await line.first()
+            for _ in range(int(S.IDLE_WAKE_GRACE) + 60):
+                self.pass_(1)
+            held = self.left()
+            await line.close()
+            return held
+        held = self.run_(go())
+        self.assertEqual(self.started, [], "the board stopped with its window's line open again")
+        self.assertEqual(held, S.IDLE_STOP_AFTER, "the open line did not start the three days again")
+
+    def test_a_window_that_reads_the_board_within_the_grace_keeps_the_board_up(self):
+        self.sleep_and_wake()
+        self.pass_(1.2)
+        status, _ = self.run_(self.page("GET", "/state"))
+        self.assertEqual(status, 200)
+        read_at = self.now[0]
+        for _ in range(int(S.IDLE_WAKE_GRACE) + 60):
+            self.pass_(1)
+        self.assertEqual(self.started, [], "the board stopped after its window read it")
+        self.assertEqual(S._last_active, read_at, "the reading did not start the three days again")
 
 
 class Marks(unittest.TestCase):

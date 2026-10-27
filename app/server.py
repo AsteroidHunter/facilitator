@@ -5818,14 +5818,22 @@ def _board_clock() -> None:
 # /wait coming back idle saves nothing, and its own reading of /state carries
 # the agent key, so a forgotten listener cannot keep the board up forever. A
 # start, a restart included, is a fresh start of the three days. The clock is
-# the wall clock, so three days with the Mac asleep count as three days.
+# the wall clock, so three days with the Mac asleep count as three days. Chrome
+# closes every connection as the Mac goes to sleep, a board window's line
+# included, so the first pass after waking finds no line open even with the
+# window there: a pass that comes more than IDLE_WAKE_GAP after the one before
+# it (the Mac slept) puts the stop at least IDLE_WAKE_GRACE away, time for an
+# open window to open its line again or read the board.
 
 IDLE_STOP_AFTER = 3 * 86400.0   # seconds with no activity before the board stops itself
 IDLE_STOP_MARK = DATA / "idle-stop.json"
+IDLE_WAKE_GAP = 60.0            # a longer gap between the board clock's passes is the Mac asleep
+IDLE_WAKE_GRACE = 120.0         # after waking, the least time before the stop
 # when the last activity was; None until main starts the timer, so a copy of
 # this file that a test loads and never runs can never stop a board
 _last_active: float | None = None
 _idle_stopping = False          # the stop has been started and has not failed
+_idle_last_pass: float | None = None   # when the board clock last looked, by the wall clock
 
 
 def _active() -> None:
@@ -5837,14 +5845,24 @@ def _active() -> None:
 
 def _idle_tick() -> None:
     """The board clock's look at the idle stop, once a pass: a page's live
-    line still open is activity, and three days with none starts the stop."""
-    global _last_active
-    if _last_active is None or _idle_stopping:
+    line still open is activity, the first pass after the Mac slept leaves
+    the stop at least IDLE_WAKE_GRACE away, and three days with none starts
+    the stop."""
+    global _last_active, _idle_last_pass
+    if _last_active is None:
+        return
+    now = time.time()
+    woke = _idle_last_pass is not None and now - _idle_last_pass > IDLE_WAKE_GAP
+    _idle_last_pass = now
+    if _idle_stopping:
         return
     if _streams_open:
-        _last_active = time.time()
+        _last_active = now
         return
-    if time.time() - _last_active >= IDLE_STOP_AFTER:
+    if woke:
+        _last_active = max(_last_active, now - IDLE_STOP_AFTER + IDLE_WAKE_GRACE)
+        return
+    if now - _last_active >= IDLE_STOP_AFTER:
         _idle_stop()
 
 
