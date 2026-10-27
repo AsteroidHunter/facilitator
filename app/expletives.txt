@@ -20,7 +20,7 @@
 # Sources. The swear words and slurs are taken from the English list of "List
 # of Dirty, Naughty, Obscene, and Otherwise Bad Words" by Shutterstock and its
 # contributors, https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
-# (file "en", as of its 2024-08-05 commit), licensed under the Creative Commons
+# (file "en", as of its 2020-07-13 commit), licensed under the Creative Commons
 # Attribution 4.0 International licence, https://creativecommons.org/licenses/by/4.0/
 # Changes: only the swear words and slurs are kept (its sex-act, anatomy,
 # pornography and drug words, and words with a common normal meaning, are

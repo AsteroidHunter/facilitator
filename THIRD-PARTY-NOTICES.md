@@ -155,7 +155,7 @@ SIL Open Font License, Version 1.1, `https://openfontlicense.org`.
 
 The swear words and slurs in `app/expletives.txt`, the word list behind the
 "Replace curse words" setting, are taken from the English list (`en`, as of
-its 2024-08-05 commit) of "List of Dirty, Naughty, Obscene, and Otherwise Bad
+its 2020-07-13 commit) of "List of Dirty, Naughty, Obscene, and Otherwise Bad
 Words" by Shutterstock and its contributors,
 `https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words`.
 It is licensed under the Creative Commons Attribution 4.0 International
