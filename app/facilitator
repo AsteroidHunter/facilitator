@@ -140,10 +140,14 @@
       ./install.sh first.
   facilitator update
       bring this checkout up to date without running git yourself. Stops and
-      changes nothing when the checkout has uncommitted changes. Pulls the
-      current branch's upstream forward only (git pull --ff-only: never a merge
-      or a rewrite), then hands over to the freshly pulled code. On a checkout
-      from before data/, that code first moves the board's files into data/,
+      changes nothing when the checkout has uncommitted changes. Fetches the
+      current branch's upstream and moves forward only (a fast-forward: never
+      a merge or a rewrite), and only as far as the newest commit on its
+      first-parent line signed by a key in app/update-signers as the
+      installed version has it; with a newer version upstream and nothing
+      newer signed, it stops and changes nothing. Then it hands over to the
+      freshly pulled code. On a checkout from before data/, that code first
+      moves the board's files into data/,
       once: everything is backed up, copied and checked, and the old copies
       are removed only after the board shows the same cards from data/. It
       then syncs the .venv to requirements.txt and runs the numbered steps in
@@ -3664,21 +3668,26 @@ UPDATE_STEP_NAME = re.compile(r"^\d{4}-[A-Za-z0-9._-]+\.(?:py|sh)$")
 UPDATE_HELP = """usage: facilitator update
 
 Bring this checkout up to date. Stops, changing nothing, when the checkout has
-uncommitted changes, is not on a branch, or has no upstream. Pulls that
-upstream forward only (git pull --ff-only), then runs the pulled code's update
-steps. On a checkout from before data/, they first move the board's files into
-data/, once: everything is backed up into data/backups, copied and checked by
-checksum, and the old copies are removed only after the board, started again
-on the new code, shows every card it had. The board cannot start until the move
-is done; running facilitator update again finishes a move that was cut off.
-Then they sync the .venv to requirements.txt, and run each numbered step in
-app/updates/ that has not run here yet. A .venv that is missing, broken or not
-on Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
-older uv stops the update with one line. A board running on the old .venv is
-stopped before the rebuild and started again after. Otherwise restarts the
-board only when it is running and the pull changed the board's own code (a
-Python file in app/ or a requirements file) or update steps ran; when only
-pages changed, the board keeps running and a reload shows them."""
+uncommitted changes, is not on a branch, or has no upstream. Fetches that
+upstream and moves forward only (a fast-forward), and only as far as the newest
+commit on its first-parent line signed by a key in app/update-signers, as that
+file stands in the version installed here; a signed commit's own list counts
+for the commits after it. Newer commits that are not signed wait for the next
+signed one. When the upstream has a newer version and nothing newer is signed,
+it stops and changes nothing. The check needs git 2.34 or newer. Then runs the
+pulled code's update steps. On a checkout from before data/, they first move
+the board's files into data/, once: everything is backed up into data/backups,
+copied and checked by checksum, and the old copies are removed only after the
+board, started again on the new code, shows every card it had. The board cannot
+start until the move is done; running facilitator update again finishes a move
+that was cut off. Then they sync the .venv to requirements.txt, and run each
+numbered step in app/updates/ that has not run here yet. A .venv that is
+missing, broken or not on Python 3.14 is built again on it first; that needs uv
+0.9.0 or newer, and an older uv stops the update with one line. A board running
+on the old .venv is stopped before the rebuild and started again after.
+Otherwise restarts the board only when it is running and the pull changed the
+board's own code (a Python file in app/ or a requirements file) or update steps
+ran; when only pages changed, the board keeps running and a reload shows them."""
 
 
 def run_git(*args, env=None):
@@ -3771,24 +3780,124 @@ def check_checkout():
     return remote, upstream
 
 
+# the release keys, in git's allowed signers format. An update moves only to a
+# commit one of them signed, checked against the list in the version already
+# installed, so a push to GitHub by anyone without the private half installs
+# nothing
+SIGNERS = "app/update-signers"
+SIGNING_GIT = (2, 34)   # the first git that checks SSH signatures
+
+
+def signers_at(commit):
+    """The signers file as it stands in that commit; "" when it has none."""
+    shown = run_git("show", f"{commit}:{SIGNERS}")
+    return shown.stdout if shown.returncode == 0 else ""
+
+
+def lists_a_key(signers):
+    """Whether a signers file lists any key: a line that is not blank or a comment."""
+    return any(line.strip() and not line.lstrip().startswith("#") for line in signers.splitlines())
+
+
+def version_at(commit):
+    """The version label in that commit's index.html, or None."""
+    shown = run_git("show", f"{commit}:app/index.html")
+    found = re.search(r'id="npversion">([^<]*)<', shown.stdout) if shown.returncode == 0 else None
+    return found.group(1).strip() if found else None
+
+
+def newest_signed(before, tip, signers, keygen):
+    """Walk the first-parent line from this checkout's commit to the tip,
+    oldest first, keeping only commits this checkout can move forward to. A
+    commit signed by a key on the list in force is taken, and its own list is
+    in force for the commits after it: so the list changes only through a
+    commit a listed key signed, and a key taken off is refused from there on.
+    Every setting that could change git's answer is fixed here (SSH signatures
+    only, checked by ssh-keygen against a copy of the list, nothing revoked but
+    by leaving the list, any trust level), so the person's own git settings
+    count for nothing. Returns the last commit taken, or None, and how many
+    commits on the line come after it."""
+    line = run_git("rev-list", "--first-parent", "--reverse", tip, f"^{before}").stdout.split()
+    ahead = set(run_git("rev-list", "--ancestry-path", f"{before}..{tip}").stdout.split())
+    line = [commit for commit in line if commit in ahead]
+    taken, waiting = None, len(line)
+    with tempfile.TemporaryDirectory() as folder:
+        listed, revoked = Path(folder) / "signers", Path(folder) / "revoked"
+        listed.write_text(signers)
+        revoked.touch()
+        fixed = ["gpg.format=ssh", f"gpg.ssh.allowedSignersFile={listed}", f"gpg.ssh.program={keygen}",
+                 f"gpg.ssh.revocationFile={revoked}", "gpg.minTrustLevel=undefined",
+                 "gpg.openpgp.program=false", "gpg.x509.program=false"]
+        check = [word for setting in fixed for word in ("-c", setting)]
+        for place, commit in enumerate(line):
+            if run_git(*check, "verify-commit", commit).returncode == 0:
+                taken, waiting = commit, len(line) - place - 1
+                listed.write_text(signers_at(commit))
+    return taken, waiting
+
+
+def waiting_line(count, upstream):
+    if count == 1:
+        return (f"1 newer commit on {upstream} is not signed by Facilitator's maintainer, "
+                "so it waits for the next signed version.")
+    return (f"{count} newer commits on {upstream} are not signed by Facilitator's maintainer, "
+            "so they wait for the next signed version.")
+
+
 def pull_forward(remote, upstream):
-    """Fast-forward only pull of that one branch, no tags; return the commit before and after."""
+    """Fetch that one branch, no tags, then move forward only (a fast-forward)
+    and only as far as the newest commit on its first-parent line that a
+    release key signed (newest_signed); return the commit before and after.
+    With newer commits and none of them signed it stops, changing nothing,
+    when they carry another version; when they carry the same one (a README
+    edit, say) it says they wait and leaves the checkout where it is."""
     before = run_git("rev-parse", "HEAD").stdout.strip()
-    result = run_git("pull", "--ff-only", "--no-rebase", "--no-tags", remote, upstream,
-                     env={**os.environ, "LC_ALL": "C"})
+    plain = {**os.environ, "LC_ALL": "C"}
+    fetched = run_git("fetch", "--no-tags", remote, upstream, env=plain)
+    tip = run_git("rev-parse", "--verify", "-q", "FETCH_HEAD^{commit}").stdout.strip() \
+        if fetched.returncode == 0 else ""
+    if not tip:
+        output = (fetched.stdout + fetched.stderr).strip().splitlines()
+        sys.exit(problem(f"git could not pull {remote}/{upstream}.", *output[-4:],
+                         "Nothing was changed.", "Fix that, then run facilitator update again."))
+    if run_git("merge-base", "--is-ancestor", tip, before).returncode == 0:
+        return before, before
+    if run_git("merge-base", "--is-ancestor", before, tip).returncode != 0:
+        sys.exit(problem("This checkout cannot be moved forward on its own.",
+                         "It has changes of its own that the upstream does not have,",
+                         "or the upstream's history was rewritten.",
+                         "Nothing was changed. Ask whoever looks after this copy before",
+                         "going further."))
+    signers = signers_at(before)
+    if not lists_a_key(signers):
+        sys.exit(problem(f"No release signing key is listed yet in {SIGNERS}, so no update "
+                         "can be checked and nothing was changed."))
+    found = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", run_git("version").stdout)
+    if not found or (int(found[1]), int(found[2])) < SIGNING_GIT:
+        sys.exit(problem(f"git {found[0] if found else '(unknown version)'} cannot check signed "
+                         "updates: Facilitator needs git 2.34 or newer.",
+                         "Update git, then run facilitator update again. Nothing was changed."))
+    keygen = "/usr/bin/ssh-keygen" if os.access("/usr/bin/ssh-keygen", os.X_OK) else shutil.which("ssh-keygen")
+    if not keygen:
+        sys.exit(problem("ssh-keygen was not found, so the update cannot be checked.",
+                         "Nothing was changed."))
+    taken, waiting = newest_signed(before, tip, signers, keygen)
+    if taken is None:
+        if version_at(tip) != version_at(before):
+            sys.exit(problem("The newest version is not signed by Facilitator's maintainer, "
+                             "so nothing was changed."))
+        skipped(waiting_line(waiting, upstream))
+        return before, before
+    moved = run_git("merge", "--ff-only", "--no-verify-signatures", taken, env=plain)
     after = run_git("rev-parse", "HEAD").stdout.strip()
-    if result.returncode != 0:
-        output = (result.stdout + result.stderr).strip().splitlines()
-        if "fast-forward" in " ".join(output).lower():
-            sys.exit(problem("This checkout cannot be moved forward on its own.",
-                             "It has changes of its own that the upstream does not have,",
-                             "or the upstream's history was rewritten.",
-                             "Nothing was changed. Ask whoever looks after this copy before",
-                             "going further."))
+    if moved.returncode != 0 or after != taken:
+        output = (moved.stdout + moved.stderr).strip().splitlines()
         sys.exit(problem(f"git could not pull {remote}/{upstream}.", *output[-4:],
                          "Nothing was changed." if after == before else
                          "Check the lines above before going further.",
                          "Fix that, then run facilitator update again."))
+    if waiting:
+        skipped(waiting_line(waiting, upstream))
     return before, after
 
 

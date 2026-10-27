@@ -64,8 +64,22 @@ function fakeUv({ failSync = false, version = "0.11.18" } = {}) {
   ].join("\n");
 }
 
-// A world: origin (bare), user (the checkout under test) and dev (a second clone that pushes).
-async function makeWorld({ seedSteps = {} } = {}) {
+// A throwaway signing key made in the world's own folder, never a real one,
+// and its line for a signers file.
+async function makeKey(world, name) {
+  const file = path.join(world.keys, name);
+  const made = await run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", name, "-f", file],
+    { cwd: world.base, env: world.env });
+  assert.equal(made.code, 0, made.stderr);
+  const pub = (await readFile(`${file}.pub`, "utf8")).trim();
+  return { name, file, line: `${name} namespaces="git" ${pub}` };
+}
+
+// A world: origin (bare), user (the checkout under test) and dev (a second
+// clone that pushes, signing with the maintainer's throwaway key). listed:
+// the keys made and put in the seed's signers file; signers: that file's text
+// instead (null: no file); cli: the command's text instead of this one.
+async function makeWorld({ seedSteps = {}, listed = ["maintainer"], signers, cli } = {}) {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-update-")));
   dirs.push(base);
   const world = {
@@ -77,6 +91,7 @@ async function makeWorld({ seedSteps = {} } = {}) {
     marker: path.join(base, "marker.txt"),
     flag: path.join(base, "flag"),
     uvLog: path.join(base, "uv-calls.txt"),
+    keys: path.join(base, "keys"),
   };
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
@@ -93,8 +108,14 @@ async function makeWorld({ seedSteps = {} } = {}) {
     UPDATE_TEST_MARKER: world.marker,
   };
   delete world.env.FACILITATOR_INTERNAL_UPDATE;
+  // signing reads the key file itself and never asks an agent
+  delete world.env.SSH_AUTH_SOCK;
 
   await mkdir(world.bin);
+  await mkdir(world.keys);
+  world.keyed = {};
+  for (const name of listed) world.keyed[name] = await makeKey(world, name);
+  world.key = world.keyed.maintainer;
   await writeFile(path.join(world.bin, "uv"), fakeUv());
   await chmod(path.join(world.bin, "uv"), 0o755);
 
@@ -113,9 +134,12 @@ async function makeWorld({ seedSteps = {} } = {}) {
   // command and what it reads in app/
   await mkdir(path.join(seed, "app", "updates"), { recursive: true });
   await copyFile(path.join(ROOT, "..", "facilitator"), path.join(seed, "facilitator"));
-  await copyFile(path.join(ROOT, "facilitator"), path.join(seed, "app", "facilitator"));
+  if (cli === undefined) await copyFile(path.join(ROOT, "facilitator"), path.join(seed, "app", "facilitator"));
+  else await writeFile(path.join(seed, "app", "facilitator"), cli);
   await copyFile(path.join(ROOT, "data_folder.py"), path.join(seed, "app", "data_folder.py"));
   await copyFile(path.join(ROOT, "..", ".gitignore"), path.join(seed, ".gitignore"));
+  const signersText = signers === undefined ? Object.values(world.keyed).map(key => key.line + "\n").join("") : signers;
+  if (signersText !== null) await writeFile(path.join(seed, "app", "update-signers"), signersText);
   await copyFile(path.join(ROOT, "updates", "README.md"), path.join(seed, "app", "updates", "README.md"));
   await writeFile(path.join(seed, "app", "index.html"), '<html><body><span id="npversion">v0.2.1</span></body></html>\n');
   await writeFile(path.join(seed, "app", "requirements.txt"), "\n");
@@ -129,6 +153,11 @@ async function makeWorld({ seedSteps = {} } = {}) {
   await mkdir(path.dirname(world.user));
   await world.mustGit(base, "clone", world.origin, world.user);
   await world.mustGit(base, "clone", world.origin, world.dev);
+  if (world.key) {
+    await world.mustGit(world.dev, "config", "gpg.format", "ssh");
+    await world.mustGit(world.dev, "config", "user.signingkey", world.key.file);
+    await world.mustGit(world.dev, "config", "commit.gpgsign", "true");
+  }
   world.port = await freePort();
   await mkdir(path.join(world.user, "data"));
   await writeFile(path.join(world.user, "data", "run.config.json"), JSON.stringify({ port: world.port, lanes: [] }));
@@ -136,15 +165,18 @@ async function makeWorld({ seedSteps = {} } = {}) {
   world.cli = path.join(world.user, "facilitator");
   world.appCli = path.join(world.user, "app", "facilitator");
 
-  // the maintainer's side: write files in dev, commit and push
-  world.push = async (files, message = "Update") => {
+  // the maintainer's side: write files in dev, commit and push. Signed with
+  // the maintainer's key unless key names another one, or is null: unsigned
+  world.push = async (files, message = "Update", { key } = {}) => {
     await world.mustGit(world.dev, "pull", "--ff-only");
     for (const [name, text] of Object.entries(files)) {
       await mkdir(path.dirname(path.join(world.dev, name)), { recursive: true });
       await writeFile(path.join(world.dev, name), text);
     }
     await world.mustGit(world.dev, "add", "-A");
-    await world.mustGit(world.dev, "commit", "-m", message);
+    const signer = key ? ["-c", `user.signingkey=${key.file}`] : [];
+    const unsigned = key === null ? ["--no-gpg-sign"] : [];
+    await world.mustGit(world.dev, ...signer, "commit", ...unsigned, "-m", message);
     await world.mustGit(world.dev, "push", "origin", "main");
     return world.mustGit(world.dev, "rev-parse", "HEAD");
   };
@@ -689,4 +721,264 @@ print(json.dumps({"calls": calls, "out": out.getvalue(), "marked": cli.FROM_BOAR
   assert.deepEqual(unasked.calls, ["asked macOS"], "Chrome was asked without macOS's leave");
   const opened = await drive(world, harness(true, false, false));
   assert.deepEqual(opened.calls, ["asked macOS", "opened a window"]);
+});
+
+// ---- signed updates: an update moves only to a commit on main that a key in
+// app/update-signers signed, as that file stands in the version installed
+
+const UNSIGNED = "⚠ The newest version is not signed by Facilitator's maintainer, so nothing was changed.";
+const NO_KEY = "⚠ No release signing key is listed yet in app/update-signers, so no update can be checked "
+  + "and nothing was changed.";
+const WAITS = "⊘ 1 newer commit on main is not signed by Facilitator's maintainer, so it waits for the next signed version.";
+// the last commit before the check: an update from it is done by its own code
+const PRE_CHECK = "31c42d77e0980c8826d95910317ca9ff68b1ee92";
+const page = version => `<html><body><span id="npversion">${version}</span></body></html>\n`;
+// the first refusal line, the one the board shows when an update it started stops
+const firstRefusal = text => text.split("\n").find(line => line.startsWith("⚠ "));
+
+// one update that must refuse with that line and change nothing: the
+// checkout, its files, uv and the steps all as they were just before it
+async function assertRefused(world, line, extraEnv = {}) {
+  const before = await world.head();
+  const uv = await world.uvCalls();
+  const marked = await world.markers();
+  const result = await world.update(extraEnv);
+  assert.notEqual(result.code, 0, result.stdout + result.stderr);
+  assert.equal(firstRefusal(result.stderr), line, result.stderr);
+  assert.deepEqual(sectionTitles(result.stdout), ["1. Checkout"]);
+  assert.equal(await world.head(), before, "the checkout moved");
+  assert.equal(await world.mustGit(world.user, "status", "--porcelain"), "");
+  assert.deepEqual(await world.uvCalls(), uv, "the update went on after refusing");
+  assert.deepEqual(await world.markers(), marked);
+  return result;
+}
+
+test("a signed tip updates and the check adds nothing to what is printed", async () => {
+  const world = await makeWorld();
+  const signed = await world.push({ "app/index.html": page("v0.2.2"), "app/updates/0001-mark.sh": STEP_SH("sh") });
+  const result = await world.update();
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.equal(await world.head(), signed);
+  assert.match(result.stdout, /New version: v0\.2\.2\n/);
+  assert.deepEqual(await world.markers(), ["sh"]);
+  assert.doesNotMatch(result.stdout + result.stderr, /signed|signing/);
+});
+
+test("an unsigned tip over a signed commit moves to the signed one, and the unsigned one rides along with the next", async () => {
+  const world = await makeWorld();
+  const signed = await world.push({ "app/index.html": page("v0.2.2"), "app/updates/0001-mark.sh": STEP_SH("sh") }, "Release");
+  await world.push({ "README.md": "edited on GitHub's website\n" }, "Update README.md", { key: null });
+
+  const first = await world.update();
+  assert.equal(first.code, 0, first.stdout + first.stderr);
+  assert.equal(await world.head(), signed);
+  assert.ok(first.stdout.includes(WAITS + "\n"), first.stdout);
+  assert.match(first.stdout, /New version: v0\.2\.2\n/);
+  assert.deepEqual(await world.markers(), ["sh"]);
+  assert.equal(existsSync(path.join(world.user, "README.md")), false);
+
+  // the same version upstream, only not signed: nothing to refuse, nothing taken
+  const again = await world.update();
+  assert.equal(again.code, 0, again.stdout + again.stderr);
+  assert.equal(await world.head(), signed);
+  assert.ok(again.stdout.includes(WAITS + "\n"), again.stdout);
+  assert.match(again.stdout, /Already up to date \(v0\.2\.2\)\./);
+
+  const next = await world.push({ "app/index.html": page("v0.2.3") }, "Release");
+  const third = await world.update();
+  assert.equal(third.code, 0, third.stdout + third.stderr);
+  assert.equal(await world.head(), next);
+  assert.equal(await readFile(path.join(world.user, "README.md"), "utf8"), "edited on GitHub's website\n");
+  assert.doesNotMatch(third.stdout, /not signed/);
+});
+
+test("with nothing newer signed and a newer version upstream it refuses and changes nothing", async () => {
+  const world = await makeWorld();
+  await world.push({ "app/index.html": page("v0.2.2"), "app/updates/0001-mark.sh": STEP_SH("sh") }, "Unsigned", { key: null });
+  await assertRefused(world, UNSIGNED);
+  assert.equal(existsSync(path.join(world.user, "app", "updates", "0001-mark.sh")), false);
+  assert.equal(await readFile(path.join(world.user, "app", "index.html"), "utf8"), page("v0.2.1"));
+});
+
+test("a commit signed by a key not on the list is refused", async () => {
+  const world = await makeWorld();
+  const stranger = await makeKey(world, "stranger");
+  await world.push({ "app/index.html": page("v0.2.2") }, "Signed by a stranger", { key: stranger });
+  await assertRefused(world, UNSIGNED);
+});
+
+test("an unsigned commit that adds a key to the list is refused, and the key it adds is not trusted after it", async () => {
+  const world = await makeWorld();
+  const stranger = await makeKey(world, "stranger");
+  await world.push({ "app/update-signers": `${world.key.line}\n${stranger.line}\n`, "app/index.html": page("v0.2.2") },
+    "Add a key", { key: null });
+  await assertRefused(world, UNSIGNED);
+
+  await world.push({ "app/index.html": page("v0.2.3") }, "Signed by the added key", { key: stranger });
+  await assertRefused(world, UNSIGNED);
+  assert.equal(await readFile(path.join(world.user, "app", "update-signers"), "utf8"), `${world.key.line}\n`);
+});
+
+test("a signed commit that changes the list is accepted, and the next update uses the new list", async () => {
+  const world = await makeWorld();
+  const next = await makeKey(world, "next");
+  const handed = await world.push({ "app/update-signers": `${next.line}\n` }, "Hand releases to the next key");
+  const first = await world.update();
+  assert.equal(first.code, 0, first.stdout + first.stderr);
+  assert.equal(await world.head(), handed);
+
+  // the old key is off the list now
+  await world.push({ "app/index.html": page("v0.2.2") }, "Signed by the old key");
+  await assertRefused(world, UNSIGNED);
+
+  const signed = await world.push({ "app/index.html": page("v0.2.3") }, "Signed by the new key", { key: next });
+  const last = await world.update();
+  assert.equal(last.code, 0, last.stdout + last.stderr);
+  assert.equal(await world.head(), signed);
+});
+
+test("a key taken off the list is refused after that commit, within the same update", async () => {
+  const world = await makeWorld({ listed: ["maintainer", "spare"] });
+  const removed = await world.push({ "app/update-signers": `${world.key.line}\n` }, "Take the spare off the list");
+  await world.push({ "app/index.html": page("v0.2.2") }, "Signed by the spare", { key: world.keyed.spare });
+  const result = await world.update();
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.equal(await world.head(), removed, "a key the list had dropped was still taken");
+  assert.ok(result.stdout.includes(WAITS + "\n"), result.stdout);
+});
+
+test("a rewritten history is refused as before, even when signed", async () => {
+  const world = await makeWorld();
+  const first = await world.push({ "app/index.html": page("v0.2.2") }, "Release");
+  assert.equal((await world.update()).code, 0);
+  assert.equal(await world.head(), first);
+
+  await world.mustGit(world.dev, "reset", "--hard", "HEAD~1");
+  await writeFile(path.join(world.dev, "app", "index.html"), page("v0.2.3"));
+  await world.mustGit(world.dev, "commit", "-am", "Another history, signed");
+  await world.mustGit(world.dev, "push", "--force", "origin", "main");
+
+  const result = await world.update();
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /This checkout cannot be moved forward on its own\./);
+  assert.match(result.stderr, /or the upstream's history was rewritten\./);
+  assert.equal(await world.head(), first);
+});
+
+test("the person's own git settings do not change the answer: another ssh program, list, format, gpg or trust level", async () => {
+  const world = await makeWorld();
+  const stranger = await makeKey(world, "stranger");
+  const ran = path.join(world.base, "programs-ran.txt");
+  const fakeSsh = path.join(world.bin, "accept-ssh");
+  await writeFile(fakeSsh, `#!/bin/sh\necho ssh >> ${JSON.stringify(ran)}\n`
+    + 'echo \'Good "git" signature for stranger with ED25519 key SHA256:x\'\nexit 0\n');
+  const fakeGpg = path.join(world.bin, "accept-gpg");
+  await writeFile(fakeGpg, `#!/bin/sh\necho gpg >> ${JSON.stringify(ran)}\n`
+    + 'echo "[GNUPG:] NEWSIG"\necho "[GNUPG:] GOODSIG ABCDEF0123456789 Someone"\n'
+    + 'echo "[GNUPG:] VALIDSIG 0123456789ABCDEF0123456789ABCDEF01234567 2023-01-01 1700000000 0 4 0 1 10 00 '
+    + '0123456789ABCDEF0123456789ABCDEF01234567"\necho "[GNUPG:] TRUST_ULTIMATE 0 pgp"\nexit 0\n');
+  await chmod(fakeSsh, 0o755);
+  await chmod(fakeGpg, 0o755);
+  const theirs = path.join(world.base, "their-signers");
+  await writeFile(theirs, `${stranger.line}\n`);
+  for (const [name, value] of [["gpg.format", "openpgp"], ["gpg.ssh.program", fakeSsh],
+    ["gpg.ssh.allowedSignersFile", theirs], ["gpg.program", fakeGpg], ["gpg.minTrustLevel", "ultimate"]]) {
+    await world.mustGit(world.user, "config", name, value);
+  }
+
+  await world.push({ "app/index.html": page("v0.2.2") }, "Signed by a stranger", { key: stranger });
+  await assertRefused(world, UNSIGNED);
+
+  // a commit carrying a PGP signature their gpg would call good
+  await world.mustGit(world.dev, "pull", "--ff-only");
+  const tree = await world.mustGit(world.dev, "rev-parse", "HEAD^{tree}");
+  const parent = await world.mustGit(world.dev, "rev-parse", "HEAD");
+  const object = path.join(world.base, "pgp-commit");
+  await writeFile(object, `tree ${tree}\nparent ${parent}\nauthor Test <test@example.com> 1700000000 +0000\n`
+    + "committer Test <test@example.com> 1700000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n"
+    + " iQEzBAABCAAdFiEEnotarealsignature\n -----END PGP SIGNATURE-----\n\nSigned with PGP\n");
+  const pgp = await world.mustGit(world.dev, "hash-object", "-t", "commit", "-w", object);
+  await world.mustGit(world.dev, "reset", "--hard", pgp);
+  await world.mustGit(world.dev, "push", "origin", "main");
+  await assertRefused(world, UNSIGNED);
+  assert.equal(existsSync(ran), false, "one of their programs was asked");
+
+  // and their trust level does not turn the maintainer's signature away
+  const signed = await world.push({ "app/index.html": page("v0.2.3") }, "Release");
+  const good = await world.update();
+  assert.equal(good.code, 0, good.stdout + good.stderr);
+  assert.equal(await world.head(), signed);
+  assert.equal(existsSync(ran), false, "one of their programs was asked");
+});
+
+test("a signers file with no key refuses with its plain line, and a git too old to check names the version needed", async () => {
+  const world = await makeWorld({ signers: "# no key is listed\n" });
+  await world.push({ "app/index.html": page("v0.2.2") }, "Release");
+  await assertRefused(world, NO_KEY);
+
+  const old = await makeWorld();
+  const kept = await old.head();
+  await old.push({ "app/index.html": page("v0.2.2") }, "Release");
+  const r = await drive(old, `
+real = cli.run_git
+def run_git(*args, env=None):
+    if args == ("version",):
+        return cli.subprocess.CompletedProcess(args, 0, "git version 2.30.1 (Apple Git-130)\\n", "")
+    return real(*args, env=env)
+cli.run_git = run_git
+try:
+    cli.pull_forward("origin", "main")
+    said = None
+except SystemExit as stop:
+    said = stop.code
+print(json.dumps({"said": said}))`);
+  assert.equal(firstRefusal(r.said), "⚠ git 2.30.1 cannot check signed updates: Facilitator needs git 2.34 or newer.");
+  assert.match(r.said, /Nothing was changed\./);
+  assert.equal(await old.head(), kept);
+});
+
+test("an update the board started is checked the same way, and its refusal is the line the board shows", async () => {
+  const world = await makeWorld();
+  await world.push({ "app/index.html": page("v0.2.2") }, "Unsigned", { key: null });
+  const refused = await assertRefused(world, UNSIGNED, { FACILITATOR_UPDATE_FROM_BOARD: "1" });
+  assert.deepEqual(refused.stdout.split("\n").filter(line => line.startsWith("@stage ")), ["@stage downloading"]);
+
+  const signed = await world.push({ "app/index.html": page("v0.2.3") }, "Release");
+  const result = await world.update({ FACILITATOR_UPDATE_FROM_BOARD: "1" });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.equal(await world.head(), signed);
+  assert.deepEqual(result.stdout.split("\n").filter(line => line.startsWith("@stage ")),
+    ["@stage downloading", "@stage setting-up"]);
+});
+
+test("an update from a version before the check installs this version unchecked, and every update after it is checked", async t => {
+  const shown = await run("git", ["-C", ROOT, "show", `${PRE_CHECK}:app/facilitator`], { cwd: ROOT, env: process.env });
+  if (shown.code !== 0) {
+    t.skip("the version before the check is not in this clone's history");
+    return;
+  }
+  assert.doesNotMatch(shown.stdout, /verify-commit/, "that version already checks");
+  const world = await makeWorld({ cli: shown.stdout, signers: null });
+  // the version carrying the check, unsigned here: the old code does not look
+  const release = await world.push({
+    "app/facilitator": await readFile(path.join(ROOT, "facilitator"), "utf8"),
+    "app/update-signers": `${world.key.line}\n`,
+    "app/index.html": page("v0.2.2"),
+  }, "Signed updates", { key: null });
+  const first = await world.update({ FACILITATOR_UPDATE_FROM_BOARD: "1" });
+  assert.equal(first.code, 0, first.stdout + first.stderr);
+  assert.equal(await world.head(), release);
+  assert.match(first.stdout, /Old version: v0\.2\.1\nNew version: v0\.2\.2\n/);
+
+  await world.push({ "app/index.html": page("v0.2.3") }, "Unsigned", { key: null });
+  const second = await world.update({ FACILITATOR_UPDATE_FROM_BOARD: "1" });
+  assert.notEqual(second.code, 0);
+  assert.equal(firstRefusal(second.stderr), UNSIGNED);
+  assert.equal(await world.head(), release);
+
+  const signed = await world.push({ "app/index.html": page("v0.2.4") }, "Release");
+  const third = await world.update();
+  assert.equal(third.code, 0, third.stdout + third.stderr);
+  assert.equal(await world.head(), signed);
+  assert.match(third.stdout, /New version: v0\.2\.4\n/);
 });
