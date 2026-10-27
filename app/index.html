@@ -4229,6 +4229,12 @@
     <p class="setnote binnote">Deleted cards stay here for 30 days, then they are deleted for good.</p>
     <div id="binlist"></div>
   </div>
+  <div data-section="shutdown" data-label="Shut down">
+    <div class="setact">
+      <button id="setshutdown" class="sp-btn" type="button" aria-describedby="setshutdownnote">Shut down Facilitator</button>
+      <small id="setshutdownnote" class="sethelp">Turns the board off on this Mac. Your cards are kept. To start it again, run facilitator run in Terminal.</small>
+    </div>
+  </div>
 </div>
 
 <div id="appframe" aria-hidden="true"></div>
@@ -13355,6 +13361,9 @@ async function readState(same = false, pause = null){
 // ---- the board's reading ends
 
 let pollFails = 0;
+// the board was shut down from Settings (shutdownView in card-logic.js): the
+// page asks it nothing more, so its words stand without the unreachable banner
+let boardShutDown = false;
 let pollSeq = 0;     // the readings asked for so far
 let createSeq = 0;   // the newest of them when the last new card's answer came in
 let drawnAsked = 0;  // when the reading the page last drew whole was asked for
@@ -13383,6 +13392,7 @@ function deskStill(){
 // drawn in slices between the page's frames (deskCopy, applySliced). a reading
 // asked for by anything else is drawn whole, as it always was
 async function poll(timed = false){
+  if (boardShutDown) return;
   noteDoing("poll");
   let state;
   const seq = ++pollSeq;
@@ -14587,6 +14597,38 @@ const updates = updateView(document.body, {
 });
 function updateWatch(state){
   updates.see(state.update, !!state.onboarding || !!onboard.frame);
+}
+
+// ---- shut down -------------------------------------------------------------
+// Settings, Shut down Facilitator (shutdownView in card-logic.js, POST
+// /shutdown in server.py). only the board's own window on this Mac can shut
+// it down, so the board opened anywhere else, through the phone's door, shows
+// no Shut down: the section goes before the settings page is built from
+// #setsrc below. the click reads the board for the question, and once the
+// board has been asked the page watches until it stops answering: any answer,
+// a refusal too, is the board still there, only a fetch that fails is a board
+// gone, and one that takes too long is taken for neither
+{
+  const shutBtn = document.getElementById("setshutdown");
+  if (!["localhost", "127.0.0.1"].includes(location.hostname)) shutBtn.closest("[data-section]").remove();
+  const shutdown = shutdownView(document.body, {
+    read: () => fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(2000) })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null).then(state => state || lastState),
+    start: () => fetch("/shutdown", { method: "POST" }).then(r => ({ ok: r.ok }), () => null),
+    answers: () => fetch("/state", { cache: "no-store", signal: AbortSignal.timeout(1000) })
+      .then(() => true, e => !!e && e.name === "TimeoutError"),
+    // the page asks the board nothing more, so the unreachable banner never
+    // comes up over the words
+    down: () => {
+      boardShutDown = true;
+      document.body.classList.remove("offline");
+    },
+    close: () => window.close(),
+  });
+  // the button stays enabled: begin() ignores a click while a shut down is
+  // under way, and a disabled button would lose the focus the pop-up hands
+  // back on Cancel, leaving Escape with nothing to close Settings
+  shutBtn.addEventListener("click", () => { shutdown.begin(); });
 }
 
 // ---- settings --------------------------------------------------------------

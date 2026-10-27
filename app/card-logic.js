@@ -8064,6 +8064,8 @@ const SETTINGS_ICONS = {
   improvements: '<path d="M3.5 17l6-6 4 4 7-7.5"/><path d="M14.5 7.5h6v6"/>',
   // the garbage can the Mac board shows beside a ticket
   bin: '<path d="M3.5 6.5h17"/><path d="M9 6.5V4h6v2.5"/><path d="M6 6.5l1.1 14h9.8l1.1-14"/><path d="M10 10.5v6M14 10.5v6"/>',
+  // the power mark, the phone's own beside its Log out
+  shutdown: '<path d="M12 3v10"/><path d="M17.14 5.87A8 8 0 1 1 6.86 5.87"/>',
   // the phone's own sections: a bell, a heartbeat for the diagnostics, a screen for the Mac
   notifications: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 21a2 2 0 0 0 4 0"/>',
   diagnostics: '<path d="M3 12h4.2l2.6-6.5 4.4 13 2.6-6.5H21"/>',
@@ -8304,9 +8306,10 @@ function settingsOverlay(host, source, opts){
     if (downOutside && e.target === veil) close();
     downOutside = false;
   });
-  // and focus cannot wander onto the board behind it
+  // and focus cannot wander onto the board behind it. a pop-up standing over
+  // the page (.up-veil: the update's, the shut down's) keeps its own
   document.addEventListener("focusin", e => {
-    if (open && !seat.contains(e.target)) page.focus();
+    if (open && !seat.contains(e.target) && !(e.target.closest && e.target.closest(".up-veil.open"))) page.focus();
   });
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
@@ -9672,6 +9675,165 @@ function updateView(host, opts){
       if (mode !== "shut" || held || !update || typeof update !== "object") return;
       if (update.running){ startWork(); watch(); return; }
       if (typeof update.offer === "string" && !putAway.has(update.offer)) ask(update);
+    },
+    mode: () => mode,
+    root: veil,
+  };
+}
+
+// ---- shut down --------------------------------------------------------------------
+// Settings, Shut down Facilitator on the Mac board (POST /shutdown in server.py,
+// which starts facilitator stop). the click reads the board first: while an agent
+// listens on a project or holds a card of it, the board asks first, with Cancel
+// and Shut down; otherwise it shuts down at once. the page
+// then waits for the board to stop answering, says it is shut down and how to
+// start it again, and closes its own window; a window Chrome will not let close
+// keeps the words. a board still answering after SHUTDOWN_WAIT_MS did not go,
+// and the pop-up says so, with Close. the pop-up is the update's (.up-veil,
+// .up-box): Cancel quiet on the left, Shut down on the glass pill
+const SHUTDOWN_WORDS = {
+  ask: "Shut down Facilitator?",
+  done: "Facilitator is shut down",
+  again: "To start it again, run facilitator run in Terminal.",
+  failed: "Facilitator did not shut down",
+  still: "It is still running. To turn it off, run facilitator stop in Terminal.",
+};
+const SHUTDOWN_ASK_MS = 300;     // between the looks at whether the board has gone
+const SHUTDOWN_WAIT_MS = 15000;  // the stop's own 10 s wait and its start, then it did not go
+
+// the projects whose agents would lose the board: an agent listening on it, or
+// a card of it claimed, from the board's own /state, counted as the Mac app's
+// Quit counts them
+function shutdownLanes(state){
+  if (!state || typeof state !== "object") return 0;
+  const listening = state.listening && typeof state.listening === "object" ? state.listening : {};
+  const busy = state.busy && typeof state.busy === "object" ? state.busy : {};
+  return new Set([...Object.keys(listening).filter(ow => listening[ow]),
+                  ...Object.keys(busy).filter(ow => busy[ow])]).size;
+}
+
+// the question's words for n projects
+function shutdownStakes(n){
+  return "The board stops: the agents listening on " + n + " project" + (n === 1 ? "" : "s") +
+    " lose it, and your phone cannot reach it until you start it again with facilitator run.";
+}
+
+// the pop-up, built once into host. opts: read() for a reading of the board
+// (null when none came), start() for POST /shutdown ({ok: true}, {ok: false}
+// for a refusal, null when nothing answered), answers() for whether the board
+// still answers anything, down() once it has gone, and close(), the window's
+// own close. opts.wait can hand in {ask, most} in milliseconds for the tests.
+// begin() is the Settings button: it settles once the pop-up is put away or
+// the board has gone
+function shutdownView(host, opts){
+  const wait = opts.wait || { ask: SHUTDOWN_ASK_MS, most: SHUTDOWN_WAIT_MS };
+  const veil = h("div", "qn-veil sp-veil up-veil");
+  veil.setAttribute("aria-hidden", "true");
+  const box = h("div", "qn-glass up-box");
+  box.setAttribute("role", "alertdialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-labelledby", "sdtitle");
+  box.setAttribute("aria-describedby", "sdline");
+  // no button holds the focus when the question comes up, so an Enter meant
+  // for something else does not shut the board down
+  box.tabIndex = -1;
+  const title = h("div", "up-title");
+  title.id = "sdtitle";
+  const line = h("p", "up-line");
+  line.id = "sdline";
+  const row = h("div", "up-row");
+  const cancel = h("button", "up-later", "Cancel");
+  cancel.type = "button";
+  const yes = h("button", "qn-glass up-yes", "Shut down");
+  yes.type = "button";
+  row.append(cancel, yes);
+  box.append(title, line, row);
+  veil.appendChild(box);
+  host.appendChild(veil);
+
+  // shut, reading (the click's look at the board), ask (the question), going
+  // (the board was asked; waiting for it to go), done (it has gone) or failed
+  let mode = "shut", back = null, settle = null;
+  const end = () => { const s = settle; settle = null; if (s) s(); };
+  function show(){
+    if (!veil.classList.contains("open")){
+      back = document.activeElement;
+      veil.classList.add("open");
+      veil.setAttribute("aria-hidden", "false");
+    }
+    box.focus({ preventScroll: true });
+  }
+  function shut(){
+    mode = "shut";
+    veil.classList.remove("open");
+    veil.setAttribute("aria-hidden", "true");
+    const to = back;
+    back = null;
+    if (to && to.isConnected && typeof to.focus === "function") to.focus({ preventScroll: true });
+    end();
+  }
+  function say(head, words, buttons){
+    title.textContent = head;
+    line.textContent = words;
+    row.hidden = !buttons;
+    cancel.hidden = buttons !== "ask";
+    yes.textContent = buttons === "ask" ? "Shut down" : "Close";
+    cancel.disabled = yes.disabled = false;
+  }
+  async function go(){
+    mode = "going";
+    cancel.disabled = yes.disabled = true;
+    const started = await opts.start();
+    if (!started || started.ok !== false){
+      // a yes, or no answer at all, which a board that went at once gives:
+      // either way the board is watched until it stops answering
+      for (const until = Date.now() + wait.most; Date.now() < until;){
+        if (!(await opts.answers())){
+          mode = "done";
+          opts.down();
+          say(SHUTDOWN_WORDS.done, SHUTDOWN_WORDS.again, null);
+          show();
+          end();
+          opts.close();
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, wait.ask));
+      }
+    }
+    mode = "failed";
+    say(SHUTDOWN_WORDS.failed, SHUTDOWN_WORDS.still, "close");
+    show();
+  }
+  cancel.addEventListener("click", () => { if (mode === "ask") shut(); });
+  yes.addEventListener("click", () => {
+    if (mode === "ask") go();
+    else if (mode === "failed") shut();
+  });
+  // keys stay in the pop-up: Escape is Cancel, or Close, and nothing reaches
+  // the board or the settings behind it
+  veil.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key !== "Escape" || imeKey(e)) return;
+    e.preventDefault();
+    if (mode === "ask" || mode === "failed") shut();
+  });
+  // and focus cannot wander behind it while it is up
+  document.addEventListener("focusin", e => {
+    if (!veil.classList.contains("open") || veil.contains(e.target)) return;
+    box.focus({ preventScroll: true });
+  });
+  return {
+    async begin(){
+      if (mode !== "shut") return;
+      mode = "reading";
+      const settled = new Promise(resolve => { settle = resolve; });
+      const lanes = shutdownLanes(await opts.read());
+      if (lanes){
+        mode = "ask";
+        say(SHUTDOWN_WORDS.ask, shutdownStakes(lanes), "ask");
+        show();
+      } else go();
+      return settled;
     },
     mode: () => mode,
     root: veil,

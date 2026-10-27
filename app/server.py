@@ -614,6 +614,12 @@ Endpoints:
   POST /update/later        -> "Remind me later": the offer is left out of
                                /state until the next day's look. Answers {ok,
                                until}. Local only, as POST /update
+  POST /shutdown            -> Settings' Shut down Facilitator: answers {ok}
+                               and starts `facilitator stop` as a process of
+                               its own, which ends this server (see the shut
+                               down below). Local only, and a 403 unless
+                               Origin is the page's own address, or to a
+                               request carrying the agent key
   POST /feedback            -> body = {"message": "<words>"}: the feedback box in
                                Settings, Improvements, on the Mac board and the
                                phone. Sends one "feedback sent" message to
@@ -10597,6 +10603,43 @@ def _post_update_later(q: Query, _):
     return 200, {"ok": True, "until": until}
 
 
+# ---- shut down --------------------------------------------------------------------
+# Settings, Shut down Facilitator on the Mac board (shutdownView in
+# card-logic.js). The board starts `facilitator stop` in a session of its own,
+# as the update starts `facilitator update`, and answers before the stop
+# reaches it, so a shut down from the board is the same stop as one typed in
+# Terminal: one SIGTERM, both ports waited for, the phone link taken off. The
+# from-board mark tells the command to ask Chrome nothing, since the page
+# closes its own window. Only the board's own window may ask: local, naming
+# its own origin, as POST /update is, and never a request that carries the
+# agent key
+
+def _shutdown_ended(proc) -> None:
+    """Wait for the stop this server started. A stop that worked ends this
+    server before it ends; one that ends otherwise than well is written down."""
+    code = proc.wait()
+    if code != 0:
+        _error("shutdown", outcome="failed", code=code)
+
+
+def _post_shutdown(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if q.agent or not q.same_origin:
+        return 403, {"error": "only the board's own window can shut it down"}
+    try:
+        proc = subprocess.Popen(
+            [_update_python(), str(HERE / "facilitator"), "stop"], cwd=str(CLONE),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env={**os.environ, "FACILITATOR_UPDATE_FROM_BOARD": "1"})
+    except OSError as e:
+        _error("shutdown", outcome="notstarted", reason=e.strerror or type(e).__name__)
+        return 500, {"error": "the shut down could not be started"}
+    threading.Thread(target=_shutdown_ended, args=(proc,), name="shutdown-wait", daemon=True).start()
+    _info("shutdown", reason="board")
+    return 200, {"ok": True}
+
+
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
 QUICK_NOTES_ON = False
 
@@ -11659,6 +11702,8 @@ ROUTES = [
     Route("/update", _endpoint(_get_update), methods=["GET"]),
     Route("/update", _endpoint(_post_update, "text"), methods=["POST"]),
     Route("/update/later", _endpoint(_post_update_later, "text"), methods=["POST"]),
+    # Settings' Shut down Facilitator, for the board's own window alone
+    Route("/shutdown", _endpoint(_post_shutdown, "text"), methods=["POST"]),
     # the profile, in profile.json, and the onboarding that fills it
     Route("/profile", _endpoint(_get_profile), methods=["GET"]),
     Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
