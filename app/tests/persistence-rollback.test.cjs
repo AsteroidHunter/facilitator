@@ -139,8 +139,8 @@ before(async () => {
     '            raise RuntimeError("synthetic mutation fault")\n' +
     '        _save()');
   source = patch(source,
-    '    global _last_durable\n    _state["rev"] = int(_state.get("rev", 0)) + 1',
-    '    global _last_durable\n' +
+    '    global _last_durable, _committed_rev\n    _state["rev"] = int(_state.get("rev", 0)) + 1',
+    '    global _last_durable, _committed_rev\n' +
     '    fixture_countdown = HERE / ".fixture-save-countdown"\n' +
     '    if fixture_countdown.is_file():\n' +
     '        remaining = int(fixture_countdown.read_text())\n' +
