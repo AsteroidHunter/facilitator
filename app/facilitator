@@ -213,9 +213,7 @@ LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 # set by the board on an update it starts when the person says yes to its
 # pop-up (server.py, the update): the update then writes the stage it has
 # reached on lines of their own for the page's progress bar, and its restart
-# opens no window. The board sets it too on the stop it starts from Settings,
-# Shut down Facilitator (server.py, shut down), which then asks Chrome
-# nothing: the page closes its own window
+# opens no window
 FROM_BOARD_VARIABLE = "FACILITATOR_UPDATE_FROM_BOARD"
 FROM_BOARD = os.environ.get(FROM_BOARD_VARIABLE) == "1"
 TAILSCALE_STATUS_TIMEOUT = 30
@@ -1961,9 +1959,8 @@ def cmd_stop(args):
     window is touched, and a Chrome permission prompt cannot delay the stop.
     Nothing here touches a lane, a tmux session or a saved file. On a checkout
     with a phone password the phone link is taken off last, once the server is
-    gone, and left alone when the stop was refused. A stop started by the
-    board's own Shut down, with the from-board mark, closes no window. Unknown
-    words are refused rather than ignored."""
+    gone, and left alone when the stop was refused. Unknown words are refused
+    rather than ignored."""
     extra = [a for a in args[1:] if a not in ("--dry-run", "--force")]
     if extra:
         sys.exit("stop takes --dry-run, --force and nothing else; got " + " ".join(extra))
@@ -1982,11 +1979,8 @@ def cmd_stop(args):
         if refusal:
             sys.exit(f"stop: {refusal}")
         print("Board stopped.")
-    # a stop the board's own Shut down started asks Chrome nothing: the page
-    # that asked closes its own window
-    if not FROM_BOARD:
-        for line in close_board_windows(cfg, port):
-            print(line)
+    for line in close_board_windows(cfg, port):
+        print(line)
     # last, because it can be slow, and it must never change the outcome
     if bridge_set_up():
         said = follow_bridge("off", port)

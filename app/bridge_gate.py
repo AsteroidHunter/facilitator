@@ -70,9 +70,8 @@ PAGE_OPENS = frozenset({"/m", "/"})
 # or not: the Spotify sign-in, the explicit browser-window launcher, the yes to
 # feedback mail, the onboarding, its picture and its sample project, filling,
 # reading back and reopening the cards' magic boxes, which only agents on the
-# Mac do, the Bin, which only the Mac board has, the update, which only the
-# Mac board asks about and starts, and the shut down, which only the Mac
-# board's Settings asks for. A signed-in phone reads what a box holds and its picture, and closes
+# Mac do, the Bin, which only the Mac board has, and the update, which only the
+# Mac board asks about and starts. A signed-in phone reads what a box holds and its picture, and closes
 # it, as the board does: those three routes pass, and so do a widget's own
 # (its record, the person's messages typed in it and its memory). Its agent's
 # answers come only from an agent, never through this gate. The profile is not here: a
@@ -81,7 +80,7 @@ PAGE_OPENS = frozenset({"/m", "/"})
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
                         "/onboarding", "/onboarding/sample", "/startup-sound", "/assets/phone_app_on_stand.webp",
                         "/magic", "/magic/reopen", "/magic/answer", "/bin", "/bin/restore",
-                        "/update", "/update/later", "/shutdown"})
+                        "/update", "/update/later"})
 
 
 def _device(headers):

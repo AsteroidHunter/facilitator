@@ -1327,8 +1327,6 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .up-later{border:none; background:transparent; color:var(--sub); transition:background-color .12s ease-out, color .12s ease-out}
 .up-later:is(:hover, :focus-visible){background:color-mix(in srgb, var(--ink) 6%, transparent); color:var(--ink); outline:none}
 .up-later[hidden]{display:none}
-/* the shut down's last words stand alone, with no buttons under them */
-.up-row[hidden]{display:none}
 .up-yes.qn-glass{color:var(--ink); border-radius:16px;
   box-shadow:
     inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
