@@ -353,7 +353,7 @@ const slept = events => events.reduce((sum, e) => sum + (e[0] === "sleep" ? e[1]
 const askedChrome = events => events.some(e => e[0] === "chrome_windows" || e[0] === "close");
 
 let sequence = 0;
-async function stop(options = {}, args = ["stop"], { dir = fixtureDir, cli = cliPath } = {}) {
+async function stop(options = {}, args = ["stop"], { dir = fixtureDir, cli = cliPath, env = {} } = {}) {
   const settings = { ...options };
   if (options.lockOffset !== undefined && options.lockOffset !== null) {
     const lockDir = path.join(nestDir, `lock-${sequence += 1}`);
@@ -366,7 +366,7 @@ async function stop(options = {}, args = ["stop"], { dir = fixtureDir, cli = cli
     `    cli.cmd_stop(${JSON.stringify(args)})`,
     "finally:",
     "    say()",
-  ].join("\n"), { dir, cli }).then(ok => ({ ok: true, ...ok }), error => ({ ok: false, ...error }));
+  ].join("\n"), { dir, cli, env }).then(ok => ({ ok: true, ...ok }), error => ({ ok: false, ...error }));
   return { ...done, ...readEvents(done.stdout) };
 }
 
@@ -897,6 +897,21 @@ test("one window is 'Window closed.' and the phone link is mentioned last", asyn
     "Board stopped.", "Window closed.", "A phone bridge is active. Turn it off with: facilitator bridge off",
   ]);
   assert.equal(kinds(run.events).at(-1), "bridge_note");
+});
+
+// TEMPORARY, with the three-day timer it serves (server.py, the idle stop): the
+// stop the board starts itself after three days unused carries the from-board
+// mark, and is the same stop with Chrome and the phone-link note left out
+test("the stop the board starts after three days unused asks Chrome nothing and leaves out the note", async () => {
+  const run = await stop({ chrome: [[11, [boardAt(port)]]], bridge: "NOTE" }, ["stop"],
+                         { env: { FACILITATOR_UPDATE_FROM_BOARD: "1" } });
+  assert.equal(run.ok, true, run.stderr);
+  assert.deepEqual(run.said, ["Board stopped."]);
+  assert.deepEqual(sentTo(run.events), [[4242, TERM]], "the stop sent something other than one SIGTERM");
+  assert.ok(run.events.some((e, i) => e[0] === "listener_pids" && e[1] === port + 1
+    && i > run.events.findIndex(x => x[0] === "kill" && x[2] === TERM)), "the phone's port was not read");
+  assert.equal(askedChrome(run.events), false, "Chrome was asked");
+  assert.equal(kinds(run.events).includes("bridge_note"), false, "the phone link was looked at for a note");
 });
 
 // --- the two Chrome functions themselves, with osascript faked ----------------

@@ -14,6 +14,8 @@
       or when it already was; when it cannot (Tailscale not connected, say) it
       prints one line saying the phone link is off and why, and the board is
       up all the same. With no password set it does nothing about the bridge.
+      When the board stopped itself after three days unused, run says so
+      first, in one line, once (see stop below).
       --attach types the attach
       instruction into the lane's existing tmux claude (send-keys), and
       --spawn additionally creates a fresh session
@@ -51,9 +53,15 @@
       that leaves the server running leaves the bridge as it is. With no
       password set it only notes an active bridge. Touches no lane, no tmux
       session and no saved file. --dry-run says what it would do and does
-      nothing.
+      nothing. The board also starts this command itself after three days
+      with no activity, with the from-board mark, and that stop asks Chrome
+      nothing and prints nothing anyone reads; the next run or status says
+      "The board stopped itself after three days unused." once. That
+      three-day timer is a temporary fix for the Chrome-window version and
+      will not be in the native Mac app.
   facilitator status
-      one-line board state
+      one-line board state; on a board that is down after stopping itself,
+      the line saying so first, once
   facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE] [--widget NAME]
   facilitator magic CARD close|reopen|show
   facilitator magic CARD answer ABOUT (TEXT | --file PATH | -) [--agent NAME]
@@ -214,7 +222,9 @@ LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 # set by the board on an update it starts when the person says yes to its
 # pop-up (server.py, the update): the update then writes the stage it has
 # reached on lines of their own for the page's progress bar, and its restart
-# asks Chrome only when macOS lets it without asking the person (cmd_restart)
+# asks Chrome only when macOS lets it without asking the person (cmd_restart).
+# The board sets it too on the stop it starts after three days unused
+# (server.py, the idle stop), which then asks Chrome nothing (cmd_stop)
 FROM_BOARD_VARIABLE = "FACILITATOR_UPDATE_FROM_BOARD"
 FROM_BOARD = os.environ.get(FROM_BOARD_VARIABLE) == "1"
 TAILSCALE_STATUS_TIMEOUT = 30
@@ -1889,6 +1899,27 @@ def spawn(lane, dry):
     print(f"lane {owner}: spawned NEW session ({how})")
 
 
+# --- the idle stop: TEMPORARY, the Chrome-window version only ---------------
+# The board stops itself after three days with no activity (server.py, the
+# idle stop) and writes this marker before it starts the stop; run and status
+# say so once and take it away, and every start of the board takes away one
+# still there. The three-day timer is a temporary fix for the Chrome-window
+# version and will not be in the native Mac app.
+IDLE_STOP_MARK = DATA / "idle-stop.json"
+IDLE_STOP_LINE = "The board stopped itself after three days unused."
+
+
+def idle_stop_note():
+    """The line saying the board stopped itself, when it did, and never twice:
+    the marker is taken away as it is read, and one that cannot be taken away
+    is not said, since it would then be said every time."""
+    try:
+        IDLE_STOP_MARK.unlink()
+    except OSError:
+        return None
+    return IDLE_STOP_LINE
+
+
 def cmd_run(args):
     """Server and window only, by default. The CLI never touches tmux unless
     asked: --attach types the instruction into existing lane sessions, --spawn
@@ -1897,13 +1928,19 @@ def cmd_run(args):
     longer account. A board that had to move to a free pair gets one line more
     saying so, and the phone's link is pointed at the new pair with it. On a
     checkout with a phone password the link is then left on, silently when it
-    is, and in one line when it cannot be."""
+    is, and in one line when it cannot be. A board that stopped itself after
+    three days unused is said first, once, before the board starts."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
     force = "--force" in args
     do_spawn = "--spawn" in args
     do_attach = "--attach" in args or do_spawn
+    if not dry:
+        # read before the board starts, since a start takes the marker away
+        said = idle_stop_note()
+        if said:
+            print(said)
     port, moved_from = place_board(int(cfg["port"]), dry)
     link_said = False
     if not dry:
@@ -2128,8 +2165,10 @@ def cmd_stop(args):
     window is touched, and a Chrome permission prompt cannot delay the stop.
     Nothing here touches a lane, a tmux session or a saved file. On a checkout
     with a phone password the phone link is taken off last, once the server is
-    gone, and left alone when the stop was refused. Unknown words are refused
-    rather than ignored."""
+    gone, and left alone when the stop was refused. The stop the board starts
+    itself after three days unused, with the from-board mark, asks Chrome
+    nothing and leaves out the phone-link note, which nobody would read.
+    Unknown words are refused rather than ignored."""
     extra = [a for a in args[1:] if a not in ("--dry-run", "--force")]
     if extra:
         sys.exit("stop takes --dry-run, --force and nothing else; got " + " ".join(extra))
@@ -2148,14 +2187,18 @@ def cmd_stop(args):
         if refusal:
             sys.exit(f"stop: {refusal}")
         print("Board stopped.")
-    for line in close_board_windows(cfg, port):
-        print(line)
+    # the board's own stop after three days unused asks Chrome nothing: a
+    # board window still open would have kept the board in use, and nobody is
+    # at the Mac to answer a permission prompt
+    if not FROM_BOARD:
+        for line in close_board_windows(cfg, port):
+            print(line)
     # last, because it can be slow, and it must never change the outcome
     if bridge_set_up():
         said = follow_bridge("off", port)
         if said:
             print(said)
-    elif owner is not None:
+    elif owner is not None and not FROM_BOARD:
         try:
             note = bridge_note(port)
         except Exception:
@@ -2168,6 +2211,9 @@ def cmd_status():
     cfg = load_config()
     st = state(cfg["port"])
     if st is None:
+        said = idle_stop_note()
+        if said:
+            print(said, flush=True)
         sys.exit(f"server: DOWN (port {cfg['port']})")
     lanes = ", ".join(
         f"{ow}: " + ("attached" if st["listening"][ow]

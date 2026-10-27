@@ -13,6 +13,12 @@ held for as long as the server runs, and names its pid and port.
 Everything the board writes is in data/ at the top of the checkout, beside
 app/, which holds this file and the pages; data_folder.py says what is there.
 
+A board left unused for three days stops itself, the same way `facilitator
+stop` stops it, and leaves data/idle-stop.json for the next `facilitator run`
+or `facilitator status` to say so once (the idle stop, below the board clock).
+The three-day timer is a temporary fix for the Chrome-window version and will
+not be in the native Mac app.
+
 One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
@@ -3837,7 +3843,7 @@ def _durable_fsync(fd: int) -> None:
     os.fsync(fd)
 
 
-def _save() -> None:
+def _save(active: bool = True) -> None:
     """The board to disk: a temp file beside it, then one rename, so a reader
     never sees half a state, and so a save that cannot finish leaves the last
     good file exactly as it was.
@@ -3869,7 +3875,11 @@ def _save() -> None:
 
     Every save that lands rings: the committed revision moves and _notify
     wakes the agents' long polls and the pages' live lines (GET /events), so
-    no route has to remember to ring after its save."""
+    no route has to remember to ring after its save.
+
+    Every save that lands is also activity for the idle stop (_active), and
+    starts its three days again, except one the board makes on its own clock
+    with nobody there, which says active=False (the Bin's daily check)."""
     global _last_durable, _committed_rev
     _state["rev"] = int(_state.get("rev", 0)) + 1
     payload = json.dumps(_state, indent=1)
@@ -3897,6 +3907,8 @@ def _save() -> None:
     _last_durable = payload
     _committed_rev = _state["rev"]
     _notify()
+    if active:
+        _active()
     try:
         fd = os.open(STATE_PATH.parent, os.O_RDONLY)
         try:
@@ -4112,11 +4124,13 @@ def _bin_expire(now: float | None = None) -> list:
 
 
 def _bin_clock() -> None:
-    """The Bin's daily check, for a board that stays up for days."""
+    """The Bin's daily check, for a board that stays up for days. Its save is
+    the board's own, made with nobody there, so it is not activity and does
+    not keep a forgotten board up (the idle stop)."""
     while not _STOPPING.wait(BIN_CHECK_EVERY):
         with _lock:
             if _bin_expire():
-                _save()
+                _save(active=False)
 
 
 def _section_name(card: dict) -> str:
@@ -5826,7 +5840,9 @@ def _board_clock() -> None:
     """The board clock's thread, from the start until the stop. A pass that
     fails is written down once for each kind of failure and the clock goes on;
     while it fails the readings still run the two clocks, as they did before
-    there was a board clock."""
+    there was a board clock. Each pass also looks at the idle stop's three
+    days (_idle_tick), on its own, so a pass that fails cannot keep a
+    forgotten board up."""
     said: set = set()
     while True:
         try:
@@ -5836,12 +5852,147 @@ def _board_clock() -> None:
             if type(error).__name__ not in said:
                 said.add(type(error).__name__)
                 _error("boardclock", **_crash_fields(error))
+        try:
+            _idle_tick()
+        except Exception as error:
+            if "idle " + type(error).__name__ not in said:
+                said.add("idle " + type(error).__name__)
+                _error("idlestop", outcome="failed", **_crash_fields(error))
         if _STOPPING.wait(BOARD_TICK):
             return
 
 
+# ---- the idle stop ----------------------------------------------------------------
+# TEMPORARY. The three-day timer is a temporary fix for the Chrome-window
+# version and will not be in the native Mac app. Do not carry it into the
+# native Mac app (the feat/mac-app-electron branch): there, quitting the app
+# is how the board stops, and quitting stays the person's own choice.
+#
+# Why it is here: the board runs in a Chrome window, and closing that window
+# while Chrome stays open leaves the board running with nobody knowing. So a
+# board with no activity at all for IDLE_STOP_AFTER stops itself, the same way
+# `facilitator stop` stops it: the board starts that command in a session of
+# its own with the from-board mark, which then asks Chrome nothing (a board
+# window still open would have kept the board in use), sends this server one
+# SIGTERM, waits for both ports to be free and, with a phone password set,
+# takes the phone link off. Before it starts the stop, the board writes
+# IDLE_STOP_MARK, and the next `facilitator run` or `facilitator status`
+# says "The board stopped itself after three days unused." once and takes it
+# away. Every start of the board takes away one still there, so a board
+# started again by restart or update never has it said late.
+#
+# Activity, any of which starts the three days again: a save that lands (a
+# message, a reply, an agent taking a card, any card change; _save), a page
+# reading the board (GET /state or /m/state from the Mac board, the /page view
+# or the phone, never from an agent), and a page's live line (GET /events)
+# opening or still open. An agent that only listens is not activity: its
+# /wait coming back idle saves nothing, and its own reading of /state carries
+# the agent key, so a forgotten listener cannot keep the board up forever. A
+# start, a restart included, is a fresh start of the three days. The clock is
+# the wall clock, so three days with the Mac asleep count as three days. Chrome
+# closes every connection as the Mac goes to sleep, a board window's line
+# included, so the first pass after waking finds no line open even with the
+# window there: a pass that comes more than IDLE_WAKE_GAP after the one before
+# it (the Mac slept) puts the stop at least IDLE_WAKE_GRACE away, time for an
+# open window to open its line again or read the board.
+
+IDLE_STOP_AFTER = 3 * 86400.0   # seconds with no activity before the board stops itself
+IDLE_STOP_MARK = DATA / "idle-stop.json"
+IDLE_WAKE_GAP = 60.0            # a longer gap between the board clock's passes is the Mac asleep
+IDLE_WAKE_GRACE = 120.0         # after waking, the least time before the stop
+# when the last activity was; None until main starts the timer, so a copy of
+# this file that a test loads and never runs can never stop a board
+_last_active: float | None = None
+_idle_stopping = False          # the stop has been started and has not failed
+_idle_last_pass: float | None = None   # when the board clock last looked, by the wall clock
+
+
+def _active() -> None:
+    """Something real happened on the board: its three days start again."""
+    global _last_active
+    if _last_active is not None:
+        _last_active = time.time()
+
+
+def _idle_tick() -> None:
+    """The board clock's look at the idle stop, once a pass: a page's live
+    line still open is activity, the first pass after the Mac slept leaves
+    the stop at least IDLE_WAKE_GRACE away, and three days with none starts
+    the stop."""
+    global _last_active, _idle_last_pass
+    if _last_active is None:
+        return
+    now = time.time()
+    woke = _idle_last_pass is not None and now - _idle_last_pass > IDLE_WAKE_GAP
+    _idle_last_pass = now
+    if _idle_stopping:
+        return
+    if _streams_open:
+        _last_active = now
+        return
+    if woke:
+        _last_active = max(_last_active, now - IDLE_STOP_AFTER + IDLE_WAKE_GRACE)
+        return
+    if now - _last_active >= IDLE_STOP_AFTER:
+        _idle_stop()
+
+
+def _idle_stop() -> None:
+    """Start `facilitator stop` for a board left unused: a process of its own,
+    from this checkout's command, with the from-board mark, the way the board
+    starts `facilitator update`. One line says so; the marker the next run
+    reads is written before the stop starts."""
+    global _idle_stopping
+    _idle_stopping = True
+    days = IDLE_STOP_AFTER / 86400
+    _info("idlestop", days=int(days) if days.is_integer() else days)
+    try:
+        with open(IDLE_STOP_MARK, "w", opener=_private_opener) as f:
+            f.write(json.dumps({"ts": int(time.time()), "days": days}) + "\n")
+    except OSError as e:
+        # the stop goes ahead: the marker only lets the next run say why
+        _error("idlestop", outcome="nomark", reason=e.strerror or type(e).__name__)
+    try:
+        proc = subprocess.Popen(
+            [_update_python(), str(HERE / "facilitator"), "stop"], cwd=str(CLONE),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env={**os.environ, "FACILITATOR_UPDATE_FROM_BOARD": "1"})
+    except OSError as e:
+        _error("idlestop", outcome="notstarted", reason=e.strerror or type(e).__name__)
+        _idle_rearm()
+        return
+    threading.Thread(target=_idle_stop_ended, args=(proc,), name="idle-stop", daemon=True).start()
+
+
+def _idle_stop_ended(proc) -> None:
+    """Wait for the stop this board started. One that reached this server
+    has set the stop before it ends; one that ends with the board still
+    running failed, is written down, and the three days start again."""
+    code = proc.wait()
+    if _STOPPING.is_set():
+        return
+    _error("idlestop", outcome="failed", code=code)
+    _idle_rearm()
+
+
+def _idle_rearm() -> None:
+    """The stop did not happen: no marker is left for the next run, and the
+    three days start again rather than the stop being tried every second."""
+    global _last_active, _idle_stopping
+    try:
+        IDLE_STOP_MARK.unlink(missing_ok=True)
+    except OSError:
+        pass
+    _last_active = time.time()
+    _idle_stopping = False
+
+
 def _get_state(q: Query, _):
     with _lock:
+        # a page reading the board is activity for the idle stop; an agent's
+        # reading (its listen reads /state before each /wait) is not
+        if not q.agent:
+            _active()
         # the board clock runs these every second; a reading runs them as
         # well, so it never answers a hand-off or a green a moment past due
         _sweep_clocks()
@@ -5877,6 +6028,10 @@ def _get_phone_state(q: Query, _):
     except ValueError:
         return 400, {"error": "bad revision"}
     ops = [op for op in q.one("ops").split(",") if op][:OP_ASK_MAX]
+    # the phone reading the board is activity for the idle stop, as the Mac
+    # board's reading is
+    if not q.agent:
+        _active()
     # the reading is made under the lock as one transaction, as a stateful
     # route's always is; compressing it, the longest step on a whole board,
     # waits until the lock is let go
@@ -11388,6 +11543,9 @@ class EventsRoute:
             await _plain(503, {"error": "too many pages listening"}, retry_after=5)(scope, receive, send)
             return
         _streams_open += 1
+        # a page's line opening is activity for the idle stop, and the board
+        # clock counts it again every pass while it stays open (_idle_tick)
+        _active()
         gone = asyncio.Event()
         watcher = asyncio.ensure_future(_watch_disconnect(receive, gone))
         try:
@@ -12498,7 +12656,7 @@ def _tailnet_status():
 
 
 def main() -> None:
-    global _remote, _door
+    global _remote, _door, _last_active
     _quiet_uvicorn()
     _warn_legacy_config()
 
@@ -12591,6 +12749,14 @@ def main() -> None:
         threading.Thread(target=_update_clock, name="update-check", daemon=True).start()
         _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
+        # TEMPORARY, the Chrome-window version only (the idle stop): a start
+        # is a fresh three days, and the marker of an earlier idle stop goes,
+        # since `facilitator run` has read it before it starts the board
+        _last_active = time.time()
+        try:
+            IDLE_STOP_MARK.unlink(missing_ok=True)
+        except OSError:
+            pass
         threading.Thread(target=_board_clock, name="board-clock", daemon=True).start()
         if _serve_hold is not None:
             threading.Thread(target=_serve_watch, name="serve-check", daemon=True).start()
