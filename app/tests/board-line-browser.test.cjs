@@ -9,6 +9,9 @@
 //             always did, and once the line is let through it is up within
 //             the 30 s retry and the timed readings stop
 //   files     the board serves board-line.js and its worker as scripts
+//   lock      on a board with its lock on, a window opened the way the board
+//             opens one (a launch code) has its line through the worker, which
+//             carries the window's cookie, and a second window shares it
 //
 // This file never starts a browser. It runs only against a Chrome that is
 // already running with remote debugging, named by FACILITATOR_CDP_ENDPOINT
@@ -125,7 +128,7 @@ const refusing = () => startBoard({ prepare: ({ app }) => {
   fs.writeFileSync(file, source.replace(REFUSE[0], REFUSE[1]));
 } });
 
-let browser, board, refused;
+let browser, board, refused, locked;
 before(async () => {
   if (skip) return;
   browser = await Browser.connect();
@@ -135,6 +138,7 @@ after(async () => {
   if (browser){ await browser.closeMine(); browser.close(); }
   if (board) await board.stop();
   if (refused) await refused.stop();
+  if (locked) await locked.stop();
 });
 
 test("the board serves the line's two files as scripts", { skip }, async () => {
@@ -211,4 +215,23 @@ test("a page whose line is refused reads every 1.2 s as before, and stops once t
   } finally {
     fs.rmSync(off, { force: true });
   }
+});
+
+test("under the board's lock the worker's line carries the window's cookie", { skip }, async () => {
+  locked = await startBoard({ lock: true });
+  const r = await fetch(locked.origin + "/window/launch", { method: "POST", headers: locked.keyed() });
+  assert.equal(r.status, 200);
+  const { code } = await r.json();
+  const first = await browser.tab(locked.origin + "/?launch=" + encodeURIComponent(code));
+  await first.until(() => typeof deskLine !== "undefined" && !!deskLine && deskLine.up && !!lastState, "the line on the locked board");
+  assert.equal(await first.eval(() => location.pathname + location.search), "/");
+  const second = await browser.tab(locked.origin + "/", { shown: false });
+  await second.until(() => typeof deskLine !== "undefined" && !!deskLine && deskLine.up && !!lastState, "the line on a second window");
+  // an agent's request to the line without the key or the cookie is refused
+  assert.equal((await fetch(locked.origin + "/events")).status, 401);
+  const made = await (await fetch(locked.origin + "/create?owner=facilitator", { method: "POST", headers: locked.keyed(),
+    body: "A card on the locked board" })).json();
+  await first.until(id => !!els[id], "the card on the first window", 5000, made.id);
+  await second.until(id => !!els[id], "the card on the second window", 5000, made.id);
+  await browser.closeMine();
 });
