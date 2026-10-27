@@ -64,6 +64,7 @@ function rootTarget(place) {
 
 // the CLI loaded as a module in a sandbox, with the window stubbed: every page
 // it would open is recorded instead, and a restart is told the board is showing
+// in one tab, which it sent on; Chrome itself is never asked
 async function cli(place, lines, extra = {}) {
   const code = [
     "import importlib.machinery, importlib.util, json, sys",
@@ -73,7 +74,10 @@ async function cli(place, lines, extra = {}) {
     "loader.exec_module(cli)",
     "WINDOWS = []",
     "cli.open_app = lambda cfg, dry: WINDOWS.append(cli.window_url(cfg))",
-    "cli.board_page_open = lambda cfg: True",
+    "cli.relaunch_board_tabs = lambda cfg: 1",
+    "def never(*a, **k):",
+    "    raise AssertionError('Chrome was asked')",
+    "cli.chrome_tabs = cli.send_tab = cli.chrome_allowed = never",
     "try:",
     ...lines.map(line => "    " + line),
     "finally:",
@@ -162,14 +166,14 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
     const firstPid = held(place).pid;
     const restarted = await cli(place, ["cli.cmd_restart(['restart'])"]);
     assert.equal(restarted.code, 0, restarted.stderr);
-    assert.deepEqual(restarted.said, ["Board restarted.", "Reload the board (command + R)."]);
+    assert.deepEqual(restarted.said, ["Board restarted."]);
     assert.notEqual(held(place).pid, firstPid, "restart did not replace the server");
     assert.equal(held(place).port, next, "restart moved the board");
     const secondPid = held(place).pid;
     const updated = await cli(place, ["print(cli.restart_board(True))"]);
     assert.equal(updated.code, 0, updated.stderr);
     assert.deepEqual(updated.said, ["The board is running. Restarting it onto the new code.",
-                                    "Board restarted.", "Reload the board (command + R).", "True"]);
+                                    "Board restarted.", "True"]);
     assert.notEqual(held(place).pid, secondPid, "update's restart did not reach the moved board");
     const home = path.join(place.outer, "home");
     fs.mkdirSync(home);

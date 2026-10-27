@@ -267,6 +267,26 @@ test("a launch code works once, as a page, sets the cookie and sends the window 
   assert.equal((await raw("GET", `/?launch=${"a".repeat(32)}`, { headers: OPEN })).status, 401);
 });
 
+test("a launch code sends the window on to its own query, a pulled-out project's, without any code", async () => {
+  // a window without the cookie is let in and lands on its own project
+  const { code } = await launchCode();
+  const opened = await raw("GET", `/?project=pastureland&launch=${code}&x=1`, { headers: OPEN });
+  assert.equal(opened.status, 303, opened.text);
+  assert.equal(opened.headers.location, "/?project=pastureland&x=1");
+  assert.ok(opened.headers["set-cookie"], "the window got no cookie");
+  const cookie = opened.headers["set-cookie"][0].split(";")[0];
+  // one that has the cookie lands there too, and a code spelt another way in
+  // the address is still a code and is never sent on, so nothing loops
+  const fresh = await launchCode();
+  const kept = await raw("GET", `/?launch=${fresh.code}&project=pastureland&%6Caunch=${fresh.code}`,
+    { headers: { ...OPEN, Cookie: cookie } });
+  assert.deepEqual([kept.status, kept.headers.location, kept.headers["set-cookie"]],
+    [303, "/?project=pastureland", undefined]);
+  const landed = await raw("GET", kept.headers.location, { headers: { ...OPEN, Cookie: cookie } });
+  assert.equal(landed.status, 200);
+  assert.match(landed.text, /id="npversion"/);
+});
+
 test("a launch code ends after its life", async () => {
   const { code } = await launchCode();
   await new Promise(resolve => setTimeout(resolve, LIFE * 1000 + 300));

@@ -266,14 +266,14 @@ def fake_windows():
 def fake_close(wid, urls):
     EVENTS.append(['close', wid, list(urls)])
     return OPTS['closeAnswers'].get(str(wid), 'CLOSED')
-def fake_page_urls():
-    EVENTS.append(['chrome_page_urls'])
+def fake_tabs():
+    EVENTS.append(['chrome_tabs'])
     return []
 def fake_open_app(cfg, dry):
     EVENTS.append(['open_app', dry])
 cli.chrome_windows = fake_windows
 cli.close_chrome_window = fake_close
-cli.chrome_page_urls = fake_page_urls
+cli.chrome_tabs = fake_tabs
 cli.open_app = fake_open_app
 
 def fake_run(argv, **kw):
@@ -1106,13 +1106,13 @@ test("stop starts nothing, opens nothing and speaks to no tmux or lane", async (
   const body = source.slice(source.indexOf("def stop_target("), source.indexOf("def cmd_status("))
     .replace(/"""[\s\S]*?"""/g, "").replace(/#[^\n]*/g, "");
   assert.ok(body.includes("def cmd_stop("), "the stop code is not where it was");
-  for (const word of ["Popen", "ensure_server", "start_server", "open_app", "chrome_page_urls", "tmux",
+  for (const word of ["Popen", "ensure_server", "start_server", "open_app", "chrome_tabs", "send_tab", "tmux",
     "send-keys", "write_text", "write_bytes", "os.remove", "unlink", "rmtree", "tailscale serve"]) {
     assert.ok(!body.includes(word), `the stop code reaches ${word}`);
   }
   const run = await stop({ chrome: [[1, [boardAt(port)]]] });
   assert.equal(run.ok, true, run.stderr);
-  assert.equal(kinds(run.events).filter(k => k === "run" || k === "popen" || k === "open_app" || k === "chrome_page_urls").length, 0);
+  assert.equal(kinds(run.events).filter(k => k === "run" || k === "popen" || k === "open_app" || k === "chrome_tabs").length, 0);
 });
 
 // ---------------------------------------------------------------------------

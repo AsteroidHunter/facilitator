@@ -4,7 +4,7 @@
 // own `facilitator update`, which pulls and hands over to the launcher at the
 // top. Everything happens in throwaway folders with a fake uv and a fake
 // tailscale; osascript and open are stand-ins that answer nothing, so no
-// Chrome is asked or opened. No real port, board or data is touched.
+// real Chrome is asked or opened. No real port, board or data is touched.
 const assert = require("node:assert/strict");
 const { after, test } = require("node:test");
 const { execFile, execFileSync, spawn } = require("node:child_process");
@@ -369,7 +369,13 @@ test("an older checkout with its board running moves every file into data/ throu
   assert.match(res.stdout, /✓ Removed the old copies \(\d+ files\)\. The backup stays in data\/backups\/before-data-move-/);
   assert.match(res.stdout, /Old version: v0\.2\.414\nNew version: v0\.2\.415/);
   assert.equal(alive(oldPid), false, "the old board is still running");
-  assert.equal(fs.existsSync(w.opened) ? fs.readFileSync(w.opened, "utf8") : "", "", "a window was opened");
+  // Chrome cannot be asked here (osascript answers nothing) and the board,
+  // from before the lock, has let no window in, so any window open on it is
+  // refused now: one window opens, on a launch link, as facilitator run opens it
+  const opened = fs.existsSync(w.opened) ? fs.readFileSync(w.opened, "utf8").trim().split("\n") : [];
+  assert.equal(opened.length, 1, `windows opened: ${opened.join(" | ")}`);
+  assert.match(opened[0],
+    new RegExp(`^open -na Google Chrome --args --app=http://127\\.0\\.0\\.1:${w.port}/\\?launch=[A-Za-z0-9_-]{16,64}$`));
 
   // the board answers from app/ with the same cards, the one board of this folder
   const after = await waitBoard(w.port);

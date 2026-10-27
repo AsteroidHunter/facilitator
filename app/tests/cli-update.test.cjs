@@ -645,9 +645,9 @@ print(json.dumps({"calls": calls, "out": out.getvalue()}))`, { FACILITATOR_UPDAT
   assert.ok(r.out.indexOf("@stage restarting") < r.out.indexOf("Board restarted."), "the stage came after the restart");
 });
 
-test("a restart for an update the board started opens no window and asks Chrome nothing, and the board it starts is not marked", async () => {
+test("a restart for an update the board started asks Chrome only with macOS's leave, opens a window only for a board that let none in, and the board it starts is not marked", async () => {
   const world = await makeWorld();
-  const harness = fromBoard => `
+  const harness = (fromBoard, allowed = true, kept = true) => `
 calls = []
 cli.FROM_BOARD = ${fromBoard ? "True" : "False"}
 cli.load_config = lambda: {"port": 9, "lanes": []}
@@ -656,7 +656,11 @@ cli.board_elsewhere = lambda port: None
 cli.stop_server = lambda owner, port: None
 cli.port_free = lambda port: True
 cli.start_and_confirm = lambda port: (None, None)
-cli.board_page_open = lambda cfg: calls.append("asked chrome") or False
+cli.chrome_allowed = lambda: calls.append("asked macOS") or ${allowed ? "True" : "False"}
+cli.chrome_tabs = lambda: calls.append("read chrome") or [(1, ["http://127.0.0.1:9/"])]
+cli.launch_url = lambda cfg, url: url + "?launch=CODE"
+cli.send_tab = lambda wid, place, expected, goal: calls.append(["sent", place, expected, goal]) or "SENT"
+cli.window_key_kept = lambda: ${kept ? "True" : "False"}
 cli.open_app = lambda cfg, dry: calls.append("opened a window")
 out = io.StringIO()
 with contextlib.redirect_stdout(out):
@@ -670,11 +674,19 @@ cli.subprocess = types.SimpleNamespace(Popen=Child, DEVNULL=-3)
 cli.start_server()
 print(json.dumps({"calls": calls, "out": out.getvalue(), "marked": cli.FROM_BOARD_VARIABLE in seen["env"],
                   "env": bool(seen["env"])}))`;
+  const sent = ["sent", 1, "http://127.0.0.1:9/", "http://127.0.0.1:9/?launch=CODE"];
   const terminal = await drive(world, harness(false));
-  assert.deepEqual(terminal.calls, ["asked chrome", "opened a window"], "a restart from the terminal changed");
+  assert.deepEqual(terminal.calls, ["read chrome", sent], "a restart from the terminal did not send the board's tab on");
+  assert.equal(terminal.out, "Board restarted.\n", "a restart from the terminal still asks for a reload");
   const board = await drive(world, harness(true));
-  assert.deepEqual(board.calls, [], "an update the board started opened a window");
+  assert.deepEqual(board.calls, ["asked macOS", "read chrome", sent], "an update the board started skipped its tab");
   assert.equal(board.out, "Board restarted.\n");
   assert.equal(board.marked, false, "the board started by the update carries its mark");
   assert.equal(board.env, true);
+  // macOS would ask the person: Chrome is not asked, and a window opens only
+  // when the board has let no window in, so the page that said yes is refused
+  const unasked = await drive(world, harness(true, false, true));
+  assert.deepEqual(unasked.calls, ["asked macOS"], "Chrome was asked without macOS's leave");
+  const opened = await drive(world, harness(true, false, false));
+  assert.deepEqual(opened.calls, ["asked macOS", "opened a window"]);
 });
