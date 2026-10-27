@@ -5884,15 +5884,16 @@ function sentKeepScroll(el, band){
 
 // ---- the board's refresh and the card's own motion ------------------------------------
 // a panel's run and the glide of a page turn are the card's own motion, and the
-// board's timed refresh waits them out. a refresh is a whole pass over every
-// card on the page's one thread, and one landing inside a third of a second of
-// motion costs that motion frames it never gets back. only the timed refresh
-// waits, and only until the motion is over; a refresh asked for by something the
-// reader did goes at once.
-// the timer asks this on every tick, so it asks two queries of one selector
-// each, which the browser answers in a quick pass over the page; one query of
-// seven selectors matched each of them against every element on the page, 3.5
-// to 15 ms on a board of a thousand cards, all of it on the thread that draws
+// board's timed refresh, and a reading the board's live line rings for, wait
+// them out. a refresh is a whole pass over every card on the page's one thread,
+// and one landing inside a third of a second of motion costs that motion frames
+// it never gets back. only those wait, and only until the motion is over; a
+// refresh asked for by something the reader did goes at once.
+// it is asked before every one of those readings, so it asks two queries of one
+// selector each, which the browser answers in a quick pass over the page; one
+// query of seven selectors matched each of them against every element on the
+// page, 3.5 to 15 ms on a board of a thousand cards, all of it on the thread
+// that draws
 const CARD_MOTION = ".answered:is(.motion, .sentflight, .coalesce, .markin, .markout, .markgone)";
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&

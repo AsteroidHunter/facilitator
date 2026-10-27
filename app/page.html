@@ -1883,7 +1883,7 @@ function select(id, opts){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
-  // the ticket rows re-render on the poll, up to a second later; the selection
+  // the ticket rows re-render only on the board's next reading; the selection
   // shadow must move the instant of the click, so flip the class directly,
   // and bring the chosen row into the panel's view in the same breath
   for (const r of document.querySelectorAll("#tiklist .trow")){

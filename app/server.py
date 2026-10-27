@@ -45,7 +45,7 @@ Endpoints:
   POST /window/launch       -> {code, seconds}: a launch code for the window
                                `facilitator run` opens. With the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
-  GET  /state               -> full UI state (page polls this), with rev, the
+  GET  /state               -> full UI state (pages read this), with rev, the
                                board's revision: every saved change moves it,
                                and settingsRev, the settings' own revision
                                (see /settings), and onboarding: true while the
@@ -57,7 +57,7 @@ Endpoints:
                                version waits for the person's yes, {running:
                                true} while an update runs (GET /update)
   GET  /state?since=R[&delta=E] -> the same reading for a page that holds one
-                               (the Mac board's poll). since blank, or a reading
+                               (the Mac board). since blank, or a reading
                                this run cannot build on, is the whole reading
                                with epoch beside it. With delta naming this
                                run's epoch and the board still remembering
@@ -5603,9 +5603,10 @@ def _agents_reading() -> dict:
 
 
 # ---- what the Mac board reads, lean ---------------------------------------------
-# The Mac page reads the whole board every 1.2 s, and on a board of about a
-# thousand cards that is 2.4 MB a time for the page to take in, almost all of it
-# what it already holds. So it reads the way the phone does: it names the
+# The Mac page reads the board whenever its live line says the board changed,
+# and every 1.2 s while that line is down, and on a board of about a thousand
+# cards the whole board is 2.4 MB a time for the page to take in, almost all of
+# it what it already holds. So it reads the way the phone does: it names the
 # revision it holds (since) and the run that reading came from (delta, this
 # run's PHONE_EPOCH), and when the board still remembers what it sent at that
 # revision the answer is only what differs. The cards by the phone's rule, a
@@ -11722,11 +11723,13 @@ class Transport:
                 except Exception:
                     pass   # diagnostics cannot turn a completed command into a failure
             if LOGGER.isEnabledFor(logging.DEBUG):
-                # The request line is DEBUG and not INFO on purpose: the two
-                # pages poll about 144,000 times a day between them, and a line
-                # for each of those is 22 MB a day of mostly nothing. Switched
-                # on, it is the line that says what the board was asked for,
-                # what it answered and how long it took
+                # The request line is DEBUG and not INFO on purpose: the phone
+                # reads the board every 1.2 s while it is on screen, up to
+                # 72,000 times a day, and so does a Mac page whose live line is
+                # down; a line for each of those readings is 11 MB a day a
+                # page, of mostly nothing. Switched on, it is the line that
+                # says what the board was asked for, what it answered and how
+                # long it took
                 _debug("request", q.one("box"), method=scope.get("method"), route=_route_name(route),
                        status=status, ms=round((time.monotonic() - started) * 1000))
 

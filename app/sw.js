@@ -17,11 +17,11 @@
    worker, controlled by it and not by this.
 
    The fetch handler below is the whole file. A page open is handed straight to
-   the network, and every other request, the board's polling above all, is left
-   untouched, so the page runs exactly as it does with no worker at all. It
-   really answers a request rather than doing nothing, because a handler that
-   does nothing is one Chrome is free to skip, and a skipped handler has counted
-   as no handler at all. */
+   the network, and every other request, the board's readings and its live
+   line above all, is left untouched, so the page runs exactly as it does with
+   no worker at all. It really answers a request rather than doing nothing,
+   because a handler that does nothing is one Chrome is free to skip, and a
+   skipped handler has counted as no handler at all. */
 
 self.addEventListener("fetch", event => {
   if (event.request.mode === "navigate") event.respondWith(fetch(event.request));

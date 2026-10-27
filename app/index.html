@@ -6354,7 +6354,7 @@ function select(id, opts){
   // card whose row has no field is a no-op.
   if (els[id].tick) els[id].tick();
   syncDesktopHistoryAvailability(id);
-  // the ticket rows re-render on the poll, up to a second later; the selection
+  // the ticket rows re-render only on the board's next reading; the selection
   // shadow must move the instant of the click, so flip the class directly,
   // and bring the chosen row into the panel's view in the same breath
   for (const r of document.querySelectorAll("#tiklist .trow")){
@@ -7944,7 +7944,8 @@ function drawListeners(state, gone = 0){
 }
 
 // a card's age in the outline, written only when it reads differently: a
-// thousand cards written every 1.2 s with the same words cost a whole pass
+// thousand cards written on every reading and every tick with the same words
+// cost a whole pass
 function writeAge(el, b){
   const text = age(b.ts);
   if (el.tageText === text) return;
@@ -13378,11 +13379,13 @@ function deskStill(){
 // three throws from anywhere in the render path raised pollFails to three and
 // painted the banner over a server that was answering perfectly. The banner
 // keeps its wording and its three strikes and now means what it says; a render
-// that fails is reported and the board keeps polling, because one card that
+// that fails is reported and the board keeps reading, because one card that
 // will not draw should not stop the rest.
 //
-// timed is the 1.2 s timer's own reading. one that finds the board standing
-// still (DESK_SAME) draws only what the clock moves (drawClock) rather than the
+// timed is the reading a ring of the board's live line asks for in a window on
+// screen, and the 1.2 s timer's own while that line is down (the board's live
+// line, at the end of this page). one that finds the board standing still
+// (DESK_SAME) draws only what the clock moves (drawClock) rather than the
 // whole board again, as long as the page holds nothing of its own that waits
 // for the board's word (deskStill); one that brings a change is copied and
 // drawn in slices between the page's frames (deskCopy, applySliced). a reading
