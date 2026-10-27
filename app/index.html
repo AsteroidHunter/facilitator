@@ -4378,6 +4378,7 @@
 
 <script src="/board-settings.js"></script>
 <script src="/mac-phone-view.js"></script>
+<script src="/board-line.js"></script>
 <script src="/magic-box.js"></script>
 <script src="/hover-labels.js"></script>
 <script src="/card-report.js"></script>
@@ -7925,15 +7926,18 @@ function* applyPass(state){
 
 // listener presence, per agent: each is either long-polling (listening),
 // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-function drawListeners(state){
+// gone is how many seconds have passed since the board answered the reading,
+// for a reading drawn again later from what is held (deskTick): each lane's
+// quiet is the reading's own plus that
+function drawListeners(state, gone = 0){
   const offOwners = Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
-    !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
+    !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] + gone > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
   if (offOwners.length){
     document.getElementById("offline").textContent =
       "Offline: " + offOwners.map(ow => laneName(ow) + " (last heard " +
-      Math.round(state.listenerGap[ow] / 60) + " min ago)").join(", ") +
+      Math.round((state.listenerGap[ow] + gone) / 60) + " min ago)").join(", ") +
       ". Messages still queue safely; replies resume when that terminal side wakes.";
     // the bar's own status line went with the strip; the banner below says it
   }
@@ -7949,11 +7953,12 @@ function writeAge(el, b){
 }
 
 // what the clock alone moves, for a timed reading that found the board
-// standing still (poll): each card's age in the outline and each row's in the
-// list (the ones paintTicketPane keeps; a working row's spinner has its own
-// clock), each written only where it now reads differently, and the line that
-// names a lane whose agent has gone quiet
-function drawClock(state){
+// standing still (poll), and for the reading held while the line is up
+// (deskTick, with gone as drawListeners takes it): each card's age in the
+// outline and each row's in the list (the ones paintTicketPane keeps; a
+// working row's spinner has its own clock), each written only where it now
+// reads differently, and the line that names a lane whose agent has gone quiet
+function drawClock(state, gone = 0){
   const cards = new Map();
   for (const b of state.boxes){
     cards.set(b.id, b);
@@ -7967,7 +7972,7 @@ function drawClock(state){
       if (row.text !== text){ row.text = text; row.span.textContent = text; }
     }
   }
-  drawListeners(state);
+  drawListeners(state, gone);
 }
 
 // ---- the clock: day, time, date, plain text, upper left -------------------
@@ -16028,12 +16033,62 @@ renameMagicLayouts();
 syncLayoutsOnce();
 seedHiddenOnce();
 applySavedLayout();
-// the timed refresh waits out a panel's run or a page turn (cardsMoving in
-// card-logic.js): the tick that lands inside one is skipped, and the next one
-// catches up. a refresh asked for by a send or a click still goes at once.
-// a timed one that finds the board standing still draws only what the clock
-// moves (poll's timed)
-poll(); setInterval(() => { if (!cardsMoving()) poll(true); }, 1200);
+// ---- the board's live line ---------------------------------------------------
+// The board rings this page whenever it changes (board-line.js says how): each
+// line names the revision on disk and a mark of what moves with no save, and a
+// page holding anything else reads the board, the same reading the 1.2 s timer
+// made, drawn the same way. A window on screen takes the timer's own path
+// (poll's timed: a board standing still draws only what the clock moves, and a
+// changed one is drawn in slices between the page's frames); a hidden window
+// draws whole, since the slices wait on idle time a hidden page gives late and
+// nobody scrolls a hidden window. The reply chime comes before the draw either
+// way. A ring that lands in a panel's run or a page turn (cardsMoving in
+// card-logic.js) is put off a moment and tried again, never dropped, since the
+// change it brings has to be drawn; one reading at a time, at most one started
+// by a ring each second.
+//
+// While the line is down, and until the first line comes, the timed refresh
+// runs exactly as it did before there was a line (deskTimed), and it stops when
+// a line is up. Its tick that lands inside a run or a page turn is skipped and
+// the next one catches up; a refresh asked for by a send or a click still goes
+// at once
+let deskTicker = 0;
+function deskTimed(on){
+  if (on && !deskTicker) deskTicker = setInterval(() => { if (!cardsMoving()) poll(true); }, 1200);
+  else if (!on && deskTicker){ clearInterval(deskTicker); deskTicker = 0; }
+}
+// what moves with the clock alone while the board stands still: each age in
+// the outline and the list, and the line naming a lane whose agent has gone
+// quiet. While the line is up and the window is on screen they are drawn from
+// the reading held every DESK_TICK_MS, and at once when the window is shown
+// again, each lane's quiet counted on from the board's clock in that reading
+// (drawClock). Never while the banner says the board is unreachable, which
+// drawListeners would take down, and never while the line is down, when the
+// timed refresh draws the clock itself
+const DESK_TICK_MS = 15000;
+function deskTick(){
+  if (document.hidden || !deskLine || !deskLine.up || pollFails >= 3 || !lastState || !deskHeld) return;
+  const clock = { ...deskHeld.reading };
+  const gone = typeof clock.now === "number" ? Math.max(0, Date.now() / 1000 - clock.now) : 0;
+  try { drawClock(clock, gone); } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("render", e);
+  }
+}
+// the reading at load is the first; a page whose board-line.js did not load
+// keeps the timed refresh for good
+const deskLine = typeof BoardLine === "object" ? BoardLine.connect({
+  held: () => deskHeld ? deskHeld.rev : null,
+  read: () => document.hidden ? poll() : poll(true),
+  moving: cardsMoving,
+  failed: () => pollFails > 0,
+  up: () => deskTimed(false),
+  down: () => deskTimed(true),
+  first: poll(),
+}) : null;
+if (!deskLine){ poll(); deskTimed(true); }
+setInterval(deskTick, DESK_TICK_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) deskTick(); });
+// ---- the board's live line ends
 
 // ---- the board's worker --------------------------------------------------------
 // The worker keeps nothing at all, and sw.js says why it is here: Chrome asked
@@ -16074,7 +16129,7 @@ if ("serviceWorker" in navigator){
     },
   };
   window.macPhoneProject = LOCKED;
-  window.macPhoneHost = view.createHost({ window, adapter,
+  window.macPhoneHost = view.createHost({ window, adapter, line: deskLine,
     childConnected(child) {
       installChromeShortcutGuard(child);
       installMacZoomGuard(child);
