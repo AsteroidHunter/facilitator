@@ -1123,7 +1123,9 @@ test("stop starts nothing, opens nothing and speaks to no tmux or lane", async (
 // whole fixture, including the folders the server makes beside itself, lives
 // under one temporary folder that goes at the end whether or not the
 // assertions passed. No window is involved: Chrome is addressed by name, so a
-// real window cannot be isolated from the person's own.
+// real window cannot be isolated from the person's own. The board is locked as
+// a real one is, so the command's own calls to it carry the agent key, and so
+// do this file's.
 
 async function buildLive(ignoreTerm) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-stop-live-")));
@@ -1162,6 +1164,7 @@ function liveProbe(live, code) {
     env: {
       ...process.env,
       FACILITATOR_TEST_PORT: String(live.port),
+      FACILITATOR_TEST_LOCK: "1",
       FACILITATOR_LOG_DIR: path.join(live.root, "logs"),
     },
     timeout: 90000,
@@ -1233,7 +1236,10 @@ test("a real stop: the server goes, both ports free, the lock is released, the s
   async () => {
     const live = await buildLive(false);
     const pid = await startLive(live);
-    const before = await (await fetch(`http://127.0.0.1:${live.port}/state`)).json();
+    const key = (await readFile(path.join(dataOf(live.board), "agent.key"), "utf8")).trim();
+    assert.equal((await fetch(`http://127.0.0.1:${live.port}/state`)).status, 401, "the live board is not locked");
+    const before = await (await fetch(`http://127.0.0.1:${live.port}/state`,
+      { headers: { Authorization: `Bearer ${key}` } })).json();
     assert.equal(before.title, "cli stop fixture");
     assert.equal(await canBind(live.port), false, "the board does not hold its port");
     assert.equal(await canBind(live.port + 1), false, "the board does not hold the phone's port");

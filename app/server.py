@@ -21,8 +21,22 @@ Every page, script and sheet the board reads from its files (/, /page, /m and th
 shared files they load) is gzip compressed on either port when the request's
 Accept-Encoding takes gzip; pictures go as they are.
 
+On the board's own port every request carries the agent key (data/agent.key,
+sent as a bearer key; data/agent.curl carries it for curl -K) or the board
+window's cookie, except GET /unread; any other is answered by BoardLock alone,
+a page open of / or /m with a page saying to open the board with facilitator
+run and anything else with a 401. The phone's port and the agent door ask as
+they always did.
+
 Endpoints:
   GET  /                    -> index.html, the card board
+  GET  /?launch=CODE        -> a launch code from /window/launch, spent: opened
+                               as a page it sets the window's cookie (HttpOnly,
+                               SameSite=Strict) and answers 303 to /, so the
+                               code leaves the address bar. A code is good
+                               once, for 60 seconds
+  POST /window/launch       -> {code, seconds}: a launch code for the window
+                               `facilitator run` opens. With the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this), with rev, the
                                board's revision: every saved change moves it,
@@ -96,8 +110,8 @@ Endpoints:
                                is an agent that put the message on the card for
                                the reader (a voice or text assistant), and agent
                                is its name, cut to 24 characters. Every send an
-                               agent makes (_agent_request: no browser headers
-                               on this port, or through the agent door) is
+                               agent makes (_agent_request: one with the agent
+                               key, or through the agent door) is
                                stored as an agent's, whether or not it says
                                by=agent, so only the board's own pages and the
                                phone send the reader's own words. Only the
@@ -2352,17 +2366,237 @@ def _lane_in_touch(ow: str) -> bool:
     return _lane_now() - _lane_heard.get(ow, _lane_start) < LANE_QUIET
 
 
+# ---- who may ask the board's own port ------------------------------------------
+# Every account on this Mac, and any program allowed to connect out, can reach
+# 127.0.0.1, so on its own port the board answers two callers and nobody else
+# (BoardLock): an agent that carries the board's agent key, and the board's own
+# window, which carries the window cookie. The phone's door and the agent door
+# are not this port's: the bridge gate and RemoteGate decide those, as before.
+#
+# The agent key is made at the first start and kept in data/agent.key, with a
+# curl config beside it, data/agent.curl, that sends it as a bearer key and
+# never through a proxy, the way a paired server's lane key goes, so
+# `curl -K data/agent.curl` carries it and it never shows in ps. Both are for
+# this account alone, in a folder for this account alone.
+#
+# The window cookie comes with a launch code: `facilitator run` asks the
+# running board for one with the agent key (POST /window/launch) and opens the
+# window on /?launch=CODE. A code is good once, for LAUNCH_LIFE seconds, and is
+# held in memory alone. Opening it as a page sets the cookie, HttpOnly and
+# SameSite=Strict, and sends the window on to / so the code leaves the address
+# bar. The board keeps only the cookie's hash, in data/window-keys.json, so
+# that file alone opens nothing.
+#
+# The limit, which no secret sent over a loopback port can close: while the
+# board is down, during a restart say, a program of another account can take
+# its port and catch what the window or an agent sends it. A cookie also
+# belongs to the host and not the port, so Chrome sends the window cookie to
+# every port of 127.0.0.1, and a page another account serves on one of them
+# could catch it when opened in that Chrome.
+AGENT_KEY_PATH = DATA / "agent.key"
+AGENT_CURL_PATH = DATA / "agent.curl"
+WINDOW_KEYS_PATH = DATA / "window-keys.json"
+# the shape of secrets.token_urlsafe(32), the key's own shape: a file holding
+# anything else is made again
+AGENT_KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
+WINDOW_HASH_SHAPE = re.compile(r"[0-9a-f]{64}")
+# a name per port, since a cookie is the host's: two boards on this Mac each
+# keep their own window's, and one never takes the other's place
+WINDOW_COOKIE = f"facilitator_window_{PORT}"
+WINDOW_COOKIE_LIFE = 10 * 365 * 24 * 3600   # seconds, as the phone's sign-in
+WINDOW_KEYS_KEPT = 16       # window cookies the board keeps; a new one past these drops the oldest
+LAUNCH_LIFE = 60.0          # seconds a launch code is good for
+LAUNCHES_HELD = 16          # launch codes waiting at once; a new one past these drops the oldest
+LOCK_REFUSAL = ("this board answers only its own window and agents that carry its key: "
+                "run scripts/onboard.py inspect and put -K and the file it names in front of every curl")
+# the page a page open of / or /m gets without the cookie, which is all it gets
+LOCKED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facilitator</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #F5F4F1;
+         color: #1d1d1f; font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  main { max-width: 30em; padding: 0 28px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 10px; }
+  p { margin: 0; color: #4a4a4f; }
+  code { font: 15px ui-monospace, Menlo, monospace; background: #e9e7e2; padding: 1px 6px; border-radius: 5px; }
+</style>
+</head><body>@AGAIN@<main>
+<h1>Open the board with facilitator run</h1>
+<p>On this Mac the board opens in the window <code>facilitator run</code> opens. Run <code>facilitator run</code> in Terminal and the board comes up there.</p>
+</main></body></html>
+"""
+# a page open another site set off, such as the Spotify sign-in coming back,
+# carries no SameSite=Strict cookie, so the page opens itself once more from
+# its own address, which does carry it. That second open comes from the
+# board's own page, so a window without the cookie is shown the words above
+# and nothing opens a third time
+LOCKED_AGAIN = "<script>location.replace(location.href)</script>"
+
+# whether this run asks callers on its own port for the key or the cookie.
+# main() turns it on for every board it starts, except a test's copy
+# (FACILITATOR_TEST_PORT set) that does not ask for it with
+# FACILITATOR_TEST_LOCK=1. A module a test imports starts nothing and has it off
+_board_lock = False
+_agent_key: str | None = None
+_window_keys: list = []          # [{hash, made}], oldest first
+_launches: dict = {}             # a launch code's hash -> the monotonic time it stops being good
+
+
+def _key_digest(text: str) -> str:
+    return hashlib.sha256(text.encode("latin-1", "replace")).hexdigest()
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Written whole beside itself and moved into place, for this account
+    alone."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", opener=_private_opener) as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _agent_curl(key: str) -> str:
+    return f'header = "Authorization: Bearer {key}"\nnoproxy = "*"\n'
+
+
+def _read_window_keys() -> list:
+    try:
+        raw = json.loads(WINDOW_KEYS_PATH.read_text())
+    except (OSError, ValueError):
+        return []
+    keys = raw.get("keys") if isinstance(raw, dict) else None
+    if not isinstance(keys, list):
+        return []
+    return [k for k in keys if isinstance(k, dict) and isinstance(k.get("hash"), str)
+            and WINDOW_HASH_SHAPE.fullmatch(k["hash"])][-WINDOW_KEYS_KEPT:]
+
+
+def _lock_up() -> None:
+    """As the board starts: whether this run asks for the key and the cookie,
+    the agent key and its curl config, made when there is none and kept after,
+    and the window cookies' hashes. A key that cannot be kept stops the start,
+    since a board that could not be asked for one would answer anybody."""
+    global _board_lock, _agent_key, _window_keys
+    _board_lock = (not os.environ.get("FACILITATOR_TEST_PORT")
+                   or os.environ.get("FACILITATOR_TEST_LOCK") == "1")
+    try:
+        key = AGENT_KEY_PATH.read_text().strip()
+    except OSError:
+        key = ""
+    try:
+        if not AGENT_KEY_SHAPE.fullmatch(key):
+            key = secrets.token_urlsafe(32)
+            _write_private(AGENT_KEY_PATH, key + "\n")
+        try:
+            kept = AGENT_CURL_PATH.read_text() == _agent_curl(key)
+        except OSError:
+            kept = False
+        if not kept:
+            _write_private(AGENT_CURL_PATH, _agent_curl(key))
+        for path in (AGENT_KEY_PATH, AGENT_CURL_PATH):
+            if stat.S_IMODE(path.stat().st_mode) != 0o600:
+                os.chmod(path, 0o600)
+    except OSError as error:
+        raise SystemExit(f"the board could not keep its agent key in {AGENT_KEY_PATH.parent}: "
+                         f"{error.strerror or error}; it stayed down") from None
+    _agent_key = key
+    _window_keys = _read_window_keys()
+
+
+def _keyed(scope: dict) -> bool:
+    """Whether the request carries the board's agent key as its bearer key,
+    compared in constant time."""
+    key = _agent_key
+    if not key:
+        return False
+    wanted = key.encode()
+    for name, value in scope.get("headers") or ():
+        if name.lower() == b"authorization":
+            scheme, _, given = value.strip().partition(b" ")
+            if scheme.lower() == b"bearer" and secrets.compare_digest(given.strip(), wanted):
+                return True
+    return False
+
+
+def _cookie_values(scope: dict, wanted: str) -> list:
+    """Every value the request's cookies give the name wanted. Read by hand,
+    since a cookie another program on 127.0.0.1 set can be one a strict
+    parser gives up on, and that must not hide the board's own."""
+    found = []
+    for name, value in scope.get("headers") or ():
+        if name.lower() != b"cookie":
+            continue
+        for part in value.decode("latin-1").split(";"):
+            key, eq, held = part.strip().partition("=")
+            if eq and key.strip() == wanted:
+                found.append(held.strip())
+    return found
+
+
+def _windowed(scope: dict) -> bool:
+    """Whether the request carries a window cookie the board gave, its hash
+    compared in constant time with each one kept."""
+    kept = [entry["hash"] for entry in _window_keys]
+    if not kept:
+        return False
+    for value in _cookie_values(scope, WINDOW_COOKIE):
+        digest = _key_digest(value)
+        if any(secrets.compare_digest(digest, held) for held in kept):
+            return True
+    return False
+
+
+def _new_window_key() -> str:
+    """A new window cookie's value, its hash kept, the oldest past
+    WINDOW_KEYS_KEPT let go."""
+    global _window_keys
+    value = secrets.token_urlsafe(32)
+    kept = (_window_keys + [{"hash": _key_digest(value), "made": int(time.time())}])[-WINDOW_KEYS_KEPT:]
+    _write_private(WINDOW_KEYS_PATH, json.dumps({"keys": kept}, indent=1) + "\n")
+    _window_keys = kept
+    return value
+
+
+def _new_launch() -> str:
+    """A launch code, good once for LAUNCH_LIFE seconds, kept as its hash."""
+    now = time.monotonic()
+    for held, until in list(_launches.items()):
+        if until <= now:
+            del _launches[held]
+    while len(_launches) >= LAUNCHES_HELD:
+        del _launches[next(iter(_launches))]
+    code = secrets.token_urlsafe(24)
+    _launches[_key_digest(code)] = now + LAUNCH_LIFE
+    return code
+
+
+def _spend_launch(code: str) -> bool:
+    """Whether the code is one the board gave and still good; either way it
+    is good no more."""
+    until = _launches.pop(_key_digest(code), None)
+    return until is not None and time.monotonic() < until
+
+
 def _agent_request(scope: dict) -> bool:
     """Whether an agent sent this request, rather than one of the board's own
-    pages. A request through the agent door is a server's agent, and one on
-    the phone's port or forwarded by Tailscale Serve is the phone. On the
-    board's own port the Mac board, its phone view and the onboarding run in a
-    browser, which names the page in Origin on every write and in
-    Sec-Fetch-Site on every request, and no script can leave either out;
-    curl, onboard.py, magic.py and the facilitator command send neither."""
+    pages: one that came through the agent door, or that carries the board's
+    agent key (see BoardLock). One on the phone's port or forwarded by
+    Tailscale Serve is the phone, key or not. A test's copy that runs without
+    the lock keeps the reading the key replaced: no Origin and no
+    Sec-Fetch-Site, which a browser sends and curl does not."""
     if scope.get("facilitator.remote"):
         return True
     if _via_gate(scope):
+        return False
+    if _keyed(scope):
+        return True
+    if _board_lock:
         return False
     names = {k.lower() for k, _ in scope.get("headers") or ()}
     return b"origin" not in names and b"sec-fetch-site" not in names
@@ -7651,7 +7885,8 @@ PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.json
                  "usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp",
                  "usage-baseline.json", "usage-baseline.json.tmp", "profile.json", "profile.json.tmp",
                  "search-index.sqlite", "search-index.sqlite-wal", "search-index.sqlite-shm",
-                 "server.lock")
+                 "server.lock", "agent.key", "agent.key.tmp", "agent.curl", "agent.curl.tmp",
+                 "window-keys.json", "window-keys.json.tmp")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
 
@@ -11282,7 +11517,8 @@ def build_app():
 # no fetch metadata. It refuses what a page on another website sent, and what
 # arrived under a name another website pointed at this machine. The phone's
 # socket and what Tailscale Serve forwards are the bridge gate's, and pass
-# through here untouched.
+# through here untouched. Under it, BoardLock asks each caller that passes for
+# the agent key or the window's cookie.
 
 SITE_HOST = re.compile(r"(?:127\.0\.0\.1|localhost)(?::([0-9]{1,5}))?")
 # the one thing another site may do to the board is open its page: that is how
@@ -11379,6 +11615,95 @@ class SiteGuard:
         await Response(json.dumps({"error": "request from another site refused"}).encode(),
                        status_code=403, media_type="application/json",
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
+
+
+class BoardLock(SiteGuard):
+    """Under the site guard, on the board's own port: a request that carries
+    neither the agent key nor a window cookie is answered here, and nothing
+    under it sees it. A page open of / or /m gets the page that says to open
+    the board with facilitator run, and anything else a 401 saying how an
+    agent gets the key. /unread alone answers without either: it reads two
+    counts and nothing else, which a Stop hook pasted into an agent's
+    settings asks for. The phone's door is the bridge gate's and passes
+    through untouched. Here too are the two steps of the window's cookie (see
+    _lock_up): POST /window/launch, with the key, gives a launch code, and a
+    page open of /?launch=CODE spends it, sets the cookie and sends the window
+    on to /. Refusals are written down as SiteGuard writes its own."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or _via_gate(scope):
+            await self.app(scope, receive, send)
+            return
+        method, path = scope.get("method", ""), scope.get("path", "")
+        keyed, windowed = _keyed(scope), _windowed(scope)
+        if (method, path) == ("POST", "/window/launch"):
+            if not keyed:
+                await self._refuse(scope, receive, send, "no agent key")
+                return
+            await Response(json.dumps({"code": _new_launch(), "seconds": int(LAUNCH_LIFE)}).encode(),
+                           media_type="application/json",
+                           headers={"Cache-Control": "no-store"})(scope, receive, send)
+            return
+        if method in ("GET", "HEAD") and path == "/":
+            codes = parse_qs(scope.get("query_string", b"").decode("latin-1")).get("launch")
+            if codes and await self._launch(scope, receive, send, codes[0], windowed):
+                return
+        if keyed or windowed or not _board_lock or (method in ("GET", "HEAD") and path == "/unread"):
+            await self.app(scope, receive, send)
+            return
+        await self._refuse(scope, receive, send, "no key or window cookie")
+
+    async def _launch(self, scope, receive, send, code: str, windowed: bool) -> bool:
+        """A page open of /?launch=CODE, answered: a code still good, opened
+        as a page, sets a new window cookie (or keeps the one the window
+        already has) and sends the window on to /, and so does any code
+        opened by a window that has one. True when answered; False passes a
+        dead code on as a plain open of /."""
+        fetch = {key: _fetch_header(scope, key) for key in ("mode", "dest")}
+        opened = fetch["mode"] == "navigate" and fetch["dest"] in NAVIGATION_DESTS
+        good = opened and _spend_launch(code)
+        if not good and not windowed:
+            if not _board_lock or _keyed(scope):
+                return False
+            await self._refuse(scope, receive, send, "launch code not good")
+            return True
+        headers = {"Cache-Control": "no-store", "Location": "/"}
+        if good and not windowed:
+            try:
+                value = _new_window_key()
+            except OSError as error:
+                _error("windowkeyfail", reason=error.strerror or type(error).__name__)
+                await Response(json.dumps({"error": "the board could not keep the window's cookie"}).encode(),
+                               status_code=500, media_type="application/json",
+                               headers={"Cache-Control": "no-store"})(scope, receive, send)
+                return True
+            headers["Set-Cookie"] = (f"{WINDOW_COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; "
+                                     f"Max-Age={WINDOW_COOKIE_LIFE}")
+        await Response(b"", status_code=303, headers=headers)(scope, receive, send)
+        return True
+
+    async def _refuse(self, scope, receive, send, reason: str) -> None:
+        self._note(scope, reason, code=401)
+        method, path = scope.get("method", ""), scope.get("path", "")
+        if method in ("GET", "HEAD") and path in NAVIGATION_PAGES:
+            again = (_fetch_header(scope, "site") == "cross-site"
+                     and _fetch_header(scope, "mode") == "navigate")
+            page = LOCKED_PAGE.replace("@AGAIN@", LOCKED_AGAIN if again else "")
+            answer = Response(page.encode(), status_code=401, media_type="text/html; charset=utf-8",
+                              headers={"Cache-Control": "no-store"})
+        else:
+            answer = Response(json.dumps({"error": LOCK_REFUSAL}).encode(), status_code=401,
+                              media_type="application/json", headers={"Cache-Control": "no-store"})
+        await answer(scope, receive, send)
+
+
+def _fetch_header(scope: dict, key: str) -> str:
+    """One Sec-Fetch- header's word, lowercased, or "" for none."""
+    wanted = b"sec-fetch-" + key.encode()
+    for name, value in scope.get("headers") or ():
+        if name.lower() == wanted:
+            return value.decode("latin-1").strip().lower()
+    return ""
 
 
 def _serve_marked(scope: dict) -> bool:
@@ -11853,7 +12178,7 @@ def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
     routes = build_app()
-    app = ServeHold(SiteGuard(bridge_gate(routes, BRIDGE_PORT, _info)))
+    app = ServeHold(SiteGuard(BoardLock(bridge_gate(routes, BRIDGE_PORT, _info))))
     if remote_link is not None:
         # outermost: a request through the agent door is the gate's alone,
         # answered there or handed straight to the routes, and never reaches
@@ -11957,6 +12282,7 @@ def main() -> None:
         UPLOADS.mkdir(parents=True, exist_ok=True)
         _sweep_upload_parts()
         _tighten_private_files()
+        _lock_up()
         _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim

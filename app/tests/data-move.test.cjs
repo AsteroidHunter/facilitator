@@ -206,6 +206,7 @@ async function makeWorld({ fresh = false } = {}) {
   w.cli = path.join(w.user, "facilitator");
   w.data = path.join(w.user, "data");
   w.update = (extra = {}) => run(PYTHON, [w.cli, "update"], { cwd: base, env: { ...w.env, ...extra } });
+  worlds.push(w);
   return w;
 }
 
@@ -250,11 +251,22 @@ function fillOldBoard(w) {
   fs.copyFileSync(path.join(w.user, ".venv", "bin", "python3"), path.join(w.user, ".venv", "bin", "python"));
 }
 
+// the boards this file starts, by port: the new layout's board is locked as a
+// real one is, so a call to it carries the agent key it made in data/; the old
+// layout's board has none and asks for none
+const worlds = [];
+function keyed(port) {
+  const w = worlds.find(one => one.port === port);
+  try { return { Authorization: `Bearer ${fs.readFileSync(path.join(w.data, "agent.key"), "utf8").trim()}` }; }
+  catch { return {}; }
+}
+const boardFetch = (port, route) => fetch(`http://127.0.0.1:${port}${route}`, { headers: keyed(port) });
+
 async function waitBoard(port, ms = 15000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     try {
-      const answer = await fetch(`http://127.0.0.1:${port}/state`);
+      const answer = await boardFetch(port, "/state");
       if (answer.ok) return answer.json();
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -339,7 +351,7 @@ test("an older checkout with its board running moves every file into data/ throu
   const w = await makeWorld();
   fillOldBoard(w);
   const oldPid = await startOldBoard(w);
-  const before = await (await fetch(`http://127.0.0.1:${w.port}/state`)).json();
+  const before = await (await boardFetch(w.port, "/state")).json();
   assert.deepEqual(ids(before), [...CARDS].sort());
   await new Promise(resolve => setTimeout(resolve, 300));
   const snap = oldSnapshot(w);
@@ -390,9 +402,9 @@ test("an older checkout with its board running moves every file into data/ throu
   }
   assert.equal(fs.readFileSync(path.join(w.data, "uploads", "m901-keys-lit.png"), "utf8"), "the copy the board serves");
   assert.equal(fs.readFileSync(path.join(w.data, "uploads-old", "m901-keys-lit.png"), "utf8"), "the old in-repo copy");
-  const served = await fetch(`http://127.0.0.1:${w.port}/uploads/m901-keys-lit.png`);
+  const served = await boardFetch(w.port, "/uploads/m901-keys-lit.png");
   assert.equal(await served.text(), "the copy the board serves", "a different picture is served for the same address");
-  assert.equal(await (await fetch(`http://127.0.0.1:${w.port}/uploads/1700000000000-old.png`)).text(), "old in-repo picture");
+  assert.equal(await (await boardFetch(w.port, "/uploads/1700000000000-old.png")).text(), "old in-repo picture");
 
   // the backup holds every file as it was, and stays
   const backup = path.join(w.data, "backups", moved.backup);
@@ -415,7 +427,7 @@ test("an older checkout with its board running moves every file into data/ throu
   const again = await w.update();
   assert.equal(again.code, 0, again.stdout + again.stderr);
   assert.deepEqual(sectionTitles(again.stdout), ["1. Checkout", "2. Update steps", "3. Board"]);
-  assert.equal(await (await fetch(`http://127.0.0.1:${w.port}/state`)).ok, true, "the board went down");
+  assert.equal(await (await boardFetch(w.port, "/state")).ok, true, "the board went down");
   const still = tree(w.data);
   for (const [rel, s] of Object.entries(inData))
     if (!live(rel) && rel !== "server.lock") assert.equal(still[rel], s, `${rel} changed on an update after the move`);

@@ -4,6 +4,9 @@
 // run.config.json, nothing is swapped), its own log folder, and the fake
 // tailscale first on PATH, so neither the copied server nor the copied CLI
 // can reach a real Tailscale. Every port comes from the operating system.
+// The copy is locked as a real board is: a call on its own port carries the
+// agent key the board made in the sandbox's data/ (keyed) or a window's
+// cookie (windowCookie), as the CLI's own calls do.
 const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
@@ -84,10 +87,36 @@ function env(place, extra = {}) {
   return out;
 }
 
+// the header that carries the board's agent key, which the board makes at
+// its first start; none before that
+function keyed(place) {
+  try { return { Authorization: `Bearer ${fs.readFileSync(path.join(place.data, "agent.key"), "utf8").trim()}` }; }
+  catch { return {}; }
+}
+
+// a window's cookie for the board on this port, as `facilitator run` leaves
+// one in Chrome: a launch code asked for with the key, opened as a page
+async function windowCookie(place, port) {
+  const asked = await fetch(`http://127.0.0.1:${port}/window/launch`, { method: "POST", headers: keyed(place) });
+  if (!asked.ok) throw new Error(`no launch code: ${asked.status}`);
+  const { code } = await asked.json();
+  // node's fetch writes its own fetch metadata, so the page open goes out by hand
+  const opened = await new Promise((resolve, reject) => {
+    const req = require("node:http").request({ host: "127.0.0.1", port, path: `/?launch=${code}`,
+      headers: { "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" } }, resolve);
+    req.on("error", reject);
+    req.end();
+  });
+  opened.resume();
+  const set = opened.headers["set-cookie"];
+  if (opened.statusCode !== 303 || !set) throw new Error(`the launch code set no cookie: ${opened.statusCode}`);
+  return set[0].split(";")[0];
+}
+
 function launch(place, extra = {}) {
   const run = { child: spawn(PYTHON, [path.join(place.app, "server.py")],
                              { cwd: place.app, env: env(place, extra), stdio: ["ignore", "pipe", "pipe"] }),
-                output: "" };
+                output: "", place };
   for (const stream of [run.child.stdout, run.child.stderr]) {
     stream.setEncoding("utf8");
     stream.on("data", chunk => { run.output += chunk; });
@@ -100,7 +129,7 @@ async function waitReady(run, port, ms = 8000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     if (run && run.child.exitCode !== null) throw new Error(`the sandbox server exited:\n${run.output}`);
-    try { if ((await fetch(`http://127.0.0.1:${port}/state`)).ok) return; } catch {}
+    try { if ((await fetch(`http://127.0.0.1:${port}/state`, { headers: run ? keyed(run.place) : {} })).ok) return; } catch {}
     await new Promise(resolve => setTimeout(resolve, 40));
   }
   throw new Error(`the sandbox server did not answer on ${port}:\n${run ? run.output : ""}`);
@@ -175,5 +204,5 @@ function ownServer(place, pid) {
 module.exports = {
   ROOT, PYTHON, HOST, CONNECTED, sandbox, writeConfig, readConfig, setTailscale, serveState,
   tailscaleCalls, env, launch, waitReady, waitFree, events, foreign, closeServer, cleanup,
-  freePortPair,
+  freePortPair, keyed, windowCookie,
 };

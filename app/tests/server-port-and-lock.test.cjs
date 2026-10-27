@@ -20,7 +20,7 @@ test("the server binds the pair run.config.json names, and its lock says so", as
   try {
     const run = box.launch(place);
     await box.waitReady(run, port);
-    const state = await (await fetch(`http://127.0.0.1:${port}/state`)).json();
+    const state = await (await fetch(`http://127.0.0.1:${port}/state`, { headers: box.keyed(place) })).json();
     // the board's folder is the checkout, app/'s parent, as the command expects
     assert.equal(state.pwd, place.clone);
     // the phone's socket is the one above, behind its gate
@@ -68,7 +68,7 @@ test("a second server from the same folder on another pair is refused by the loc
     }
     fs.writeFileSync(statePath, kept);
     // the first one never noticed, and still holds the lock and the pair
-    assert.ok((await fetch(`http://127.0.0.1:${port}/state`)).ok);
+    assert.ok((await fetch(`http://127.0.0.1:${port}/state`, { headers: box.keyed(place) })).ok);
     const held = JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8"));
     assert.equal(held.pid, first.child.pid);
   } finally {

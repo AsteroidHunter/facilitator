@@ -15,8 +15,10 @@
      Chrome holds the two as two apps and installing one leaves the other alone.
      The icon line below is untouched: the install reads its picture from the
      manifest, and the empty one here is what keeps the board from asking for a
-     tab icon it has never shown -->
-<link rel="manifest" href="/manifest.json">
+     tab icon it has never shown. Chrome asks for a manifest without cookies
+     unless told to send them, and the board answers its window only with its
+     cookie, so the link says use-credentials -->
+<link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
 <link rel="icon" href="data:,">
 <script>
   // the Spotify sign in opens in its own small window and comes back here. when

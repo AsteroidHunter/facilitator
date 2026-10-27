@@ -723,8 +723,7 @@ test("an answer that is not JSON is no answer, and raises nothing", async () => 
     "    def __exit__(self, *rest):",
     "        return False",
     "def serve(body):",
-    "    cli.urllib = types.SimpleNamespace(",
-    "        request=types.SimpleNamespace(urlopen=lambda *a, **kw: Answer(body)))",
+    "    cli.LOCAL = types.SimpleNamespace(open=lambda *a, **kw: Answer(body))",
     "out = {}",
     "serve('<html>not this board at all</html>')",
     `out['html'] = cli.state(${port})`,
@@ -1170,6 +1169,8 @@ async function liveProbe(code) {
     env: {
       ...process.env,
       FACILITATOR_TEST_PORT: String(livePort),
+      // locked as a real board is: the command's calls carry the agent key
+      FACILITATOR_TEST_LOCK: "1",
       FACILITATOR_LOG_DIR: path.join(liveNest, "logs"),
     },
     timeout: 90000,
@@ -1237,10 +1238,12 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       owned.add(first.pid);
       assert.ok(first.pid > 0);
 
-      const before = await (await fetch(`http://127.0.0.1:${livePort}/state`)).json();
+      const key = { Authorization: `Bearer ${(await readFile(path.join(dataOf(board), "agent.key"), "utf8")).trim()}` };
+      assert.equal((await fetch(`http://127.0.0.1:${livePort}/state`)).status, 401, "the live board is not locked");
+      const before = await (await fetch(`http://127.0.0.1:${livePort}/state`, { headers: key })).json();
       assert.equal(before.title, "cli restart fixture");
       assert.equal((await fetch(`http://127.0.0.1:${livePort}/send?box=0`,
-        { method: "POST", body: "kept across the restart" })).status, 200);
+        { method: "POST", body: "kept across the restart", headers: key })).status, 200);
 
       // the real reader against a real process: the vector the fixture server
       // is actually running, and the board state readiness will look for
@@ -1302,7 +1305,7 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       try { process.kill(first.pid, 0); } catch { oldStillThere = false; }
       assert.equal(oldStillThere, false, "the old server is still running after the restart");
 
-      const back = await (await fetch(`http://127.0.0.1:${livePort}/state`)).json();
+      const back = await (await fetch(`http://127.0.0.1:${livePort}/state`, { headers: key })).json();
       assert.equal(back.title, "cli restart fixture");
       assert.deepEqual(back.boxes.find(b => b.id === "0").pendingTexts, ["kept across the restart"],
         "the restart lost the queued message");

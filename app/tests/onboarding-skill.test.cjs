@@ -1,5 +1,7 @@
 // Exercise the installed skill's local selector and confirmed claim against a
-// disposable board. These calls do not exercise either host's skill loader.
+// disposable board, locked as a real board is: every call on its own port
+// carries the board's agent key, the helper's and this file's alike. These
+// calls do not exercise either host's skill loader.
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { execFile, spawn } = require('node:child_process');
@@ -11,6 +13,9 @@ const { promisify } = require('node:util');
 const { copyBridgeFiles, dataOf, freePortPair } = require('./fixture-auth.cjs');
 
 const exec = promisify(execFile);
+// what a ready inspect answers on the Mac: the lane, its port and runbook, and
+// the -K and key file the runbook's curl lines take, with the board's address
+const READY_KEYS = ['status', 'owner', 'port', 'runbook', 'curl', 'base'];
 const ROOT = path.resolve(__dirname, '..');
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '../data/.venv/bin/python3');
 
@@ -66,7 +71,7 @@ async function fixture(laneDirs) {
   }
   const helper = path.join(home, '.agents/skills/facilitator/scripts/onboard.py');
   const env = { ...process.env, HOME: home, PATH: `${tools}${path.delimiter}${process.env.PATH}`,
-    FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: path.join(outer, 'logs') };
+    FACILITATOR_TEST_PORT: String(port), FACILITATOR_TEST_LOCK: '1', FACILITATOR_LOG_DIR: path.join(outer, 'logs') };
   const child = spawn(PYTHON, [path.join(app, 'server.py')], {
     cwd: app, env, stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -75,17 +80,24 @@ async function fixture(laneDirs) {
     stream.setEncoding('utf8');
     stream.on('data', chunk => { log += chunk; });
   }
+  const curl = path.join(dataOf(app), 'agent.curl');
+  const keyed = () => {
+    try { return { Authorization: `Bearer ${require('node:fs').readFileSync(path.join(dataOf(app), 'agent.key'), 'utf8').trim()}` }; }
+    catch { return {}; }
+  };
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`fixture server exited:\n${log}`);
     try {
-      if ((await fetch(origin + '/state')).ok) break;
+      if ((await fetch(origin + '/state', { headers: keyed() })).ok) break;
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 40));
   }
-  if (!(await fetch(origin + '/state')).ok) throw new Error(`fixture server did not start:\n${log}`);
+  if (!(await fetch(origin + '/state', { headers: keyed() })).ok) throw new Error(`fixture server did not start:\n${log}`);
   return {
-    outer, app, home, project, second, port, origin, helper, env,
+    outer, app, home, project, second, port, origin, helper, env, curl, keyed,
+    // a GET on the board's own port with its key, as an agent's curl -K makes it
+    async get(route) { return (await fetch(origin + route, { headers: keyed() })).json(); },
     async run(cwd, ...args) {
       const { stdout } = await exec(PYTHON, [helper, ...args], { cwd, env, timeout: 30000 });
       return JSON.parse(stdout.trim());
@@ -104,7 +116,7 @@ async function fixture(laneDirs) {
 }
 
 async function post(f, route, body = '') {
-  const response = await fetch(f.origin + route, { method: 'POST', body });
+  const response = await fetch(f.origin + route, { method: 'POST', body, headers: f.keyed() });
   return { status: response.status, body: await response.json() };
 }
 
@@ -146,6 +158,33 @@ test('personal links resolve one source from another project and select folder, 
   } finally { await f.close(); }
 });
 
+test('inspect names the key file for the runbook curl lines, and a curl without it is refused', async () => {
+  const f = await fixture();
+  try {
+    const ready = await f.run(f.project, 'inspect');
+    assert.equal(ready.status, 'ready');
+    assert.equal(ready.curl, `-K ${f.curl}`);
+    assert.equal(ready.base, f.origin);
+    assert.equal((await fs.stat(f.curl)).mode & 0o777, 0o600);
+    const curl = async (...words) => (await exec('curl', ['-sS', ...words], { timeout: 30000 })).stdout;
+    const route = `${ready.base}/fresh?owner=garden`;
+    assert.deepEqual(JSON.parse(await curl(...ready.curl.split(' '), route)).messages, []);
+    const bare = JSON.parse(await curl(route));
+    assert.match(bare.error, /run scripts\/onboard\.py inspect and put -K and the file it names in front of every curl/);
+    assert.equal(JSON.parse(await curl(`${ready.base}/unread?owner=garden`)).queued, 0);
+    // a key file that is not the running board's: the helper says so and claims nothing
+    const keyFile = path.join(dataOf(f.app), 'agent.key');
+    const kept = await fs.readFile(keyFile, 'utf8');
+    await fs.writeFile(keyFile, 'k'.repeat(43) + '\n');
+    const refused = await f.run(f.project, 'inspect');
+    assert.equal(refused.status, 'key_refused');
+    assert.match(refused.detail, /did not take this folder's agent key/);
+    assert.equal((await f.run(f.project, 'wait', '--owner', 'garden', '--timeout', '1')).status, 'key_refused');
+    await fs.writeFile(keyFile, kept);
+    assert.equal((await f.run(f.project, 'inspect')).status, 'ready');
+  } finally { await f.close(); }
+});
+
 test('ambiguous paths ask for a project, and occupied lanes do not start a duplicate wait', async () => {
   const f = await fixture(({ project }) => [
     { owner: 'garden', dir: project }, { owner: 'also-garden', dir: project },
@@ -173,7 +212,7 @@ test('inspect gives the first word of the profile name, and no name for none', a
     for (const [name, first] of [['Ada', 'Ada'], ['Ada Lovelace', 'Ada'], ['  ada  ', 'ada'],
       ['María José García', 'María'], ['Ада Лавлейс', 'Ада'], ['Ada\tLovelace\n', 'Ada']]) {
       const said = await inspect({ name });
-      assert.deepEqual(Object.keys(said), ['status', 'owner', 'port', 'runbook', 'name'], name);
+      assert.deepEqual(Object.keys(said), [...READY_KEYS, 'name'], name);
       assert.equal(said.name, first, name);
     }
     // what the board reads as no name: none, blank, not text, a control
@@ -182,10 +221,10 @@ test('inspect gives the first word of the profile name, and no name for none', a
       { name: 'A'.repeat(201) }]) {
       const said = await inspect(fields);
       assert.equal(said.status, 'ready');
-      assert.deepEqual(Object.keys(said), ['status', 'owner', 'port', 'runbook'], JSON.stringify(fields));
+      assert.deepEqual(Object.keys(said), READY_KEYS, JSON.stringify(fields));
     }
     await fs.rm(profile);
-    assert.deepEqual(Object.keys(await f.run(f.project, 'inspect')), ['status', 'owner', 'port', 'runbook']);
+    assert.deepEqual(Object.keys(await f.run(f.project, 'inspect')), READY_KEYS);
     // a lane already held still names the person beside the runbook
     await inspect({ name: 'Ada Lovelace' });
     assert.equal((await post(f, '/send?box=m1', 'First message')).status, 200);
@@ -212,28 +251,28 @@ test('one wait confirms a claim, fresh messages are answered, and a working repl
     assert.equal((await f.run(f.project, 'inspect')).status, 'claim_held');
 
     assert.equal((await post(f, '/send?box=m1', 'Follow-up')).status, 200);
-    const fresh = await (await fetch(f.origin + '/fresh?owner=garden')).json();
+    const fresh = await f.get('/fresh?owner=garden');
     assert.deepEqual(fresh.messages, ['Follow-up']);
     assert.equal((await post(f, '/working?box=m1&v=1')).status, 200);
     assert.equal((await post(f, '/ping?box=m1')).status, 200);
     assert.equal((await post(f, '/reply?box=m1', 'I received both messages. Work is underway.')).status, 200);
-    let state = await (await fetch(f.origin + '/state')).json();
+    let state = await f.get('/state');
     assert.equal(state.busy.garden, null);
     assert.equal(state.boxes.find(box => box.id === 'm1').state, 'working');
     assert.equal(JSON.parse(await fs.readFile(path.join(dataOf(f.app), 'state.json'), 'utf8'))
       .boxes.find(box => box.id === 'm1').state, 'deferred');
     assert.equal((await post(f, '/working?box=m1&v=0')).status, 200);
-    state = await (await fetch(f.origin + '/state')).json();
+    state = await f.get('/state');
     assert.equal(state.boxes.find(box => box.id === 'm1').reply, 'I received both messages. Work is underway.');
     assert.equal((await post(f, '/send?box=m2', 'Another card')).status, 200);
-    const noClaim = await (await fetch(f.origin + '/fresh?owner=garden')).json();
+    const noClaim = await f.get('/fresh?owner=garden');
     assert.deepEqual(noClaim.messages, []);
     assert.equal(Object.hasOwn(noClaim, 'box'), false);
     assert.equal((await post(f, '/reply?box=m1', 'The background work is complete.')).status, 200);
     const next = await f.run(f.project, 'wait', '--owner', 'garden', '--timeout', '1');
     assert.equal(next.box, 'm2');
     assert.deepEqual(next.messages, ['Another card']);
-    const freshNext = await (await fetch(f.origin + '/fresh?owner=garden')).json();
+    const freshNext = await f.get('/fresh?owner=garden');
     assert.equal(freshNext.box, 'm2');
     assert.deepEqual(freshNext.messages, []);
     assert.equal((await post(f, '/reply?box=m2', 'I received the other card.')).status, 200);
@@ -250,7 +289,7 @@ test('an active waiter is detected, and a stopped board is reported without star
       const deadline = Date.now() + 4000;
       let state;
       do {
-        state = await (await fetch(f.origin + '/state')).json();
+        state = await f.get('/state');
         if (state.listening.garden) break;
         await new Promise(resolve => setTimeout(resolve, 30));
       } while (Date.now() < deadline);
@@ -311,7 +350,7 @@ test('the skill and the RUNBOOK loop state the 7 minute listen and no longer the
   assert.match(skill, /In Codex[^.]*still-running session[^.]*\bwrite_stdin\b/);
   assert.doesNotMatch(skill, /50 seconds|60-second/);
   const runbook = await fs.readFile(path.join(ROOT, 'RUNBOOK.md'), 'utf8');
-  const loops = runbook.match(/curl --max-time \d+ -sS "[^"]*\/wait\?[^"]*"/g);
+  const loops = runbook.match(/curl --max-time \d+ -sS -K "\$KEY" "[^"]*\/wait\?[^"]*"/g);
   assert.equal(loops.length, 3);
   for (const line of loops) {
     assert.match(line, /--max-time 430 /);

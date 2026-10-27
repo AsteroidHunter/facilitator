@@ -29,11 +29,11 @@ A card in the Bin is searched only when a search asks for the Bin. A card delete
 | `prefix` | `1` lets the last word match the start of longer words, for a box that searches as you type. |
 | `limit`, `offset` | Up to 100 results a page (20 by default), and where the page starts. |
 
-For example, the cards made in September that mention the fence, and every card in the `garden` lane changed since October:
+For example, the cards made in September that mention the fence, and every card in the `garden` lane changed since October, from the folder you cloned (`-K data/agent.curl` sends the board's key, which it asks every caller for; see [Who can reach the board](privacy.md#who-can-reach-the-board)):
 
 ```sh
-curl -s 'http://127.0.0.1:8877/search?q=fence&from=2026-09-01&to=2026-09-30'
-curl -s 'http://127.0.0.1:8877/search?lane=garden&date=changed&from=2026-10-01'
+curl -s -K data/agent.curl 'http://127.0.0.1:8877/search?q=fence&from=2026-09-01&to=2026-09-30'
+curl -s -K data/agent.curl 'http://127.0.0.1:8877/search?lane=garden&date=changed&from=2026-10-01'
 ```
 
 Each result names the card (`card`, `title`, `lane`, `section`, `created`, `changed`, times in seconds), how it was found (`score`, `mode`, `ranks`, `similarity`) and the message that matched (`match`: its `kind`, `ts` and a `snippet` of plain text, with `marks` giving where each matched word starts and ends in it). The answer says which way it searched in `mode`, and in `fallback` why, when it could not search the way it was asked.
@@ -71,7 +71,7 @@ Ollama runs the model in its own app, so the board itself stays small.
    "search": {"embedder": "ollama", "model": "embeddinggemma-2:270m-q8_0-text", "dims": 512}
    ```
 
-4. Restart the board with `facilitator restart`, and check `curl -s http://127.0.0.1:8877/search/status`: `semantic.state` turns `ready`, and `waiting` counts down to 0 as the model reads the board, newest first. Searches use the model as soon as it is ready, for what it has read so far.
+4. Restart the board with `facilitator restart`, and check `curl -s -K data/agent.curl http://127.0.0.1:8877/search/status`: `semantic.state` turns `ready`, and `waiting` counts down to 0 as the model reads the board, newest first. Searches use the model as soon as it is ready, for what it has read so far.
 
 Ollama answers at `http://127.0.0.1:11434`; name another port with `"url"`. If Ollama is not running, the board searches by words and tries the model again every minute.
 

@@ -4,7 +4,10 @@
 // that holds it answers only a page on the Mac itself: never through the phone
 // port however signed in, never through Tailscale's forwarding, never to a
 // foreign Host or a cross-site fetch, and a write must name its own origin.
-// And it never rides along in /state, /settings or /board-settings.js.
+// And it never rides along in /state, /settings or /board-settings.js. The
+// board is locked as a real one is: the local page is the board's window, with
+// the cookie `facilitator run` leaves in Chrome, and without it the route is
+// never reached.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const fs = require("node:fs");
@@ -17,13 +20,15 @@ const PASS = "correct-horse-7!";
 const NAME = "__Host-facilitator_session";
 const SIGN_IN = { access: "AT-secret-0001", refresh: "RT-secret-0002", expires: "1790000000000",
                   scopes: "user-read-playback-state" };
-let place, port, local, cookie;
+let place, port, local, cookie, win;
 
 function request(onPort, route, method = "GET", body = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const bytes = body == null ? null : Buffer.from(body);
+    // the board's own port is asked as its window asks it, with the window's cookie
+    const windowed = onPort === port && win && !("Cookie" in headers) ? { Cookie: win } : {};
     const req = http.request({ hostname: "127.0.0.1", port: onPort, path: route, method,
-      headers: { ...(bytes ? { "content-length": bytes.length } : {}), ...headers } }, res => {
+      headers: { ...(bytes ? { "content-length": bytes.length } : {}), ...windowed, ...headers } }, res => {
       const parts = [];
       res.on("data", part => parts.push(part));
       res.on("end", () => resolve({ status: res.statusCode, headers: res.headers,
@@ -40,6 +45,7 @@ before(async () => {
   execFileSync(box.PYTHON, ["-c", `import bridge_auth; bridge_auth.set_password(${JSON.stringify(PASS)})`],
                { cwd: place.app });
   await box.waitReady(box.launch(place), port);
+  win = await box.windowCookie(place, port);
   local = { Origin: `http://127.0.0.1:${port}` };
   const phoneOrigin = `http://127.0.0.1:${port + 1}`;
   const login = await request(port + 1, "/auth/login", "POST", JSON.stringify({ password: PASS }), { Origin: phoneOrigin });
@@ -70,7 +76,8 @@ test("a local page keeps the sign-in and reads it back, and the copy lands only 
 
 test("the sign-in never rides in the state, the settings or the settings file served to pages", async () => {
   await request(port, "/spotify/session", "POST", JSON.stringify(SIGN_IN), local);
-  await fetch(`http://127.0.0.1:${port}/settings`, { method: "POST", body: JSON.stringify({ bgcolor: "#eeeeee" }) });
+  await fetch(`http://127.0.0.1:${port}/settings`, { method: "POST", body: JSON.stringify({ bgcolor: "#eeeeee" }),
+                                                   headers: { Cookie: win } });
   const seen = [
     (await request(port, "/state")).text,
     (await request(port, "/settings")).text,
@@ -113,4 +120,12 @@ test("a signed-in phone cannot read or write it, and neither can anything but a 
   assert.deepEqual(JSON.parse((await request(port, "/spotify/session")).text), SIGN_IN, "a refused write changed it");
   // localhost is the same Mac, and is answered
   assert.equal((await request(port, "/spotify/session", "GET", null, { Host: `localhost:${port}` })).status, 200);
+  // without the window's cookie, a local page's headers reach nothing
+  for (const method of ["GET", "POST"]) {
+    const res = await request(port, "/spotify/session", method, method === "POST" ? JSON.stringify({ access: "planted" }) : null,
+                              { ...local, "Sec-Fetch-Site": "same-origin", Cookie: "" });
+    assert.equal(res.status, 401, method);
+    assert.ok(!res.text.includes(SIGN_IN.refresh));
+  }
+  assert.deepEqual(JSON.parse((await request(port, "/spotify/session")).text), SIGN_IN, "a refused write changed it");
 });

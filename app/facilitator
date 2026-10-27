@@ -197,6 +197,12 @@ if str(HERE) not in sys.path:
 CLONE = HERE.parent
 DATA = CLONE / "data"
 CONFIG = DATA / "run.config.json"
+# the board's agent key, which it makes at its first start: every call this
+# command makes to the board's own port carries it, as an agent's calls do,
+# and never through a proxy
+AGENT_KEY = DATA / "agent.key"
+AGENT_KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
+LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -405,9 +411,29 @@ def lane_value(lane, key):
     return lane[key]
 
 
+def agent_key():
+    """The board's agent key from data/agent.key, or None when there is no
+    such file or it holds something else."""
+    try:
+        key = AGENT_KEY.read_text().strip()
+    except OSError:
+        return None
+    return key if AGENT_KEY_SHAPE.fullmatch(key) else None
+
+
+def local_request(port, route, data=None, method=None):
+    """A request for the board's own port carrying its agent key, for LOCAL
+    to open."""
+    request = urllib.request.Request(f"http://127.0.0.1:{port}{route}", data=data, method=method)
+    key = agent_key()
+    if key:
+        request.add_header("Authorization", "Bearer " + key)
+    return request
+
+
 def state(port, timeout=2):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=timeout) as f:
+        with LOCAL.open(local_request(port, "/state"), timeout=timeout) as f:
             return json.load(f)
     # no answer, an answer that is not JSON, or something on the port that
     # does not speak HTTP at all
@@ -729,6 +755,25 @@ def window_url(cfg):
     return cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
 
 
+def launch_url(cfg, url):
+    """The address the window is opened on: this board's own page with a
+    launch code the running board gave for it, which leaves the window's
+    cookie in Chrome, or the page as it is when the window shows another
+    page or the board gives no code (one older than the code, or not up)."""
+    if not same_board_page(url, f"http://127.0.0.1:{cfg['port']}"):
+        return url
+    try:
+        with LOCAL.open(local_request(cfg["port"], "/window/launch", b"", "POST"), timeout=5) as answer:
+            code = json.load(answer).get("code")
+    except (OSError, ValueError, AttributeError, http.client.HTTPException):
+        return url
+    if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", code):
+        return url
+    bits = urlparse(url)
+    return bits._replace(path=bits.path or "/",
+                         query=(bits.query + "&" if bits.query else "") + "launch=" + code).geturl()
+
+
 def open_app(cfg, dry):
     url = window_url(cfg)
     # a config without the app_fullscreen key launches exactly as it always did
@@ -737,7 +782,7 @@ def open_app(cfg, dry):
         kind = "a chromeless full-screen app window" if full else "a chromeless app window"
         print(f"window: would open {url} as {kind}")
         return
-    command = ["open", "-na", "Google Chrome", "--args", f"--app={url}"]
+    command = ["open", "-na", "Google Chrome", "--args", f"--app={launch_url(cfg, url)}"]
     if full:
         command.append("--start-fullscreen")
     opened = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -2052,12 +2097,11 @@ def cmd_magic(args):
     else:
         sys.exit(f"magic: {what} is not one of {', '.join(MAGIC_KINDS)}, {', '.join(MAGIC_ACTIONS)}, answer")
     port = board_port()
-    request = urllib.request.Request(f"http://127.0.0.1:{port}{route}?{urlencode(query)}",
-                                     data=body, method=method)
+    request = local_request(port, f"{route}?{urlencode(query)}", body, method)
     try:
         # a website or a web picture is fetched by the board before it answers,
         # within its own 15 seconds, so this waits a little longer than that
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with LOCAL.open(request, timeout=60) as response:
             answer = json.load(response)
     except urllib.error.HTTPError as refused:
         try:
@@ -2086,10 +2130,9 @@ is connected; remove forgets a server on this Mac."""
 def board_call(method, route, timeout=5):
     """One local call to the board's own port: (status, answer), or (None,
     None) when nothing answers there."""
-    request = urllib.request.Request(f"http://127.0.0.1:{board_port()}{route}",
-                                     data=b"" if method == "POST" else None, method=method)
+    request = local_request(board_port(), route, b"" if method == "POST" else None, method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with LOCAL.open(request, timeout=timeout) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as refused:
         try:

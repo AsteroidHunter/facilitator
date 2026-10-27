@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Resolve this checkout's board lane and receive one confirmed claim.
 
+On the Mac every call carries the board's agent key, which the board keeps in
+data/agent.key with a curl config beside it, data/agent.curl, and inspect
+names that file for the runbook's curl lines once the board has made it.
+
 On one of the owner's servers, where the setup program (scripts/pair.py) put
 this skill in ~/.facilitator/skill with remote.json beside it, the board is
 on the owner's Mac and is reached by connecting out to its agent door over
@@ -29,6 +33,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 RUNBOOK = REPO / "app" / "RUNBOOK.md"
 PROFILE = REPO / "data" / "profile.json"
+AGENT_KEY = REPO / "data" / "agent.key"
+AGENT_CURL = REPO / "data" / "agent.curl"
 REMOTE_FILE = REPO / "remote.json"
 LINK = Path(__file__).resolve().parent / "link.py"
 LISTEN_SECONDS = 420
@@ -94,9 +100,23 @@ def profile_name():
     return first_name(name)
 
 
+def agent_key():
+    """The board's agent key (data/agent.key), or None when there is none
+    this helper can read."""
+    try:
+        key = AGENT_KEY.read_text().strip()
+    except OSError:
+        return None
+    return key if KEY_SHAPE.fullmatch(key) else None
+
+
 def request(method, route, *, timeout=3):
+    """One call to the board's own port with its agent key, never through a
+    proxy, which would be handed the key."""
     url = f"http://127.0.0.1:{port()}{route}"
-    with urllib.request.urlopen(urllib.request.Request(url, method=method), timeout=timeout) as response:
+    key = agent_key()
+    headers = {"Authorization": "Bearer " + key} if key else {}
+    with OPENER.open(urllib.request.Request(url, method=method, headers=headers), timeout=timeout) as response:
         return json.load(response)
 
 
@@ -118,7 +138,9 @@ def connection_status(problem):
 def board():
     try:
         state = request("GET", "/state")
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as refused:
+        if refused.code == 401:
+            return None, "key_refused"
         return None, "different_server"
     except ValueError:
         return None, "different_server"
@@ -131,6 +153,15 @@ def board():
     if Path(state["pwd"]).resolve() != REPO:
         return None, "different_board"
     return state, None
+
+
+def refused_words(problem):
+    """The detail a refused key gets on the Mac."""
+    if problem != "key_refused":
+        return {}
+    return {"detail": "the board on this port did not take this folder's agent key "
+                      f"({AGENT_KEY}): it is another folder's board, or that file cannot be "
+                      "read here; report it"}
 
 
 def common_git_dir(path):
@@ -300,7 +331,7 @@ def inspect_remote(args, rec):
     try:
         server_key = (Path(rec["home"]) / "server.key").read_text().strip()
     except OSError:
-        output("key_refused", detail="this server has no key: pair it again with facilitator remote pair on the Mac",
+        output("key_refused", detail="this server has no key: pair it again with facilitator remote pair --name NAME on the Mac",
                **common)
         return
     try:
@@ -310,7 +341,7 @@ def inspect_remote(args, rec):
         return
     if status == 401:
         output("key_refused", detail="the board does not know this server's key: "
-                                     "pair it again with facilitator remote pair on the Mac", **common)
+                                     "pair it again with facilitator remote pair --name NAME on the Mac", **common)
         return
     if status != 200 or not isinstance(answer, dict) or not isinstance(answer.get("status"), str):
         output("different_server", **common)
@@ -445,7 +476,7 @@ def inspect(args):
         return
     state, problem = board()
     if problem:
-        output(problem, port=port())
+        output(problem, port=port(), **refused_words(problem))
         return
     if args.board is not None:
         matches, problem = resolve_board(state, args.board), "project_unknown"
@@ -459,6 +490,11 @@ def inspect(args):
         return
     owner = matches[0]
     common = {"owner": owner, "port": port(), "runbook": str(RUNBOOK)}
+    # the key file goes with the runbook once the board has made it: a board
+    # older than the key, still running after an update, makes none and asks
+    # for none, and curl -K on a missing file stops before it calls
+    if AGENT_CURL.is_file():
+        common.update(curl=f"-K {AGENT_CURL}", base=f"http://127.0.0.1:{port()}")
     # the person's first name goes with the runbook, and none for no name
     name = profile_name()
     if name:
@@ -478,7 +514,7 @@ def wait(args):
         return
     state, problem = board()
     if problem:
-        output(problem, port=port())
+        output(problem, port=port(), **refused_words(problem))
         return
     owner = args.owner
     if owner not in state["busy"]:

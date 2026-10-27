@@ -12,10 +12,10 @@ When someone asks how to install, set up or use Facilitator, read `docs/README.m
 
 ## The loop
 
-From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim. In every command here, `$PORT` is the board's port: the `port` that `scripts/onboard.py inspect` reports, which is the `port` in `run.config.json` (8877 unless `facilitator run` has moved the board to another pair). Read it fresh rather than remembering it, since a board that moved stays on its new port, and set it once in your shell (`PORT=8877`, say) or write the number in:
+From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim. In every command here, `$PORT` is the board's port: the `port` that `scripts/onboard.py inspect` reports, which is the `port` in `run.config.json` (8877 unless `facilitator run` has moved the board to another pair). Read it fresh rather than remembering it, since a board that moved stays on its new port, and set it once in your shell (`PORT=8877`, say) or write the number in. `$KEY` is the board's key file, the file `scripts/onboard.py inspect` names after `-K` in its `curl` field (on the Mac, `data/agent.curl` in the folder you cloned): every curl here carries `-K "$KEY"`, and the board answers a call without it with a 401 (see Who can reach the board). When `inspect` names no `curl` file, use every curl here without `-K "$KEY"`. Set it once too, or write the path in:
 
-    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=opus"
-    curl -sS -X POST "http://127.0.0.1:$PORT/ack?owner=facilitator&token=<the ack field>"
+    curl --max-time 430 -sS -K "$KEY" "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=opus"
+    curl -sS -K "$KEY" -X POST "http://127.0.0.1:$PORT/ack?owner=facilitator&token=<the ack field>"
 
 `agent=` names you; a card you answer shows that name on its ticket. Name yourself by your model's short family name in lowercase, without the version number: `opus` for Opus 5.5, `sonnet` for Sonnet 5.5, `haiku` for Haiku 4.5, `astra` for Astra, and the same for any other model. Never use the name of the tool or host you run in, such as `claude`, `claude-code` or `codex`. `/wait` returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, or `{"idle": true}` on timeout. Beside `messages`, `message_by` says which ones an agent sent for the person (see Sending for the person), and `widget_messages`, only when there are any, holds what the person typed in the card's widget (see The magic box); `messages` may then be empty.
 
@@ -25,13 +25,13 @@ WARNING: a loop without the confirm line claims cards it cannot keep. Every clai
 
 After reading the separate `/fresh` result as described below, answer with a complete reply:
 
-    curl -sS -X POST --data-binary @reply.txt "http://127.0.0.1:$PORT/reply?box=ID"
+    curl -sS -K "$KEY" -X POST --data-binary @reply.txt "http://127.0.0.1:$PORT/reply?box=ID"
 
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. The board does not hand out a card, or new messages on a card you already hold, until 3.5 seconds after the person's last change in its typing box or last message on it; a card the person speaks to by voice (its messages come with `message_via` `voice`) is not held and goes out at once. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
 - Immediately before **every** `/reply`, including an interim or worker-completion reply, call `GET /fresh?owner=YOURLANE` and read its result before composing and sending. If it returns messages for the card you are answering, include them; those messages are folded into the held claim. If it names a different held card, handle that claim first and do not use its messages in a reply on another card. With no held card, `/fresh` returns an empty message list and hands over nothing; queued messages on other cards remain for their own claims. Do not combine a `/fresh` call with a prewritten reply in one command.
 - `/wait` and `/fresh` answer agents only. A request from a browser page, such as a board link opened in a tab, is refused with a 403 and claims or hands over nothing.
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
-- Before going idle, and between the steps of any follow-up work, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Claim waiting cards before going on, and while workers run, listen with a short `timeout` so you can check on them between rounds. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
+- Before going idle, and between the steps of any follow-up work, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only and is the one call on the Mac that needs no key file, so it is safe from a hook; a hook that calls any other route needs `-K "$KEY"` like every other curl here. Claim waiting cards before going on, and while workers run, listen with a short `timeout` so you can check on them between rounds. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
       curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
 
@@ -41,16 +41,16 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 An agent that puts a message on a card for the person, such as a voice or text assistant, sends it with `POST /send` and names itself in `agent=`; `by=agent` may still be given:
 
-    curl -sS -X POST --data-binary @message.txt "http://127.0.0.1:$PORT/send?box=ID&by=agent&agent=voice-assistant"
+    curl -sS -K "$KEY" -X POST --data-binary @message.txt "http://127.0.0.1:$PORT/send?box=ID&by=agent&agent=voice-assistant"
 
-- A message an agent sends is always stored as an agent's: the board stores `"by": "agent"` on it, with or without `by=agent`, and `"agent": NAME` (24 characters at most) when `agent=` names the sender. Only the board's own pages and the phone send the person's own words, and those carry no `by`, as does every message stored before the field existed.
+- A message an agent sends, with the board's key, is always stored as an agent's: the board stores `"by": "agent"` on it, with or without `by=agent`, and `"agent": NAME` (24 characters at most) when `agent=` names the sender. Only the board's own pages and the phone send the person's own words, and those carry no `by`, as does every message stored before the field existed.
 - `by` says who sent the message; `via` still says how it arrived. A voice assistant's own message is `via=voice&by=agent`; the person's own spoken words carry `via=voice` and no `by`.
 - The lane's agent sees it in `/wait` and `/fresh`: `message_by` runs beside `messages`, one entry per message, `"agent"` for a message an agent sent and null for the person's own, and `message_agent` gives the sender's name the same way. The answered messages, the transcript and `/thread` keep both fields.
 - On the Mac board and the phone, the message's bubble shows a small robot before its first word, and it never joins a bubble of the person's own messages.
 
 ## From a server
 
-An agent can also run on one of the owner's own servers, paired with the board by `facilitator remote pair --name NAME`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached by connecting out to its agent door over Tailscale; the board never logs in to the server, and the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write the `base` it answers, `http://board`, in place of `http://127.0.0.1:$PORT`:
+An agent can also run on one of the owner's own servers, paired with the board by `facilitator remote pair --name NAME`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached by connecting out to its agent door over Tailscale; the board never logs in to the server, and the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: `$KEY` is the file `inspect` names in its `curl` field, which goes after `-K` on the `/unread` line too, and the `base` it answers, `http://board`, goes in place of `http://127.0.0.1:$PORT`:
 
     curl -sS -K ~/.facilitator/agents/LANE.curl "http://board/fresh?owner=LANE"
     curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://board/reply?box=ID"
@@ -59,6 +59,12 @@ An agent can also run on one of the owner's own servers, paired with the board b
 - Only your own lane answers: `/wait`, `/ack`, `/fresh`, `/unread` and `/create` with `owner=` your lane, and `/reply`, `/working`, `/title`, `/testing`, `/park`, `/context` and the magic box (`/magic`, `/magic/close`, `/magic/reopen`, and a widget's `/magic/answer` and `/magic/widget`) on your lane's cards. Everything else, `/state` included, is refused.
 - The `facilitator` command is not on the server. For the magic box, write `python3 ~/.facilitator/skill/.agents/skills/facilitator/scripts/magic.py` in place of `facilitator magic` and the same words after it, for example `python3 ~/.facilitator/skill/.agents/skills/facilitator/scripts/magic.py m12 image --file plot.png`. It sends them to the board with your lane's key, and the box keeps the same rules as on the Mac.
 - When the connection is down a call fails to connect. The card waits and so do the owner's messages, which queue on the Mac: keep working, and try the call again a minute later. `scripts/onboard.py wait` keeps trying through a drop by itself.
+
+## Who can reach the board
+
+- On the Mac the board's port answers two callers: an agent whose calls carry the board's key, through `-K "$KEY"` or the `facilitator` command, which sends it itself, and the board's own window, the Chrome window `facilitator run` opens, which leaves a cookie in Chrome. Any other call gets a 401 saying how to get the key, except `/unread`, which answers two counts and nothing else; the board's address opened in another browser shows a page saying to open the board with `facilitator run`.
+- The key file is for this account alone. Never print it, copy it or put it, or the key, on a card.
+- The limit: while the board is down, as during a restart, a program of another account on the Mac can take the board's port and catch what is sent to it, the key and the window's cookie included. Chrome also sends the window's cookie to every port of `127.0.0.1`, so a page another account serves at a `127.0.0.1` address, opened in that Chrome, can catch the cookie. Only a window that does not talk over the loopback port, as the planned Mac app would be, closes this for the window.
 
 ## Replies
 
@@ -89,7 +95,7 @@ Each card can have one magic box, for what a reply carries badly and the person 
     facilitator magic m12 url https://en.wikipedia.org/wiki/Mars
     facilitator magic m12 close
 
-`-` in place of the content reads standard input; `reopen` shows a closed box again and `show` prints what it holds. The answer is one JSON line, `{"ok": true, "box": ..., "kind": ..., "rev": ..., "shown": ...}`; a refusal exits 1 with the board's own words. The same over HTTP: `curl -sS -X POST --data-binary @page.html "http://127.0.0.1:$PORT/magic?box=ID&kind=html&title=T"`, with `POST /magic/close?box=ID` and `POST /magic/reopen?box=ID` beside it.
+`-` in place of the content reads standard input; `reopen` shows a closed box again and `show` prints what it holds. The answer is one JSON line, `{"ok": true, "box": ..., "kind": ..., "rev": ..., "shown": ...}`; a refusal exits 1 with the board's own words. The same over HTTP: `curl -sS -K "$KEY" -X POST --data-binary @page.html "http://127.0.0.1:$PORT/magic?box=ID&kind=html&title=T"`, with `POST /magic/close?box=ID` and `POST /magic/reopen?box=ID` beside it.
 
 - One box per card. A new one replaces what the box held and opens it; a closed box keeps what it held until it is replaced.
 - Keep an open box current. Before you reply on a card whose box is open, look at what `show` prints. If your reply changes what it should show, such as a newer picture or an updated list or mock, replace it in the same step; if the conversation has very clearly moved on from it, `close` it; otherwise leave it as it is.
@@ -114,7 +120,7 @@ Omni cards are the one exception: never rename an Omni card. An Omni card is the
 
 Link cards only when the person asks you to, and never on your own: do not link cards because they look related, continue, split from, depend on or answer one another. When the person does ask, link them by id, from that one to the other. A link may join cards of different lanes:
 
-    curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=opus"
+    curl -sS -K "$KEY" -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=opus"
 
 `agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. `GET /links/all` answers every link on the board at once: `links`, oldest first, each `{from, to, ts, agent}`, and `cards`, every card at either end of one, each with the fields `/props` gives it (see Card properties). Links outlast renames and section moves and go when either card is deleted for good. The Mac board has no button for them in its top bar for now; still name the other card by its title in replies.
 
@@ -122,9 +128,9 @@ Link cards only when the person asks you to, and never on your own: do not link 
 
 When you start work for a card on a git branch, set the card's branch, and its status in a few words on where that work stands; change the status as the work moves, and when the work is merged or dropped, clear both with an empty value:
 
-    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=BRANCH&status=building&agent=opus"
-    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&status=waiting+on+review&agent=opus"
-    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=&status=&agent=opus"
+    curl -sS -K "$KEY" -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=BRANCH&status=building&agent=opus"
+    curl -sS -K "$KEY" -X POST "http://127.0.0.1:$PORT/props?box=ID&status=waiting+on+review&agent=opus"
+    curl -sS -K "$KEY" -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=&status=&agent=opus"
 
 `agent=` names you, as on `/link`. Each is one line of free text, up to 200 characters (write a space as `+`), kept with when it was set and by whom; setting the value it already has changes nothing. The status is your own word and is not the card's section or colour. `GET /props?box=ID` answers the card's `id` (it never changes; the board shows `m12` as 12), `title`, `owner` (its lane), `section`, `made`, `changed`, `branch` and `status`. `made` and `changed` are kept on the card in `state.json` and move with every row the board writes about it to `transcript.jsonl`: the time of its create row and of its newest row, so a message, a reply, a rename, a move or a link counts as a change and reading a card does not. A card saved before the board kept them was given both once from the transcript; they no longer depend on it. Times are seconds since 1970, as on `/links`. The branch and the status outlast renames and restarts, wait in the Bin with the card and go when it is deleted for good. The board does not show any of this.
 
@@ -158,13 +164,13 @@ When a worker finishes, do not review and merge its result yourself: hand both t
 
 Any work belonging to a card carries that card's green flag for exactly as long as it is happening: worker runs, but also verifying a worker's result, post-build checks, and committing that card's code after the claim is released. `POST /working?box=ID&v=1` before starting, `v=0` the moment the card's work truly ends. Post the final reply first, while the flag is still on, and only then turn the flag off; turning it off first hands the card to the reader at once, so it shows a stale yellow card with the old reply until the final reply lands. Green means exactly the machine's two green states: working (claimed right now, or that card's work happening anywhere) and deferred (the same, with a reply already waiting to become the owner's turn when the work ends).
 
-Green is checked, not trusted: a raised flag stays green while your lane is in touch with the board, and after 10 minutes with no request from your lane (an open `/wait` counts for as long as it is open) the green expires and the flag drops, so a dead agent can never leave a card stuck green. Every call you make for your lane counts, listening and replying included, so no pinger is needed. When `GET /limits` shows numbers, check it while workers run; near a limit, start no new worker and pause the running ones.
+Green is checked, not trusted: a raised flag stays green while your lane is in touch with the board, and after 10 minutes with no request from your lane (an open `/wait` counts for as long as it is open) the green expires and the flag drops, so a dead agent can never leave a card stuck green. Every call you make for your lane with the key counts, listening and replying included, so no pinger is needed. When `GET /limits` shows numbers, check it while workers run; near a limit, start no new worker and pause the running ones.
 
 ## Owner routing
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or a project lane such as `example` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to facilitator. The server always registers the `facilitator` owner, so that default answers on a board whose `lanes` list is empty, but nothing is drawn for it until a card or a project gives it a tab: a fresh install's `run.config.example.json` has `"lanes": []` and `"navigator_lanes": []`, so it starts with no lanes, and the onboarding then makes a `facilitator-sample` project in the home folder holding one Omni Ticket #1, whose starting reply gives the steps to connect an agent, and ends on the home page; the board keeps that project, marked `sample` in `state.json`, but never lists it among the projects or opens it. The two loops, side by side:
 
-    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=opus"
-    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=example&timeout=420&agent=opus"
+    curl --max-time 430 -sS -K "$KEY" "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=opus"
+    curl --max-time 430 -sS -K "$KEY" "http://127.0.0.1:$PORT/wait?owner=example&timeout=420&agent=opus"
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
