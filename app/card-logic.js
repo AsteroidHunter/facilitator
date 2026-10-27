@@ -9684,15 +9684,15 @@ function updateView(host, opts){
 // ---- shut down --------------------------------------------------------------------
 // Settings, Shut down Facilitator on the Mac board (POST /shutdown in server.py,
 // which starts facilitator stop). the click reads the board first: while an agent
-// listens on a project or holds a card of it, the board asks in the Mac app's
-// words, with Cancel and Shut down; otherwise it shuts down at once. the page
+// listens on a project or holds a card of it, the board asks first, with Cancel
+// and Shut down; otherwise it shuts down at once. the page
 // then waits for the board to stop answering, says it is shut down and how to
 // start it again, and closes its own window; a window Chrome will not let close
 // keeps the words. a board still answering after SHUTDOWN_WAIT_MS did not go,
 // and the pop-up says so, with Close. the pop-up is the update's (.up-veil,
 // .up-box): Cancel quiet on the left, Shut down on the glass pill
 const SHUTDOWN_WORDS = {
-  ask: "Quit Facilitator?",
+  ask: "Shut down Facilitator?",
   done: "Facilitator is shut down",
   again: "To start it again, run facilitator run in Terminal.",
   failed: "Facilitator did not shut down",
@@ -9715,7 +9715,7 @@ function shutdownLanes(state){
 // the question's words for n projects
 function shutdownStakes(n){
   return "The board stops: the agents listening on " + n + " project" + (n === 1 ? "" : "s") +
-    " lose it, and your phone cannot reach it until you open Facilitator again.";
+    " lose it, and your phone cannot reach it until you start it again with facilitator run.";
 }
 
 // the pop-up, built once into host. opts: read() for a reading of the board

@@ -26,7 +26,7 @@ const CDP_URL = process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
 const EVIDENCE = process.env.SHUTDOWN_EVIDENCE || "";
 const VIEW = { width: 1512, height: 949 };
 const QUESTION = "The board stops: the agents listening on 2 projects lose it, and your phone cannot reach it "
-  + "until you open Facilitator again.";
+  + "until you start it again with facilitator run.";
 let browser, session;
 const boards = [], made = [];
 
@@ -176,10 +176,10 @@ test("with agents listening on two projects it asks first; Cancel keeps the boar
   await picture(page, "shutdown-button.png");
 
   await page.click("#setshutdown");
-  await until(page, () => document.getElementById("sdtitle").textContent === "Quit Facilitator?" &&
+  await until(page, () => document.getElementById("sdtitle").textContent === "Shut down Facilitator?" &&
     document.getElementById("sdtitle").closest(".up-veil").classList.contains("open"), "the question");
   await settle(400);
-  assert.deepEqual(await popup(page), { open: true, title: "Quit Facilitator?", line: QUESTION,
+  assert.deepEqual(await popup(page), { open: true, title: "Shut down Facilitator?", line: QUESTION,
                                         buttons: ["Cancel", "Shut down"] });
   await picture(page, "shutdown-question.png");
 
@@ -191,7 +191,7 @@ test("with agents listening on two projects it asks first; Cancel keeps the boar
   assert.equal(await page.evaluate(() => window.closes), 0, "the window was closed after Cancel");
 
   await page.click("#setshutdown");
-  await until(page, () => document.getElementById("sdtitle").textContent === "Quit Facilitator?" &&
+  await until(page, () => document.getElementById("sdtitle").textContent === "Shut down Facilitator?" &&
     document.getElementById("sdtitle").closest(".up-veil").classList.contains("open"), "the question again");
   await press(page, "Shut down");
   await until(page, () => document.getElementById("sdtitle").textContent === "Facilitator is shut down", "the shut down words");
