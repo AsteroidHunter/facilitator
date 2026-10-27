@@ -106,3 +106,7 @@ An agent can open a magic box beside a card to show you a picture, a chart, a pa
 ## The reply chime
 
 The Mac board plays a soft two-note bell when an agent's reply makes a card your turn; a burst of replies rings once. While the board's window is in front, replies on the project you are looking at stay quiet. Chrome lets a page play sound only after a click or key press in it, so the chime works from your first one. The speaker at the right end of the top bar mutes it. The phone gets notifications instead (see [The phone page and the bridge](phone.md)).
+
+## Changes as they happen
+
+The Mac board shows each change as soon as the board saves it, whoever made it: a reply from an agent, a message from the phone or another window, a card moved. When its connection to the board drops, the Mac board checks for changes every 1.2 seconds until the connection is back.
