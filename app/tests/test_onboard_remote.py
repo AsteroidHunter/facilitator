@@ -17,6 +17,11 @@ where it must never take a server lane's path for a folder there.
   drop      with the board out of reach, a wait keeps trying until its own
             deadline and then says link_down; the board back within it
             delivers
+  reply     wait --reply reads /fresh first and posts the reply as it came
+            on standard input only when nothing came, then listens as wait
+            does; a message on the card, another card held or a widget
+            message posts nothing and is given back; a refused or cut reply
+            listens for nothing; an empty reply calls nothing
   proxy     a proxy in the account's settings is never used
   mac       on the Mac the helper resolves only lanes whose folders are here
 
@@ -52,7 +57,7 @@ class Board(http.server.ThreadingHTTPServer):
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    answers = {}     # route without query -> (status, body)
+    answers = {}     # route without query -> (status, body); a status of None cuts the call
     seen = []
 
     def log_message(self, *args):
@@ -64,6 +69,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
         Handler.seen.append((self.command, self.path, self.headers.get("authorization"), body))
         status, payload = Handler.answers.get(route, (404, {"error": "not found"}))
+        if status is None:
+            return      # the call is cut: the connection closes with no answer
         raw = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("content-type", "application/json")
@@ -114,10 +121,10 @@ class OnAServer(unittest.TestCase):
         self.board = Board(("127.0.0.1", self.port), Handler)
         threading.Thread(target=self.board.serve_forever, daemon=True).start()
 
-    def run_helper(self, *words, timeout=60, **env):
+    def run_helper(self, *words, timeout=60, stdin=None, **env):
         r = subprocess.run([sys.executable, "-B", str(self.script), *words], cwd=self.project,
                            env={**os.environ, "HOME": str(self.home), **env}, capture_output=True, text=True,
-                           timeout=timeout)
+                           timeout=timeout, input=stdin)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout, json.loads(r.stdout.strip().splitlines()[-1])
 
@@ -320,6 +327,105 @@ class OnAServer(unittest.TestCase):
         threading.Timer(4.0, self.serve).start()
         said = self.run_helper("wait", "--owner", "demo", "--timeout", "30")[1]
         self.assertEqual((said["status"], said["messages"]), ("claim", ["later"]))
+
+    # -- reply
+    NOTHING = (200, {"box": "m4", "messages": [], "message_via": [], "message_by": [], "message_agent": []})
+    NEXT = (200, {"box": "m5", "title": "t", "messages": ["next one"], "message_via": [None],
+                  "queued_after": 0, "ack": "tok5"})
+
+    def reply(self, text, card="m4", timeout="20"):
+        return self.run_helper("wait", "--reply", card, "--owner", "demo", "--agent", "opus", "--timeout", timeout,
+                               stdin=text)
+
+    def routes(self):
+        return [r.split("?", 1)[0] for _, r, _, _ in Handler.seen]
+
+    def test_a_reply_with_nothing_new_posts_and_the_next_claim_comes_back(self):
+        self.give_key()
+        Handler.answers.update({"/fresh": self.NOTHING, "/reply": (200, {"ok": True}),
+                                "/remote/lane": self.LANE_FREE, "/wait": self.NEXT,
+                                "/ack": (200, {"ok": True, "box": "m5"})})
+        self.serve()
+        text = "**Done.** The answer, as typed.\n\nSecond paragraph: é\n"
+        printed, said = self.reply(text)
+        self.assertEqual(said["status"], "replied")
+        self.assertEqual((said["box"], said["reply"]), ("m4", {"ok": True}))
+        self.assertEqual(said["next"], {"status": "claim", "owner": "demo", "box": "m5", "title": "t",
+                                        "messages": ["next one"], "message_via": [None], "queued_after": 0})
+        self.assertEqual(self.routes(), ["/fresh", "/reply", "/remote/lane", "/wait", "/ack"])
+        method, route, auth, body = Handler.seen[1]
+        self.assertEqual((method, route, body), ("POST", "/reply?box=m4", text.encode()))
+        self.assertEqual(Handler.seen[0][1], "/fresh?owner=demo")
+        self.assertTrue(all(a == "Bearer " + KEY for _, _, a, _ in Handler.seen))
+        self.assertNotIn(KEY, printed)
+
+    def test_the_listen_after_a_reply_answers_as_wait_does(self):
+        self.give_key()
+        Handler.answers.update({"/fresh": self.NOTHING, "/reply": (200, {"ok": True}),
+                                "/remote/lane": self.LANE_FREE, "/wait": (200, {"idle": True})})
+        self.serve()
+        said = self.reply("The answer.", timeout="2")[1]
+        plain = self.run_helper("wait", "--owner", "demo", "--timeout", "2")[1]
+        self.assertEqual(said["next"], {"status": "idle", "owner": "demo"})
+        self.assertEqual(said["next"], plain)
+
+    def test_anything_new_posts_nothing_and_is_given_back(self):
+        self.give_key()
+        widget = [{"from": "widget", "widget": "issues", "about": "t1", "text": "and this?", "ts": 1.0}]
+        self.serve()
+        for fresh in ({**self.NOTHING[1], "messages": ["a follow-up"], "message_via": [None],
+                       "message_by": [None], "message_agent": [None]},
+                      {**self.NOTHING[1], "box": "m9"},
+                      {**self.NOTHING[1], "widget_messages": widget}):
+            with self.subTest(fresh=fresh):
+                Handler.seen = []
+                Handler.answers.update({"/fresh": (200, fresh), "/reply": (200, {"ok": True})})
+                said = self.reply("A reply written before the news.")[1]
+                self.assertEqual(said, {"status": "fresh", **fresh})
+                self.assertEqual(self.routes(), ["/fresh"])
+
+    def test_a_refused_or_cut_reply_listens_for_nothing(self):
+        self.give_key()
+        # no card held, so the reply goes, to a card that is not there
+        none_held = (200, {"messages": [], "message_via": [], "message_by": [], "message_agent": []})
+        Handler.answers.update({"/fresh": none_held, "/reply": (400, {"error": "bad box"}),
+                                "/remote/lane": self.LANE_FREE, "/wait": self.NEXT})
+        self.serve()
+        said = self.reply("For a card that is not there.", card="m404")[1]
+        self.assertEqual(said, {"status": "reply_failed", "box": "m404", "code": 400, "reply": {"error": "bad box"}})
+        self.assertEqual(self.routes(), ["/fresh", "/reply"])
+        Handler.seen = []
+        Handler.answers["/reply"] = (401, {"error": "this key is not known: join again"})
+        self.assertEqual(self.reply("Refused key.")[1]["code"], 401)
+        self.assertEqual(self.routes(), ["/fresh", "/reply"])
+        # the call cut with no answer: it may have reached the board, so it
+        # is not tried again, and nothing listens
+        Handler.seen = []
+        Handler.answers["/reply"] = (None, None)
+        said = self.reply("Cut on the way.")[1]
+        self.assertEqual((said["status"], said["box"]), ("reply_failed", "m4"))
+        self.assertIn("may or may not have the reply", said["detail"])
+        self.assertEqual(self.routes(), ["/fresh", "/reply"])
+
+    def test_an_empty_reply_calls_nothing(self):
+        self.give_key()
+        self.serve()
+        for text in ("", " \n\t\n"):
+            with self.subTest(text=text):
+                said = self.reply(text)[1]
+                self.assertEqual(said["status"], "empty_reply")
+                self.assertEqual(Handler.seen, [])
+        self.assertFalse((self.home / "link-started").exists())
+
+    def test_a_reply_with_no_key_or_no_board_posts_nothing(self):
+        self.assertEqual(self.reply("No key yet.")[1]["status"], "key_refused")
+        self.give_key()
+        said = self.reply("No board.")[1]
+        self.assertEqual(said["status"], "link_down")
+        self.serve()
+        Handler.answers["/fresh"] = (401, {"error": "this key is not known: join again"})
+        self.assertEqual(self.reply("Key gone.")[1]["status"], "key_refused")
+        self.assertEqual(self.routes(), ["/fresh"])
 
 
 class OnTheMac(unittest.TestCase):

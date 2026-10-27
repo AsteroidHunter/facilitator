@@ -22,6 +22,8 @@ anywhere: the server side connects out to the door, as on a real server.
             account alone; wait claims and confirms; curl -K answers the card
             through the door without the board's address in the command; the
             key opens no other lane, and no key opens nothing
+  reply     wait --reply gives back a message that came first and posts
+            nothing, then posts the reply as typed and brings the next claim
   drop      the relay drops everything: the server shows offline, a wait keeps
             trying, and when the relay is back the link reconnects by itself
             and the wait gets the message sent meanwhile
@@ -306,12 +308,12 @@ class ServerEndToEnd(unittest.TestCase):
                 os.waitpid(pid, 0)
         return status, seen.decode("utf-8", "replace").replace("\r\n", "\n")
 
-    def helper(self, *words, wait=True):
+    def helper(self, *words, wait=True, stdin=""):
         script = self.home / ".agents" / "skills" / "facilitator" / "scripts" / "onboard.py"
         argv = [sys.executable, "-B", str(script), *words]
         if not wait:
             return self.on_server(argv, wait=False)
-        r = self.on_server(argv)
+        r = self.on_server(argv, stdin=stdin)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout.strip().splitlines()[-1])
 
@@ -457,6 +459,29 @@ class ServerEndToEnd(unittest.TestCase):
         self.assertEqual(self.curl(config, "POST", f"/reply?box={self.card('other')['id']}", "no"), 403)
         self.assertEqual(self.curl(config, "GET", "/state"), 403)
         self.assertEqual(self.curl(config, "GET", "/remote/lane", key_file=False), 401)
+
+        # reply: one command checks, answers and listens again, through the door
+        self.assertEqual(self.call("POST", f"/send?box={box}", "a second question")[0], 200)
+        self.assertEqual(self.helper("wait", "--owner", "demo", "--agent", "opus", "--timeout", "20")["box"], box)
+        self.assertEqual(self.call("POST", f"/send?box={box}", "a word that came while writing")[0], 200)
+        time.sleep(4)   # past the board's typing hold, so /fresh hands it over
+        lane = ("--owner", "demo", "--agent", "opus", "--timeout", "20")
+        fresh = self.helper("wait", "--reply", box, *lane, stdin="An answer that has not seen it.")
+        self.assertEqual((fresh["status"], fresh["box"], fresh["messages"]),
+                         ("fresh", box, ["a word that came while writing"]))
+        self.assertEqual(self.card("demo")["reply"], "the answer from the server")
+        status, made = self.call("POST", "/create?owner=demo", "a second card")
+        self.assertEqual(status, 200, made)
+        self.assertEqual(self.call("POST", f"/send?box={made['id']}", "on the second card")[0], 200)
+        text = "**Both answered.**\n\nThe question and the word that came while writing.\n"
+        replied = self.helper("wait", "--reply", box, *lane, stdin=text)
+        self.assertEqual((replied["status"], replied["box"], replied["reply"]), ("replied", box, {"ok": True}))
+        self.assertEqual((replied["next"]["status"], replied["next"]["box"], replied["next"]["messages"]),
+                         ("claim", made["id"], ["on the second card"]))
+        self.assertNotIn("ack", replied["next"])
+        self.assertEqual(self.card("demo")["reply"], text.strip())
+        done = self.helper("wait", "--reply", made["id"], "--owner", "demo", "--timeout", "2", stdin="Done.")
+        self.assertEqual((done["status"], done["next"]), ("replied", {"status": "idle", "owner": "demo"}))
 
         # drop: the stand-in tailnet goes away
         self.relay.drop()

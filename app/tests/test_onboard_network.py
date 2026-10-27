@@ -166,5 +166,128 @@ class LocalNetworkErrors(unittest.TestCase):
                     self.assertEqual(said["messages"], ["hi"])
 
 
+def piped(data):
+    """Standard input carrying data, as a pipe or a heredoc gives it."""
+    return io.TextIOWrapper(io.BytesIO(data), encoding="utf-8")
+
+
+class ReplyThenListen(unittest.TestCase):
+    """wait --reply on the Mac, with the board's answers given in order: the
+    check that comes first, what stops the reply, what a refused reply
+    leaves, and the listen after a reply that went."""
+
+    NOTHING = {"box": "m1", "messages": [], "message_via": [], "message_by": [], "message_agent": []}
+    CLAIM = {"box": "m2", "title": "t", "messages": ["next"], "message_via": [None], "queued_after": 0, "ack": "tok"}
+
+    def setUp(self):
+        self.state = {"pwd": str(onboard.REPO), "pwds": {}, "busy": {"demo": "m1"},
+                      "listening": {}, "listenerGap": {}}
+        self.free = {**self.state, "busy": {"demo": None}}
+        self.args = argparse.Namespace(owner="demo", agent="opus", timeout=1, reply="m1")
+
+    def invoke(self, request, stdin=b"The answer.\n"):
+        with patch.object(onboard, "remote_record", return_value=None), \
+                patch.object(onboard, "port", return_value=8877), \
+                patch.object(onboard.sys, "stdin", piped(stdin) if isinstance(stdin, bytes) else stdin), \
+                patch.object(onboard, "request", side_effect=request) as called, \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            onboard.wait(self.args)
+        lines = printed.getvalue().splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        return json.loads(lines[0]), [c.args[:2] for c in called.call_args_list], called
+
+    def test_an_empty_reply_is_refused_before_any_call(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+        for stdin in (b"", b"  \n\t\n", Terminal("typed")):
+            with self.subTest(stdin=stdin):
+                with patch.object(onboard, "remote_record") as looked:
+                    said, calls, _ = self.invoke([], stdin)
+                self.assertEqual(said["status"], "empty_reply")
+                self.assertEqual(said["box"], "m1")
+                self.assertEqual(calls, [])
+                looked.assert_not_called()
+
+    def test_nothing_new_posts_the_raw_reply_then_listens_as_wait(self):
+        body = "Line one.\n\n  **Two**, as typed: é\n".encode()
+        said, calls, called = self.invoke([self.state, self.NOTHING, {"ok": True}, self.free, dict(self.CLAIM),
+                                           {"ok": True}], body)
+        self.assertEqual(calls, [("GET", "/state"), ("GET", "/fresh?owner=demo"), ("POST", "/reply?box=m1"),
+                                 ("GET", "/state"), ("GET", "/wait?owner=demo&timeout=1&agent=opus"),
+                                 ("POST", "/ack?owner=demo&token=tok")])
+        self.assertEqual(called.call_args_list[2].kwargs["data"], body)
+        claim = {k: v for k, v in self.CLAIM.items() if k != "ack"}
+        self.assertEqual(said, {"status": "replied", "box": "m1", "reply": {"ok": True},
+                                "next": {"status": "claim", "owner": "demo", **claim}})
+
+    def test_the_listen_after_a_reply_keeps_waits_own_answers(self):
+        for answers, expected in (
+                ([{"idle": True}], {"status": "idle", "owner": "demo"}),
+                ([dict(self.CLAIM), {"ok": False}], {"status": "ack_failed", "owner": "demo", "box": "m2"})):
+            with self.subTest(expected=expected["status"]):
+                said, _, _ = self.invoke([self.state, self.NOTHING, {"ok": True}, self.free, *answers])
+                self.assertEqual((said["status"], said["next"]), ("replied", expected))
+        # the card the reply answered still held when the listen looks: wait's own word for it
+        said, _, _ = self.invoke([self.state, self.NOTHING, {"ok": True}, self.state])
+        self.assertEqual(said["next"], {"status": "claim_held", "owner": "demo", "box": "m1"})
+
+    def test_anything_new_posts_nothing_and_is_given_back(self):
+        widget = [{"from": "widget", "widget": "issues", "about": "t1", "text": "and this?", "ts": 1.0}]
+        for fresh in ({**self.NOTHING, "messages": ["a follow-up"], "message_via": [None], "message_by": [None],
+                       "message_agent": [None]},
+                      {**self.NOTHING, "box": "m7"},
+                      {**self.NOTHING, "widget_messages": widget}):
+            with self.subTest(fresh=fresh):
+                said, calls, _ = self.invoke([self.state, fresh])
+                self.assertEqual(said, {"status": "fresh", **fresh})
+                self.assertEqual(calls, [("GET", "/state"), ("GET", "/fresh?owner=demo")])
+
+    def test_with_no_card_held_a_reply_goes(self):
+        nothing = {"messages": [], "message_via": [], "message_by": [], "message_agent": []}
+        said, calls, _ = self.invoke([self.free, nothing, {"ok": True}, self.free, {"idle": True}])
+        self.assertEqual(said["status"], "replied")
+        self.assertEqual(calls[2], ("POST", "/reply?box=m1"))
+
+    def test_a_refused_reply_says_the_boards_words_and_listens_for_nothing(self):
+        refusal = urllib.error.HTTPError("http://127.0.0.1/reply", 400, "Bad Request", {},
+                                         io.BytesIO(b'{"error": "small card reply over 100 words: 140 words"}'))
+        said, calls, _ = self.invoke([self.state, self.NOTHING, refusal])
+        self.assertEqual(said, {"status": "reply_failed", "box": "m1", "code": 400,
+                                "reply": {"error": "small card reply over 100 words: 140 words"}})
+        self.assertEqual(len(calls), 3)
+
+    def test_a_cut_reply_call_says_so_and_listens_for_nothing(self):
+        said, calls, _ = self.invoke([self.state, self.NOTHING, socket.timeout("timed out")])
+        self.assertEqual(said["status"], "reply_failed")
+        self.assertIn("may or may not have the reply", said["detail"])
+        self.assertEqual(len(calls), 3)
+
+    def test_a_failed_check_posts_nothing(self):
+        for failure, expected in ((ConnectionRefusedError(errno.ECONNREFUSED, "refused"), "connection_error"),
+                                  (PermissionError("denied"), "permission_denied"),
+                                  (ValueError("not JSON"), "connection_error"),
+                                  (["not", "an", "object"], "protocol_error"),
+                                  (urllib.error.HTTPError("http://127.0.0.1/fresh", 403, "Forbidden", {},
+                                                          io.BytesIO(b'{"error": "only the lane\'s agent"}')),
+                                   "protocol_error"),
+                                  (urllib.error.HTTPError("http://127.0.0.1/fresh", 401, "Unauthorized", {},
+                                                          io.BytesIO(b'{"error": "no key"}')),
+                                   "key_refused")):
+            with self.subTest(failure=repr(failure)):
+                said, calls, _ = self.invoke([self.state, failure])
+                self.assertEqual(said["status"], expected)
+                self.assertEqual(len(calls), 2)
+        # and the board itself not this folder's, or not taking its key: no /fresh at all
+        refused = urllib.error.HTTPError("http://127.0.0.1/state", 401, "Unauthorized", {}, None)
+        for answer, expected in ((refused, "key_refused"), ({**self.state, "pwd": "/elsewhere"}, "different_board"),
+                                 ({**self.state, "busy": {"other": None}}, "project_unknown")):
+            with self.subTest(expected=expected):
+                said, calls, _ = self.invoke([answer])
+                self.assertEqual(said["status"], expected)
+                self.assertEqual(calls, [("GET", "/state")])
+        refused.close()
+
+
 if __name__ == "__main__":
     unittest.main()
