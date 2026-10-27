@@ -3176,6 +3176,28 @@ function focusedCaretContext(){
     font: cs.font + "|" + cs.letterSpacing + "|" + cs.wordSpacing };
 }
 let queueFatCaret = () => {};
+// a 401 is the board's lock refusing this window, as on the board (index.html
+// lockRefused). It is no reading, so it is thrown rather than drawn, and the
+// window goes to / once: the board answers an open of / with its own page
+// saying to open the board with facilitator run, and an open of /page with
+// the bare refusal, so this page is not opened again. The mark kept for this
+// tab stops a refused window from going round, and the next good reading lets
+// it go
+const LOCK_RELOAD_MARK = "facilitator-lock-reload";
+function lockRefused(){
+  try {
+    if (!sessionStorage.getItem(LOCK_RELOAD_MARK)){
+      sessionStorage.setItem(LOCK_RELOAD_MARK, "1");
+      location.replace("/");
+    }
+  } catch (e) {}
+  return new Error("the board's lock refused this window");
+}
+async function lockChecked(answer){
+  if (answer.status === 401) throw lockRefused();
+  if (answer.ok) try { sessionStorage.removeItem(LOCK_RELOAD_MARK); } catch (e) {}
+  return answer.json();
+}
 let pollFails = 0;
 // the fetch and the render each get their own try, as on the board and the
 // phone: the banner is for a server that did not answer, and nothing else
@@ -3183,7 +3205,7 @@ async function poll(){
   noteDoing("poll");
   let state;
   try {
-    state = await (await fetch("/state")).json();
+    state = await lockChecked(await fetch("/state"));
   } catch (e) {
     if (++pollFails >= 3){   // the server itself, distinct from listener-offline
       document.body.classList.add("offline");
