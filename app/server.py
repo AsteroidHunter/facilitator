@@ -945,11 +945,12 @@ Endpoints:
                                whether its link is connected, and whether the
                                door is listening, for `facilitator remote
                                list`. Local only
-  POST /remote/pair/new[?name=N] -> {code, minutes, port, addresses}: a pairing
-                               code for `facilitator remote pair`, good once
-                               for 10 minutes, with where the door listens.
-                               Local only; the code is kept as its hash and
-                               never written to the log
+  POST /remote/pair/new?name=N -> {code, minutes, port, addresses}: a pairing
+                               code for `facilitator remote pair --name N`,
+                               good once for 10 minutes, for the server named
+                               N, with where the door listens. 400 with no
+                               name. Local only; the code is kept as its hash
+                               and never written to the log
   POST /remote/forget?server=S -> the server off this board, its lanes' keys
                                with it. {ok}. Local only
   The folder picker lists each server beside this Mac (see /machines, /dirs
@@ -8770,8 +8771,10 @@ def _get_remote_servers(q: Query, _):
 
 
 def _post_remote_pair_new(q: Query, _text: str):
-    """A pairing code for `facilitator remote pair`, with where the door
-    listens, which the command prints for the owner to run on the server.
+    """A pairing code for `facilitator remote pair --name NAME`, with where
+    the door listens, which the command prints for the owner to run on the
+    server. No name, no code: the server's name is the owner's, never the
+    server's own.
     The door opens with the first code, as a board that keeps no servers
     listens on no tailnet address, so this waits a moment for it. The answer
     goes to this Mac alone; neither the code nor an address is written to
@@ -8780,7 +8783,10 @@ def _post_remote_pair_new(q: Query, _text: str):
         return 404, {"error": "not found"}
     if _remote is None or _door is None:
         return 400, {"error": "this board has no agent door"}
-    code = _remote.new_code(q.one("name") or None)
+    try:
+        code = _remote.new_code(q.one("name") or "")
+    except ValueError as refused:
+        return 400, {"error": str(refused)}
     _door.poke()
     return 200, {"code": code, "minutes": round(remote_link.CODE_LIFE / 60),
                  "port": _door.port, "addresses": _door.wait_open(DOOR_OPEN_WAIT)}

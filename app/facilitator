@@ -78,7 +78,7 @@
       Prints the board's answer as one JSON line; exits 1 with the board's
       own words when it refuses, and with the status line when the board is
       down.
-  facilitator remote pair [--name NAME]
+  facilitator remote pair --name NAME
   facilitator remote list
   facilitator remote remove NAME
       connect one of the owner's own servers to this board, so an agent
@@ -90,13 +90,13 @@
       hand, and the code it asks for: that puts the skill, the runbook and
       the docs in ~/.facilitator on the server, trades the code for the
       server's own key and starts the server's link, which keeps connecting
-      out to the board from then on. --name names the server; otherwise it
-      takes the server's host name, and pairing a name again pairs that
-      server afresh. The server's folders are then on the board's folder
-      picker. list shows each server and whether its link is connected;
-      remove forgets a server on this Mac, with its projects' keys, and
-      leaves the server's own files for the owner to delete. add is retired:
-      the board no longer logs in to servers.
+      out to the board from then on. --name is needed and names the
+      server; the name is never taken from the server itself. Pairing a name
+      already paired pairs that server again. The server's folders are then
+      on the board's folder picker. list shows each server and whether its
+      link is connected; remove forgets a server on this Mac, with its
+      projects' keys, and leaves the server's own files for the owner to
+      delete. add is retired: the board no longer logs in to servers.
   facilitator bridge [on|off] [--dry-run]
       switch the persistent phone bridge on or off. With no on/off word it
       toggles the current Tailscale Serve state. Turning it on prints a QR
@@ -2070,15 +2070,17 @@ def cmd_magic(args):
     print(json.dumps(answer, ensure_ascii=False))
 
 
-REMOTE_HELP = """usage: facilitator remote pair [--name NAME]
+REMOTE_HELP = """usage: facilitator remote pair --name NAME
        facilitator remote list
        facilitator remote remove NAME
 
 Connect one of your own servers to this board, so an agent running there can
 work a project's cards. Nothing logs in to the server: the server connects out
 to the board over Tailscale. pair prints one line to run on the server, logged
-in there yourself, and the pairing code it asks for. list shows each server and
-whether it is connected; remove forgets a server on this Mac."""
+in there yourself, and the pairing code it asks for. --name is needed and is
+what the board calls that server; pairing with a name already paired pairs
+that server again, with a newer skill. list shows each server and whether it
+is connected; remove forgets a server on this Mac."""
 
 
 def board_call(method, route, timeout=5):
@@ -2099,12 +2101,15 @@ def board_call(method, route, timeout=5):
 
 
 def remote_pair(words):
-    name = None
-    if words:
-        if len(words) != 2 or words[0] != "--name" or not words[1].strip():
-            sys.exit(REMOTE_HELP)
-        name = words[1].strip()
-    status, said = board_call("POST", "/remote/pair/new" + ("?" + urlencode({"name": name}) if name else ""))
+    # the name is always the owner's, given here: a server that named itself
+    # could take the name of one already paired, and that server's record
+    if not words:
+        sys.exit(problem("Pairing needs the server's name: run facilitator remote pair --name NAME, "
+                         "for example --name lab.", blank=False))
+    if len(words) != 2 or words[0] != "--name" or not words[1].strip():
+        sys.exit(REMOTE_HELP)
+    name = words[1].strip()
+    status, said = board_call("POST", "/remote/pair/new?" + urlencode({"name": name}))
     if status is None:
         sys.exit(problem("The board is not running.",
                          "Start it with facilitator run, then pair again: the server connects to the running board.",
@@ -2152,7 +2157,7 @@ def remote_list():
         # the board is down, or older than pairing and in need of a restart
         servers, door = [{"name": s["name"]} for s in remote_link.Store(DATA).servers()], None
     if not servers:
-        print("No servers. Pair one with: facilitator remote pair")
+        print("No servers. Pair one with: facilitator remote pair --name NAME")
     for s in servers:
         if not running:
             state = "not connected (" + ("board not running" if status is None else "restart the board") + ")"
@@ -2207,7 +2212,7 @@ def cmd_remote(args):
         remote_remove(rest[0])
     elif action == "add":
         sys.exit(problem("facilitator remote add is retired: the board no longer logs in to servers.",
-                         "Run facilitator remote pair, then run the line it prints on the server,",
+                         "Run facilitator remote pair --name NAME, then run the line it prints on the server,",
                          "logged in there yourself.", blank=False))
     else:
         sys.exit(REMOTE_HELP)

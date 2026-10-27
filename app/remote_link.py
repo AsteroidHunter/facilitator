@@ -576,11 +576,17 @@ class Remote:
                     or now < self._forgot_until)
 
     # -- pairing
-    def new_code(self, name: str | None = None) -> str:
+    def new_code(self, name: str) -> str:
         """A pairing code for one server, good once for CODE_LIFE seconds,
-        named for the server it will pair when the owner chose a name."""
+        named for the server it will pair. The name is the owner's, given on
+        the Mac, and never the server's own: a server could otherwise take
+        the name of one already paired and with it that server's record.
+        ValueError when there is no name."""
+        name = "".join(c for c in (name or "") if c.isprintable()).strip()[:NAME_MAX]
+        if not name:
+            raise ValueError("a pairing code needs the server's name: "
+                             "run facilitator remote pair --name NAME on the Mac")
         code = new_code()
-        name = "".join(c for c in (name or "") if c.isprintable()).strip()[:NAME_MAX] or None
         now = time.monotonic()
         with self._lock:
             self._codes = {h: c for h, c in self._codes.items() if c["ends"] > now}
@@ -592,11 +598,13 @@ class Remote:
     def pair(self, typed: str, asked) -> tuple:
         """A server trading a pairing code for its own key: (200, {server,
         name, key, files}), or a refusal in plain words. The code goes with
-        its first right use; a wrong one counts towards PAIR_TRIES."""
+        its first right use; a wrong one counts towards PAIR_TRIES. The
+        server's name is the code's, given on the Mac; the host name the
+        server sends is not read, and a name already paired is that server,
+        paired again with a new key."""
         if not isinstance(asked, dict):
             return 400, {"error": "a pairing names the server's home"}
         home, top = asked.get("home"), asked.get("top")
-        host = asked.get("host") if isinstance(asked.get("host"), str) else ""
         if not _place(home) or not _place(top):
             return 400, {"error": "a pairing names the server's home"}
         now = time.monotonic()
@@ -609,8 +617,8 @@ class Remote:
             if entry is None:
                 self._wrong.append(now)
                 return 401, {"error": "that code is not known or has run out: "
-                                      "run facilitator remote pair on the Mac for a new one"}
-        name = (entry["name"] or "".join(c for c in host if c.isprintable()).strip() or "server")[:NAME_MAX]
+                                      "run facilitator remote pair --name NAME on the Mac for a new one"}
+        name = entry["name"]
         key = new_key()
         with self._lock:
             servers = self.store.servers()

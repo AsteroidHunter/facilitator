@@ -50,7 +50,7 @@ An agent that puts a message on a card for the person, such as a voice or text a
 
 ## From a server
 
-An agent can also run on one of the owner's own servers, paired with the board by `facilitator remote pair`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached by connecting out to its agent door over Tailscale; the board never logs in to the server, and the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write the `base` it answers, `http://board`, in place of `http://127.0.0.1:$PORT`:
+An agent can also run on one of the owner's own servers, paired with the board by `facilitator remote pair --name NAME`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached by connecting out to its agent door over Tailscale; the board never logs in to the server, and the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write the `base` it answers, `http://board`, in place of `http://127.0.0.1:$PORT`:
 
     curl -sS -K ~/.facilitator/agents/LANE.curl "http://board/fresh?owner=LANE"
     curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://board/reply?box=ID"

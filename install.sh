@@ -263,7 +263,7 @@ elif [ "$(uname -s)" != Darwin ]; then
   stop_plain 'This setup is for the Mac the board runs on.' \
     '' \
     'On a server where your agents run, nothing needs installing here.' \
-    'On your Mac, run: facilitator remote pair' \
+    'On your Mac, run: facilitator remote pair --name NAME' \
     'then run the line it prints here, on this server.' \
     '' \
     'Nothing was changed.'

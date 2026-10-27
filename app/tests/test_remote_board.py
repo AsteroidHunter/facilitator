@@ -4,8 +4,10 @@ a "server" that is a scratch home, and a relay between the two that can drop
 every connection, as a tailnet that goes away does. Nothing logs in
 anywhere: the server side connects out to the door, as on a real server.
 
-  pair      `facilitator remote pair` prints the line to run on the server and
-            a code; that line, run in a terminal there with the code typed at
+  name      with no name, `facilitator remote pair` and the board's own
+            /remote/pair/new both refuse, and no server or door changes
+  pair      `facilitator remote pair --name lab` prints the line to run on the
+            server and a code; that line, run in a terminal there with the code typed at
             its prompt, fetches the setup program from the door with no key,
             trades the code for the server's key, puts the skill, the runbook
             and the docs in ~/.facilitator/skill for the account alone, links
@@ -336,6 +338,21 @@ class ServerEndToEnd(unittest.TestCase):
 
     def mode(self, path):
         return stat.S_IMODE(os.lstat(path).st_mode)
+
+    def test_a_code_needs_a_name_from_the_mac(self):
+        before = self.get("/remote/servers")
+        paired = self.cli("remote", "pair")
+        self.assertEqual(paired.returncode, 1)
+        self.assertEqual((paired.stdout + paired.stderr).strip(),
+                         "⚠ Pairing needs the server's name: run facilitator remote pair --name NAME, "
+                         "for example --name lab.")
+        for route in ("/remote/pair/new", "/remote/pair/new?name=", "/remote/pair/new?name=%20%20"):
+            with self.subTest(route=route):
+                status, said = self.call("POST", route, b"")
+                self.assertEqual(status, 400, said)
+                self.assertNotIn("code", said)
+                self.assertIn("facilitator remote pair --name NAME", said["error"])
+        self.assertEqual(self.get("/remote/servers"), before)
 
     # -- the whole run, in order
     def test_a_server_end_to_end(self):

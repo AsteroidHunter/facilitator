@@ -2,8 +2,9 @@
 running, so every case is the command's own; pairing against a running
 board is in test_remote_board.py.
 
-  pair      with no board running, pair says to start it and prints no code;
-            a stray word is refused
+  pair      with no --name, pair says in one line that the name is needed and
+            how to give it, and changes nothing; with no board running, pair
+            says to start it and prints no code; a stray word is refused
   add       retired: it says the board no longer logs in to servers, points
             at pair, and changes nothing
   list      no servers, and servers read from the file while the board is down
@@ -67,8 +68,15 @@ class RemoteCommand(unittest.TestCase):
             {"id": remote_link.slug(n), "name": n, "home": "/home/you", "top": "/home/you",
              "key": remote_link.digest("k-" + n), "added": 1, "paired": 1} for n in names])
 
-    def test_pair_needs_the_running_board(self):
+    def test_pair_needs_a_name(self):
         code, said = self.cli("remote", "pair")
+        self.assertEqual(code, 1)
+        self.assertEqual(said.strip(), "⚠ Pairing needs the server's name: run facilitator remote pair --name NAME, "
+                                       "for example --name lab.")
+        self.assertFalse((self.data / "remote").exists())
+
+    def test_pair_needs_the_running_board(self):
+        code, said = self.cli("remote", "pair", "--name", "lab")
         self.assertEqual(code, 1)
         self.assertIn("The board is not running.", said)
         self.assertNotIn("Pairing code", said)
@@ -83,7 +91,7 @@ class RemoteCommand(unittest.TestCase):
         self.assertFalse((self.data / "remote").exists())
 
     def test_list_with_the_board_down(self):
-        self.assertIn("No servers. Pair one with: facilitator remote pair", self.cli("remote", "list")[1])
+        self.assertIn("No servers. Pair one with: facilitator remote pair --name NAME", self.cli("remote", "list")[1])
         self.keep("lab", "farm box")
         code, said = self.cli("remote", "list")
         self.assertEqual(code, 0)
@@ -104,7 +112,8 @@ class RemoteCommand(unittest.TestCase):
     def test_help(self):
         code, said = self.cli("remote", "--help")
         self.assertEqual(code, 0)
-        self.assertIn("usage: facilitator remote pair [--name NAME]", said)
+        self.assertIn("usage: facilitator remote pair --name NAME\n", said)
+        self.assertIn("--name is needed", said)
         self.assertIn("Nothing logs in to the server", said)
         self.assertNotIn("remote add", said)
 
@@ -129,7 +138,7 @@ class InstallerOnAServer(unittest.TestCase):
             said = r.stdout + r.stderr
             self.assertEqual(r.returncode, 1, said)
             self.assertIn("This setup is for the Mac the board runs on.", said)
-            self.assertIn("On your Mac, run: facilitator remote pair", said)
+            self.assertIn("On your Mac, run: facilitator remote pair --name NAME", said)
             self.assertNotIn("remote add", said)
             self.assertNotIn("Chrome was not found.", said)
             self.assertFalse((outer / "data").exists())
