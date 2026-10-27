@@ -6394,6 +6394,104 @@ for (const type of ["pointerdown", "touchstart", "keydown", "input"]){
   document.addEventListener(type, linkTouched, { capture: true, passive: true });
 }
 
+// ---- the live line, listened to and not used yet ---------------------------------
+// The board keeps a live line open to each page that listens (GET /events,
+// server.py EventsRoute): one short line, data: {"rev": R, "quiet": "Q"}, the
+// moment the board changes and again every 15 seconds whatever happens. The
+// phone does not act on it yet. It reads the board on its timer exactly as
+// before, and nothing it reads, draws or sends comes from here; this only finds
+// out whether the line reaches the phone, through Tailscale Serve and the
+// phone's door, before the phone comes to rely on it. In developer mode, while
+// the app is on screen, the line is open and the diagnostic history
+// (card-report.js, schema 7) is told:
+//   stream-open  the line opened; ms is how long that took from asking
+//   beat         a line the board wrote: its revision, ms since the line's last
+//                entry, and whether the revision or the mark moved (changed)
+//   stream-lost  the line went, ms since its last entry, and why: error (it
+//                broke and the browser opens it again by itself 3 s later; the
+//                board ends every line after 10 minutes this way), refused (the
+//                answer was not a line, a 401 or a 503, and the browser gave up;
+//                it is asked for again here after 30 s), dead (nothing for 40 s:
+//                closed and asked for again at once), hidden or pagehide (the
+//                app was put away; asked for again when it is back on screen)
+// The Mac's narrow view hears the board's line through the board around it and
+// opens none here.
+const LINE_PROBE_DEAD_MS = 40000, LINE_PROBE_CLOSED_MS = 30000;
+const lineProbe = (() => {
+  let source = null, opened = false, held = null, last = 0, dead = 0, again = 0;
+  const wanted = () => !macHost && phoneDeveloperMode && !document.hidden && typeof EventSource === "function";
+  const note = (event, detail) => { tracePhone("note", event, detail); };
+  // ms since the line's last entry, and this is the last one now
+  function since(){ const now = performance.now(), gap = now - last; last = now; return gap; }
+  function shut(){
+    clearTimeout(dead); dead = 0;
+    if (source){
+      source.onopen = source.onmessage = source.onerror = null;
+      try { source.close(); } catch (_) {}
+    }
+    source = null; opened = false; held = null;
+  }
+  function lost(why){
+    if (source) note("lifecycle", { lifecycle: "stream-lost", why, ms: since() });
+    shut();
+  }
+  function watch(){
+    clearTimeout(dead);
+    dead = setTimeout(() => { lost("dead"); open(); }, LINE_PROBE_DEAD_MS);
+  }
+  function open(){
+    clearTimeout(again); again = 0;
+    if (source || !wanted()) return;
+    let es = null;
+    try { es = new EventSource("/events"); } catch (_) { return; }
+    source = es; last = performance.now();
+    watch();
+    es.onopen = () => {
+      if (source !== es) return;
+      opened = true;
+      note("lifecycle", { lifecycle: "stream-open", ms: since() });
+    };
+    es.onmessage = e => {
+      if (source !== es) return;
+      watch();
+      let line = null;
+      try { line = JSON.parse(e.data); } catch (_) {}
+      if (!line || !Number.isFinite(line.rev)) return;
+      const changed = !!held && (held.rev !== line.rev || held.quiet !== line.quiet);
+      held = { rev: line.rev, quiet: line.quiet };
+      note("beat", { rev: line.rev, ms: since(), changed });
+    };
+    es.onerror = () => {
+      if (source !== es) return;
+      if (es.readyState === EventSource.CLOSED){
+        lost("refused");
+        again = setTimeout(open, LINE_PROBE_CLOSED_MS);
+        return;
+      }
+      // a line still being asked for that fails is asked for again by the
+      // browser; one that says nothing for 40 s is dead
+      if (!opened) return;
+      opened = false;
+      note("lifecycle", { lifecycle: "stream-lost", why: "error", ms: since() });
+    };
+  }
+  return {
+    // shown again, or developer mode switched: open while wanted, else close
+    check(){
+      if (wanted()){ open(); return; }
+      clearTimeout(again); again = 0;
+      if (document.hidden) lost("hidden"); else shut();
+    },
+    put(why){ clearTimeout(again); again = 0; lost(why); },
+  };
+})();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) lineProbe.put("hidden"); else lineProbe.check();
+});
+window.addEventListener("pagehide", () => lineProbe.put("pagehide"));
+window.addEventListener("pageshow", e => { if (e.persisted) lineProbe.check(); });
+lineProbe.check();
+
 // ---- the last breath ----------------------------------------------------------
 // developer mode only. while the page is on screen, one small record in
 // localStorage is written over every three seconds: when, the card open, the
@@ -7792,6 +7890,7 @@ document.getElementById("homeversion").addEventListener("click", () => {
   responseScrollTiming = phoneDeveloperMode ? phoneKeyboardTiming : null;
   try { localStorage.setItem(PHONE_DEVELOPER_KEY, phoneDeveloperMode ? "on" : "off"); } catch (_) {}
   document.body.classList.toggle("phone-developer-mode", phoneDeveloperMode);
+  lineProbe.check();
   if (!phoneDeveloperMode) {
     diagnosticGeneration++;
     createDiagnostics.clear();

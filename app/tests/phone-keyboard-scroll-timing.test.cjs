@@ -219,7 +219,7 @@ from pathlib import Path
 import server as s
 batch = json.loads(Path("batch.json").read_text())
 r = batch["reports"][0]
-assert s.INCIDENT_SCHEMA == 6
+assert s.INCIDENT_SCHEMA == 7
 assert s._incident_valid("phone", r)
 assert not s._incident_valid("board", r)
 assert s._post_clientlog(s.Query(), json.dumps(batch).encode()) == (200, {"ok":True, "written":1, "dropped":0})

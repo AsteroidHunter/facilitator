@@ -766,6 +766,12 @@ Endpoints:
                                geometry without draft text. V5 adds response
                                scroll position, heights and finger direction
                                (never coordinates) and the no-scroll reason.
+                               V6 adds the packed keyboard scroll timing. V7
+                               adds the phone's live line (GET /events): when
+                               it opened, each line the board wrote on it (its
+                               revision, the time since the one before and
+                               whether it moved) and when it was lost and why,
+                               and only these reach back 15 minutes.
                                All versions share four writes per minute across
                                incident reasons.
                                Six more kinds come from the phone alone, each
@@ -1675,7 +1681,18 @@ INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "
                             "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_EVENTS_V3 = INCIDENT_EVENTS | frozenset(("input", "scroll", "frame", "timer", "phase", "poll"))
 INCIDENT_EVENTS_V4 = INCIDENT_EVENTS_V3 | {"enter"}
-INCIDENT_SCHEMA = 6          # what /m/state offers the phone; every older version is still read
+INCIDENT_EVENTS_V7 = INCIDENT_EVENTS_V4 | {"beat"}
+INCIDENT_SCHEMA = 7          # what /m/state offers the phone; every older version is still read
+# v7: the phone's live line (GET /events), as m.html's line probe hears it. Two
+# lifecycle words, the line opened and the line lost, the loss saying why, and a
+# beat for each line the board wrote (its revision, ms since the one before,
+# whether it moved). Only these may reach back past the 120 seconds the rest
+# keep, to 15 minutes, so ten minutes on screen fit in one save
+INCIDENT_STREAM_LIFECYCLES = ("stream-open", "stream-lost")
+INCIDENT_STREAM_WHY = ("error", "refused", "dead", "hidden", "pagehide")
+INCIDENT_BEAT_FIELDS = frozenset(("event", "at", "visible", "online", "resume", "rev", "ms", "changed"))
+INCIDENT_STREAM_AGE = 900000
+INCIDENT_AGE = 120000
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
 INCIDENT_REASONS_V5 = INCIDENT_REASONS + ("no-scroll",)
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
@@ -1772,12 +1789,12 @@ def _incident_valid(page: str, report: dict) -> bool:
     unknown fields and bad types before any part of a batch reaches a log."""
     version = report.get("v")
     fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-    if version in (2, 3, 4, 5, 6): fields.add("build")
-    if version in (3, 4, 5, 6): fields.update(("worker", "session"))
-    if version == 6: fields.add("timing")
-    reasons = INCIDENT_REASONS_V5 if version in (5, 6) else INCIDENT_REASONS
+    if version in (2, 3, 4, 5, 6, 7): fields.add("build")
+    if version in (3, 4, 5, 6, 7): fields.update(("worker", "session"))
+    if version in (6, 7): fields.add("timing")
+    reasons = INCIDENT_REASONS_V5 if version in (5, 6, 7) else INCIDENT_REASONS
     if (page != "phone" or set(report) != fields
-            or type(version) is not int or version not in (1, 2, 3, 4, 5, 6)
+            or type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7)
             or (version >= 2 and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
             or (version >= 3 and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
                                   or not isinstance(report["session"], str) or not INCIDENT_SESSION.fullmatch(report["session"])))
@@ -1786,17 +1803,23 @@ def _incident_valid(page: str, report: dict) -> bool:
             or not _incident_integer(report["lost"], 0, 1000000000)
             or not _incident_integer(report["suppressed"], 0, 1000000000)):
         return False
-    if version == 6 and not _incident_timing_valid(report["timing"]):
+    if version >= 6 and not _incident_timing_valid(report["timing"]):
         return False
     entries = report["events"]
     if not isinstance(entries, list) or not 1 <= len(entries) <= (128 if version >= 3 else 40):
         return False
-    previous = -120000 if version >= 3 else -60000
+    previous = -INCIDENT_STREAM_AGE if version >= 7 else -INCIDENT_AGE if version >= 3 else -60000
     for entry in entries:
         if (not isinstance(entry, dict) or not {"event", "at", "visible", "online", "resume"} <= entry.keys()
                 or not isinstance(entry["event"], str)
-                or entry["event"] not in (INCIDENT_EVENTS_V4 if version >= 4 else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
+                or entry["event"] not in (INCIDENT_EVENTS_V7 if version >= 7 else INCIDENT_EVENTS_V4 if version >= 4
+                                          else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
                 or not _incident_integer(entry["at"], previous, 20000 if version >= 3 else 0)):
+            return False
+        stream = (entry["event"] == "beat"
+                  or (entry["event"] == "lifecycle" and entry.get("lifecycle") in INCIDENT_STREAM_LIFECYCLES))
+        if ((entry["at"] < -INCIDENT_AGE and not stream)
+                or (entry["event"] == "beat" and not entry.keys() <= INCIDENT_BEAT_FIELDS)):
             return False
         if entry["event"] == "enter" and not {"step", "branch", "base", "inner", "vh", "vt",
                                                  "scale", "kb", "target", "focus", "draft"} <= entry.keys():
@@ -1810,6 +1833,11 @@ def _incident_valid(page: str, report: dict) -> bool:
                     return False
             elif name in INCIDENT_NUMBERS:
                 if not _incident_integer(value, 0, INCIDENT_NUMBERS[name]):
+                    return False
+            elif version >= 7 and name == "lifecycle" and value in INCIDENT_STREAM_LIFECYCLES:
+                pass
+            elif version >= 7 and name == "why" and entry.get("lifecycle") == "stream-lost":
+                if value not in INCIDENT_STREAM_WHY:
                     return False
             elif name in INCIDENT_CHOICES:
                 if value not in INCIDENT_CHOICES[name]:
