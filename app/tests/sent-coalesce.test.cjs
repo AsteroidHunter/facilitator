@@ -113,10 +113,10 @@ test("a reading's message keeps the bubble of the send it is, by its operation i
   assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a", "b"], pendingStates: ["sent", "sent"], pendingOps: [null, "op-b"] })),
     [m("a", "sent"), sent("b", "sent", "op-b")]);
   // his case: a Delivered bubble standing, and the send flying into its own under it
-  const before = [[m("There is an error", "sent")], [sent("it fucks the animation", "sent", "op-2")]];
-  const reading = [m("There is an error", "sent"), sent("it [expletive] the animation", "sent", "op-2")];
+  const before = [[m("Invented older message", "sent")], [sent("this shit is broken", "sent", "op-2")]];
+  const reading = [m("Invented older message", "sent"), sent("this [expletive] is broken", "sent", "op-2")];
   const groups = context.sentGroups(before, reading, null);
-  assert.deepEqual(words(groups), [["There is an error"], ["it [expletive] the animation"]],
+  assert.deepEqual(words(groups), [["Invented older message"], ["this [expletive] is broken"]],
     "the saved words joined the bubble standing at once");
   assert.deepEqual(plain(groups).map(g => g.id), [0, 1], "the send's own bubble was not kept");
   // the phone: the send still its own, and then landed, before the reading
