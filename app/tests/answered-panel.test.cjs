@@ -2464,9 +2464,9 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   // the pages draw from it on every reading, and a send lands as sent
   assert.match(DESKTOP, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
   assert.match(PHONE, /el\.sentItems = sentFrom\(b\);\s*drawSent\(el, b\.id\);/);
-  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, op: op\.id, stage: "sent" \}\];/,
-    "the phone's landed send does not keep the id the reading finds it by");
-  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, badge: opBadge\(op\), stage: "local" \}\);/,
+  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, \.\.\.\(typeof op\.saved === "string" \? \{ saved: op\.saved \} : \{\}\),\s*op: op\.id, stage: "sent" \}\];/,
+    "the phone's landed send does not keep the id the reading finds it by, or the saved words worked out at its press");
+  assert.match(PHONE, /batch\.push\(\{ text: op\.text, \.\.\.\(typeof op\.saved === "string" \? \{ saved: op\.saved \} : \{\}\), op: op\.id, state: op\.state,\s*badge: opBadge\(op\), stage: "local" \}\);/,
     "the phone's own messages are not marked as not yet on the board");
   // and the sheet draws the stages: faded words and grey, the one quiet mark in its room
   assert.match(rule(TOKENS, ".answered.undelivered"), /--answ-fill:color-mix\(in srgb, var\(--bubble-fill\) 50%, var\(--card, #fff\)\)/);

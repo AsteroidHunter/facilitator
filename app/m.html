@@ -2919,7 +2919,8 @@ function boxHasSelection(el){
 function sentOf(el, id){
   const batch = el.sentItems.slice();
   for (const op of localSends(id))
-    batch.push({ text: op.text, op: op.id, state: op.state, badge: opBadge(op), stage: "local" });
+    batch.push({ text: op.text, ...(typeof op.saved === "string" ? { saved: op.saved } : {}), op: op.id, state: op.state,
+      badge: opBadge(op), stage: "local" });
   return batch;
 }
 function drawSent(el, id, arrive){
@@ -3369,8 +3370,10 @@ function landSend(op, result){
   // more. it keeps its operation id, so the reading that brings the words as
   // saved, which can differ from the typed ones (_curse_free), finds it in the
   // bubble it flew into (sentGroups)
-  el.sentItems = [...el.sentItems, { text: op.text, op: op.id, stage: "sent" }];
+  el.sentItems = [...el.sentItems, { text: op.text, ...(typeof op.saved === "string" ? { saved: op.saved } : {}),
+    op: op.id, stage: "sent" }];
   drawSent(el, op.box);
+  sentCursesRead();   // the next send's saved words, on the board's list as it is now
   el.sendGuard = Date.now();
   if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
   if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
@@ -3461,7 +3464,12 @@ function doSend(id, opts){
   const text = trayMessage(el, typed);
   if (!text){ endPhoneTrace(trace); return; }
   const reopen = boxDone(id);
-  const op = mintOp("send", { box: id, text, reopen });
+  // the words the board will keep, when they are not the ones typed: the
+  // bubble shows them from the press and its flight changes the typed words
+  // to them in the air (sentCurseFree, in card-logic.js); the typed words are
+  // what is sent, and what a take back gives back
+  const saved = sentCurseFree(text);
+  const op = mintOp("send", { box: id, text, reopen, ...(saved !== null ? { saved } : {}) });
   if (!op){
     // the store is full: the words stay in the row, and the card says why.
     // this clears on its own once a reading finds room again
@@ -7857,7 +7865,11 @@ ComposeFormat.preload();
 {
   const curses = document.getElementById("setcurses");
   let asked = 0;
-  const shown = answer => { if (answer && answer.values) curses.checked = answer.values.expletives === "1"; };
+  const shown = answer => {
+    if (!answer || !answer.values) return;
+    curses.checked = answer.values.expletives === "1";
+    SENT_CURSES.on = curses.checked;   // what a send's bubble shows at the press (sentCurseFree)
+  };
   const read = () => {
     const mine = ++asked;
     fetch("/settings").then(r => r.ok ? r.json() : null)
@@ -7872,6 +7884,10 @@ ComposeFormat.preload();
   });
   document.querySelector('#setpage .sp-item[data-section="editor"]')?.addEventListener("click", read);
   read();
+  // the board's word list with it, for the same, and again whenever the app
+  // comes back on screen, since the switch can be flipped on the Mac meanwhile
+  sentCursesRead();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sentCursesRead(); });
 }
 // the profile the Mac keeps (GET /profile): shown here and changed only on the
 // Mac, where it lives. Read when the page starts and again when its section is

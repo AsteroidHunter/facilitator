@@ -3559,9 +3559,11 @@ const ANSWERED_TAIL = new RegExp("[\\s" + ANSWERED_JOINERS + "]+$");
 const ANSWERED_SEEN = new Set(["IMG", "VIDEO", "AUDIO", "CANVAS", "IFRAME", "HR"]);
 
 // a message as the panel shows it: its words with any blank tail taken off, so
-// a message that ends on empty lines ends on its last line with text
+// a message that ends on empty lines ends on its last line with text. a send
+// of this page's whose saved words it has worked out (sentCurseFree) shows
+// those, as the board's copy of it will
 function answeredText(m){
-  return ((m && m.text) || "").replace(ANSWERED_TAIL, "");
+  return ((m && (typeof m.saved === "string" ? m.saved : m.text)) || "").replace(ANSWERED_TAIL, "");
 }
 
 // where the batch has ink: one box per line of text that has something on it,
@@ -3776,6 +3778,12 @@ function sentStills(msg){
     }, { once: true });
   }
 }
+// a row's words drawn into it, a sent bubble's with its files first and its
+// videos' stills (sentOrder, sentStills)
+function answeredFill(msg, text, sent){
+  msg.innerHTML = fmt(sent ? sentOrder(text) : text);
+  if (sent) sentStills(msg);
+}
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   const want = batch.filter(m => !ANSWERED_BLANK.test(answeredText(m)));
@@ -3790,8 +3798,7 @@ function stackAnswered(panel, batch){
       const sent = panel.classList.contains("sent");
       msg = h("div", "answmsg cardmd");
       msg.dataset.text = text;
-      msg.innerHTML = fmt(sent ? sentOrder(text) : text);
-      if (sent) sentStills(msg);
+      answeredFill(msg, text, sent);
       stack.appendChild(msg);
     }
     for (const state of ANSWERED_STATES) msg.classList.toggle(state, m.state === state);
@@ -3953,15 +3960,20 @@ const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 const SENT_GLIDE = [.24, .1, .15, 1];   // the same curve, for a flight whose seat glides
 
 // A send whose saved words are not the ones typed (the board's "Replace curse
-// words" switch: _curse_free in server.py) changes its bubble once, at the
-// moment the page reads the saved words, in the air or after it has landed
-// (sentReword): the words that changed fade out as the saved ones fade in, the
-// words the two share slide from where they stood to where they stand now,
-// and the bubble's edges ease from the box it had to the one it has now, all
-// on one curve over a fifth of a second, so nothing jumps and nothing is
-// swapped in the typing row. A box that changes by more than about 25px takes
-// longer, so no edge moves more than SENT_SWAP_STEP between two frames; it
-// never takes longer than the flight
+// words" switch: _curse_free in server.py) changes its words in the air. The
+// page works the saved words out at the press (sentCurseFree), so the bubble
+// stands for them from the start and the flight goes to it, the width of the
+// sentence with the tag, while the typed words change to the saved ones on
+// the way (armSentMotion, SENT_SWAP_AT_MS): the words that go fade out, the
+// words the two share slide to their places, and the saved words fade in,
+// never two words drawn over each other (sentInkSwap), so nothing jumps and
+// nothing is swapped in the typing row. A bubble whose saved words the page
+// could not work out changes once the board's copy says them, in the air or
+// after it has landed (sentReword), the same way, with its box easing from
+// the one it had to the one it has now on the swap's curve: a fifth of a
+// second, longer for a box that changes by more than about 25px, so no edge
+// moves more than SENT_SWAP_STEP between two frames, and never longer than
+// the flight
 const SENT_SWAP_MS = 200;
 const SENT_SWAP = [.3, 0, .7, 1];
 const SENT_SWAP_EASE = "cubic-bezier(.3,0,.7,1)";
@@ -4098,30 +4110,84 @@ function sentExactScale(node, rect){
   return { x:w > 0 ? rect.width / w : 1, y:h > 0 ? rect.height / h : 1 };
 }
 // The words of a bubble giving way to the same bubble's saved words, in one
-// layer holding both copies at one origin (sentReword): was, the copy as it
-// stood, and now, a copy as it stands, laid over it. Each copy's words are
-// read where it lays them out, in order, before anything in it is touched,
-// and each is then set in a span of its own with the copy's lines held where
-// they stood: a break before every word a line wrapped to, and no wrapping of
-// the copy's own. Set apart, a word measures a hair wider than in its run of
-// text, and the last word of a line that fit to the pixel, as every one-line
-// bubble's does, went down to the next line. The two runs of words are paired
-// from their heads and from their feet, and one for one between when as many
-// changed as came in, since the board swaps a word for another where it stands
-// and keeps the text around it exactly as it was. A word both hold that stands
-// where it stood is drawn by now alone; one that has moved slides there on now
-// from where it stood, on its own offset (position:relative, which lays
-// nothing out again); any other fades out of was as the one in its place comes
-// in on now. Was is drawn only where its words fade out, and words below both
-// copies' cuts are not moved at all. Copies with no words to read, or with a
-// word broken over two lines, which no break before it can hold, are left as
-// they are and fade over whole. Answers the animations, each named "reword",
-// on timing
-function sentInkSwap(was, now, timing){
-  const runs = [];
-  const go = (node, keys) => {
+// layer holding both copies at one origin (sentReword, and the flight's own):
+// was, the copy as it stood, and now, a copy as it stands, laid over it. Each
+// copy's words are read where it lays them out, in order, before anything in
+// it is touched, and each is then set in a span of its own with the copy's
+// lines held where they stood: a break before every word a line wrapped to,
+// and no wrapping of the copy's own. Set apart, a word measures a hair wider
+// than in its run of text, and the last word of a line that fit to the pixel,
+// as every one-line bubble's does, went down to the next line. The two runs of
+// words are paired from their heads and from their feet, and one for one
+// between when as many changed as came in, since the board swaps a word for
+// another where it stands and keeps the text around it exactly as it was.
+// A word both hold that stands where it stood is drawn by now alone. One that
+// has moved along its own line slides there on now from where it stood, on its
+// own offset (position:relative, which lays nothing out again), over the move:
+// move.duration ms on the swap's curve, which is the box's own easing where
+// the box changes with the words. Any other word goes out of was and the one
+// in its place comes in on now, and so does a word both hold that the change
+// sends to another line, which sliding there would draw across the words
+// between. No two words are ever drawn over each other: the words that go
+// fade out (SENT_SWAP_OUT_MS) before a sliding word reaches any of them, the
+// words that come fade in (SENT_SWAP_IN_MS) only once every sliding word has
+// left their places and once the words that go are gone, since the two stand
+// in the same place, and neither stands past the box while it is seen
+// (move.room, the box at each point of the move in the copies' px, or null
+// for a box that holds both throughout). So a longer word fades out while the
+// words after it slide on to make room and then the saved word fades in, and
+// a shorter one fades out before the words after it close up while the saved
+// word fades in. The move waits for the words that go where it has to (delay).
+// Was is drawn only where its words fade out, and words below both copies'
+// cuts are not moved at all. Copies with no words to read, or with a word
+// broken over two lines, which no break before it can hold, go over whole:
+// was out, then now in once the box holds it. Answers the animations, each
+// named "reword", every one on one clock from the change's start, with how
+// long the move waits (delay) and how long the whole change runs (total)
+const SENT_SWAP_OUT_MS = 80;
+const SENT_SWAP_IN_MS = 80;
+// a send whose saved words the page worked out at the press changes in the
+// air from this moment of its flight, its typed words already off the typing
+// row, and its words slide over SENT_SWAP_AIR_MS, so the change is in by about
+// 300ms, a fifth of a second after it starts and well before the bubble is on
+// its seat at SENT_UP_MS
+const SENT_SWAP_AT_MS = 80;
+const SENT_SWAP_AIR_MS = 120;
+// the change's animations on the flight's own clock, from ms of the flight
+function sentInkClock(runs, clock, ms, held){
+  for (const run of runs){
+    if (clock && typeof clock.startTime === "number") run.startTime = clock.startTime + ms;
+    else run.currentTime = (clock && typeof clock.currentTime === "number" ? clock.currentTime : held) - ms;
+  }
+}
+// the bubble as it would stand with the words typed rather than the saved ones
+// the page worked out for them (sentCurseFree), for its flight to start on:
+// its rows laid out with the typed words for as long as it takes to read its
+// box and copy it, and then given their own nodes back, all before anything
+// is drawn. {rect, copy}, or null for a bubble that shows the words typed
+function sentTyped(panel){
+  const swaps = [];
+  for (const row of sentRows(panel)){
+    const m = (panel.sentMsgs || []).find(one => one.op && one.op === row.dataset.op);
+    if (!m || typeof m.saved !== "string") continue;
+    const typed = answeredText({ text:m.text });
+    if (typed === row.dataset.text) continue;
+    swaps.push({ row, typed, kept:[...row.childNodes] });
+  }
+  if (!swaps.length) return null;
+  for (const { row, typed } of swaps){
+    row.replaceChildren();
+    answeredFill(row, typed, panel.classList.contains("sent"));
+  }
+  const rect = panel.getBoundingClientRect(), copy = sentSnapshot(panel);
+  for (const { row, kept } of swaps) row.replaceChildren(...kept);
+  return { rect, copy };
+}
+function sentInkSwap(was, now, move){
+  const runs = [], length = move.duration;
+  const go = (node, keys, delay, duration) => {
     if (typeof node.animate !== "function") return;
-    const run = node.animate(keys, timing);
+    const run = node.animate(keys, { delay, duration, easing:SENT_SWAP_EASE, fill:"both" });
     run.id = "reword";
     runs.push(run);
   };
@@ -4165,9 +4231,10 @@ function sentInkSwap(was, now, timing){
   };
   const a = read(was), b = read(now);
   if (!a.length || !b.length || a.some(one => one.lines > 1) || b.some(one => one.lines > 1)){
-    go(was, [{ opacity:1 }, { opacity:0 }]);
-    go(now, [{ opacity:0 }, { opacity:1 }]);
-    return runs;
+    const comeAt = move.room ? Math.max(SENT_SWAP_OUT_MS, length) : SENT_SWAP_OUT_MS;
+    go(was, [{ opacity:1 }, { opacity:0 }], 0, SENT_SWAP_OUT_MS);
+    go(now, [{ opacity:0 }, { opacity:1 }], comeAt, SENT_SWAP_IN_MS);
+    return { runs, delay:0, total:Math.max(length, comeAt + SENT_SWAP_IN_MS) };
   }
   const pin = (copy, words) => {
     for (const node of [copy, ...copy.querySelectorAll("*")]){
@@ -4205,38 +4272,63 @@ function sentInkSwap(was, now, timing){
   const changedA = a.slice(head, n - foot), changedB = b.slice(head, m - foot);
   if (changedA.length === changedB.length) changedA.forEach((one, i) => pairs.push([one, changedB[i]]));
   else pairs.push(...changedA.map(one => [one, null]), ...changedB.map(one => [null, one]));
-  // where a word stands in its copy, in the copy's own px, and the copy's cut
+  // where a word stands in its copy and how big it is, in the copy's own px,
+  // and the copy's cut
   const placer = copy => {
     const r = copy.getBoundingClientRect(), s = sentExactScale(copy, r);
     const cut = copy.querySelector(".answclip");
     return {
       cut:cut ? (cut.getBoundingClientRect().bottom - r.top) / s.y : Infinity,
-      at:word => { const w = word.getBoundingClientRect(); return { x:(w.left - r.left) / s.x, y:(w.top - r.top) / s.y }; },
+      at:word => {
+        const w = word.getBoundingClientRect();
+        return { x:(w.left - r.left) / s.x, y:(w.top - r.top) / s.y, w:w.width / s.x, h:w.height / s.y };
+      },
     };
   };
   const inA = placer(was), inB = placer(now);
-  const slides = [], fades = [];
+  const slides = [], outs = [], ins = [];
   for (const [one, two] of pairs){
     const from = one && inA.at(one.word), to = two && inB.at(two.word);
     if (one && two && one.text === two.text){
       const dx = from.x - to.x, dy = from.y - to.y;
       if ((Math.abs(dx) <= .25 && Math.abs(dy) <= .25) || (from.y >= inA.cut && to.y >= inB.cut)) continue;
-      slides.push({ word:two.word, dx, dy });
-      continue;
+      if (Math.abs(dy) <= .5){ slides.push({ word:two.word, from, to, dx, dy }); continue; }
     }
-    if (one) fades.push([one.word, 1, 0]);
-    if (two) fades.push([two.word, 0, 1]);
+    if (one) outs.push({ word:one.word, box:from });
+    if (two) ins.push({ word:two.word, box:to });
   }
+  // the move, a step at a time on its curve: whether a sliding word meets any
+  // of the words fading, or one of them stands past the box
+  const STEPS = 48, TOUCH = .5;
+  const meet = (p, q) => p.x < q.x + q.w - TOUCH && q.x < p.x + p.w - TOUCH && p.y < q.y + q.h - TOUCH && q.y < p.y + p.h - TOUCH;
+  const slid = (one, f) => ({ x:one.from.x + (one.to.x - one.from.x) * f, y:one.from.y + (one.to.y - one.from.y) * f, w:one.to.w, h:one.to.h });
+  const past = (box, f) => {
+    if (!move.room) return false;
+    const room = move.room(f);
+    return box.x + box.w > room.width + TOUCH || box.y + box.h > room.height + TOUCH;
+  };
+  const clash = (list, i) => {
+    const f = sentSwapCurve(i / STEPS);
+    return list.some(({ box }) => past(box, f) || slides.some(one => meet(slid(one, f), box)));
+  };
+  // the words that go are gone by the step before a sliding word or the box
+  // first reaches one; the words that come wait for the step after the last
+  let goneBy = null, comeFrom = 0;
+  for (let i = 0; i <= STEPS; i++) if (clash(outs, i)){ goneBy = Math.max(0, i - 1); break; }
+  for (let i = STEPS; i >= 0; i--) if (clash(ins, i)){ comeFrom = Math.min(STEPS, i + 1); break; }
+  const delay = goneBy === null ? 0 : Math.max(0, SENT_SWAP_OUT_MS - goneBy / STEPS * length);
+  const comeAt = Math.max(delay + comeFrom / STEPS * length, outs.length ? SENT_SWAP_OUT_MS : 0);
   was.style.visibility = "hidden";
   for (const { word, dx, dy } of slides){
     word.style.position = "relative";
-    go(word, [{ left:dx + "px", top:dy + "px" }, { left:"0px", top:"0px" }]);
+    go(word, [{ left:dx + "px", top:dy + "px" }, { left:"0px", top:"0px" }], delay, length);
   }
-  for (const [word, from, to] of fades){
-    if (from) word.style.visibility = "visible";
-    go(word, [{ opacity:from }, { opacity:to }]);
+  for (const { word } of outs){
+    word.style.visibility = "visible";
+    go(word, [{ opacity:1 }, { opacity:0 }], 0, SENT_SWAP_OUT_MS);
   }
-  return runs;
+  for (const { word } of ins) go(word, [{ opacity:0 }, { opacity:1 }], comeAt, SENT_SWAP_IN_MS);
+  return { runs, delay, total:Math.max(delay + length, outs.length ? SENT_SWAP_OUT_MS : 0, ins.length ? comeAt + SENT_SWAP_IN_MS : 0) };
 }
 function sentMotionVisible(node){
   if (!node || !node.isConnected) return false;
@@ -4431,19 +4523,36 @@ function armSentMotion(el){
         // whole, from the glide's first frame (follow, below)
         node.sentGlide = { shift, x:rect.left - after.left, y:rect.top - after.top };
       }
+      // A send whose saved words the page worked out at the press
+      // (sentCurseFree) stands in its bubble with them already, so the flight
+      // goes to that bubble, the width of the sentence with the tag, from the
+      // first frame, and starts on the typed words: a copy of the bubble as it
+      // would stand with them (sentTyped), under the saved words' copy, which
+      // is hidden until the words change, in the air (below)
+      const asTyped = sentTyped(target);
       const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
       const targetCopy = sentSnapshot(target);
       targetCopy.style.width = (targetRect.width / targetScale.x) + "px";
       targetCopy.style.height = (targetRect.height / targetScale.y) + "px";
       targetCopy.style.background = "transparent";
+      const copies = [targetCopy];
+      if (asTyped){
+        Object.assign(asTyped.copy.style, { width:asTyped.rect.width / targetScale.x + "px",
+          height:asTyped.rect.height / targetScale.y + "px", background:"transparent" });
+        Object.assign(targetCopy.style, { position:"absolute", left:"0", top:"0" });
+        incoming.appendChild(asTyped.copy);
+        copies.unshift(asTyped.copy);
+      }
       incoming.appendChild(targetCopy);
       // One copy of the words from here on, at full strength the whole way: the
       // typed copy goes in the same task, and the strength a message not yet
       // saved is drawn at is the landed bubble's own, not the flight's, for the
       // words and the grey alike.
       outgoing.remove();
-      targetCopy.style.opacity = "1";
-      for (const pair of targetCopy.sentInk) pair.copy.style.opacity = "1";
+      for (const copy of copies){
+        copy.style.opacity = "1";
+        for (const pair of copy.sentInk) pair.copy.style.opacity = "1";
+      }
       incoming.style.opacity = "1";
       // the row holding the new words, where its first line starts inside the
       // copy, and the size and line it is set in, in viewport px
@@ -4469,8 +4578,10 @@ function armSentMotion(el){
       const grey = panelStyle.getPropertyValue("--bubble-fill").trim() || panelStyle.backgroundColor;
       face.style.background = grey;
       face.style.opacity = "1";
-      const copiedCut = targetCopy.querySelector(".answclip");
-      if (copiedCut) copiedCut.style.setProperty("--answ-fill", grey);
+      for (const copy of copies){
+        const copiedCut = copy.querySelector(".answclip");
+        if (copiedCut) copiedCut.style.setProperty("--answ-fill", grey);
+      }
       // one moment of the flight, ms from the tap, on a seat: the travelling
       // box, and the words riding its left edge and top: their first line's
       // left goes from the typed words' place in it to the bubble's as the box
@@ -4583,14 +4694,15 @@ function armSentMotion(el){
         seat.base = { left:now.left - (off.left - seat.base.left), top:now.top - (off.top - seat.base.top), width:now.width, height:now.height };
         hand();
       };
-      // the saved words, read while the flight is in the air (sentReword):
-      // the seat is the bubble as it is laid out now, and the flight eases over
-      // to it from the seat it was heading for, from this moment of its own
-      // clock, while a copy of the bubble as it stands now is laid over the
-      // one it flies with and the words go over from one to the other
-      // (sentInkSwap) on the same run. a swap still going when another comes
-      // lands first
-      let shown = targetCopy;
+      // other saved words, read while the flight is in the air (sentReword),
+      // where the page worked none out at the press or the board saved others
+      // after all: the seat is the bubble as it is laid out now, and the
+      // flight eases over to it from the seat it was heading for, from this
+      // moment of its own clock and once the words that go allow (the
+      // change's delay), while a copy of the bubble as it stands now is laid
+      // over the one it flies with and the words go over from one to the
+      // other (sentInkSwap). a change still going when another comes lands first
+      let shown = asTyped ? asTyped.copy : targetCopy;
       motion.reword = () => {
         if (done) return;
         const clock = flying[0];
@@ -4602,8 +4714,6 @@ function armSentMotion(el){
         const swap = { left:was.left - laid.left, top:was.top - laid.top, width:was.width - laid.width, height:was.height - laid.height, since:ms };
         swap.length = sentSwapMs(Math.max(Math.abs(swap.left), Math.abs(swap.top),
           Math.abs(swap.left + swap.width), Math.abs(swap.top + swap.height)));
-        seat.swap = swap;
-        end = Math.max(SENT_FLIGHT_MS, Math.ceil(ms + swap.length));
         for (const run of inked.splice(0)) run.finish();
         for (const old of [...incoming.children]) if (old !== shown) old.remove();
         const copy = sentSnapshot(target);
@@ -4613,11 +4723,17 @@ function armSentMotion(el){
         const copyCut = copy.querySelector(".answclip");
         if (copyCut) copyCut.style.setProperty("--answ-fill", grey);
         incoming.appendChild(copy);
-        inked = sentInkSwap(shown, copy, { duration:swap.length, easing:SENT_SWAP_EASE, fill:"both" });
-        for (const run of inked){
-          if (clock && typeof clock.startTime === "number") run.startTime = clock.startTime + ms;
-          else run.currentTime = (clock && typeof clock.currentTime === "number" ? clock.currentTime : held) - ms;
-        }
+        // the words first, since the seat waits as long as the words that go
+        // need (sentInkSwap): the box they stand in is the seat easing over,
+        // in the copies' px at the size the words are drawn at now
+        const k = at(Math.min(ms, SENT_FLIGHT_MS), was).k || 1;
+        const ink = sentInkSwap(shown, copy, { duration:swap.length, room:f => ({
+          width:(was.width - swap.width * f) / (targetScale.x * k), height:(was.height - swap.height * f) / (targetScale.y * k) }) });
+        swap.since = ms + ink.delay;
+        seat.swap = swap;
+        end = Math.max(SENT_FLIGHT_MS, Math.ceil(ms + ink.total));
+        inked = ink.runs;
+        sentInkClock(inked, clock, ms, held);
         shown = copy;
         hand();
       };
@@ -4634,6 +4750,17 @@ function armSentMotion(el){
       const first = at(0, seatAt(0, true));
       place(first.box);
       incoming.style.transform = words(first);
+      // the typed words change to the saved ones in the air, on the flight's
+      // own clock: from SENT_SWAP_AT_MS, the typed words that go fade out, the
+      // words after them slide to their places in the bubble, which already
+      // has its width, and the saved words fade in (sentInkSwap), all in by
+      // SENT_SWAP_AT_MS plus a fifth of a second, well before the bubble is
+      // on its seat (SENT_UP_MS)
+      if (asTyped){
+        inked = sentInkSwap(asTyped.copy, targetCopy, { duration:SENT_SWAP_AIR_MS, room:null }).runs;
+        sentInkClock(inked, flying[0], SENT_SWAP_AT_MS, held);
+        shown = targetCopy;
+      }
       // the page's own frames only watch: whether the flight should stop, and
       // where the seat stands. they write nothing while the seat stays put, so
       // a frame the page is too busy to run holds nothing still. their clock
@@ -4687,14 +4814,168 @@ function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 // (a board too old to say) is drawn as it always was and marks nothing
 const SENT_TAGS = { sent: "Delivered", delivered: "Read", read: "Read" };
 function sentUndelivered(m){ return m.stage === "local"; }
+
+// ---- the saved words, worked out at the press ----------------------------------------
+// With the board's "Replace curse words" switch on, the board saves each curse
+// word of the reader's as [expletive] (_curse_free in server.py, expletives.py).
+// The page learned those words only when the board's copy of the message came
+// back in a reading, which on the phone, a reading every 1.2s over the
+// network, was after the bubble had landed. So the page now works them out
+// itself at the press, from the board's own list (GET /expletives, read when
+// the page starts, when the switch is flipped on it and after every send
+// lands; the page's files hold no copy of it) and on the same rules, and the
+// send's bubble stands for them from the press (sentLaunch, the phone's own
+// operations), its flight changing the typed words to them in the air
+// (armSentMotion). Where the board saves other words after all (a list changed
+// since it was read), its words win when they come, as they always did
+// (sentReword). The rules are expletives.py's, which curse-words-page.test.cjs
+// holds this copy to by running both on the same words:
+//  - a letter is what Python's [^\W\d_] is: \p{L}, \p{Nl} and \p{No};
+//  - the letters a to z match as Python's IGNORECASE matches them, which takes
+//    the dotted and dotless i for i, the Kelvin sign for k and the long s for
+//    s, and the pattern is built without the i flag, which would make a
+//    combining mark (U+0345) a letter;
+//  - white space is what Python's \s and str.strip() take.
+// A browser that cannot build the pattern (no lookbehind) works nothing out,
+// and its bubbles take the board's words when they come, as before.
+const CURSE_LETTER = "[\\p{L}\\p{Nl}\\p{No}]";
+const CURSE_SPACE = "\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const CURSE_FOLD = { i:"\\u0130\\u0131", k:"\\u212a", s:"\\u017f" };
+// what the page knows: the switch and the board's list made into one pattern
+// (curseWords), and the switch as the page reads it, which the Mac board
+// answers from its live settings store (index.html sets it) and the phone from
+// its last reading
+const SENT_CURSES = { on:false, words:null, switch:null, asked:0 };
+// one character of the board's rules as a pattern: a letter as Python's
+// IGNORECASE matches it, anything else as itself
+function curseChar(c){
+  const low = c.toLowerCase();
+  if (low >= "a" && low <= "z" && low.length === 1) return "[" + low + low.toUpperCase() + (CURSE_FOLD[low] || "") + "]";
+  return /[\\^$.*+?()[\]{}|/]/.test(c) ? "\\" + c : c;
+}
+// the board's list as WordList in expletives.py makes it: a [never] word kept as
+// it is, tried first at each place, then an [alone] word on its own, then an
+// [anywhere] root, every letter of a root free to repeat and each taking the
+// endings; null for an empty list or a browser that cannot build it
+function curseWords(rules){
+  if (!rules || !Array.isArray(rules.anywhere) || !Array.isArray(rules.alone) || !Array.isArray(rules.never)) return null;
+  const lit = word => [...word].map(curseChar).join("");
+  const stretch = word => [...word].map(c => curseChar(c) + "+").join("");
+  const L = CURSE_LETTER, ends = (rules.endings || []).map(lit).join("|"), infix = (rules.infixes || []).map(lit).join("|");
+  const hit = [];
+  if (rules.alone.length) hit.push("(?<!" + L + ")(?:" + rules.alone.map(stretch).join("|") + ")(?:" + ends + ")?(?!" + L + ")");
+  if (rules.anywhere.length)
+    hit.push("(?:" + rules.anywhere.map(stretch).join("|") + ")(?:(?:" + ends + ")(?!" + L + ")|(?:" + infix + "))?");
+  if (!hit.length) return null;
+  const keep = rules.never.length ? "(?<keep>(?<!" + L + ")(?:" + rules.never.map(lit).join("|") + ")(?!" + L + "))|" : "";
+  try {
+    return { pattern:new RegExp(keep + "(?<hit>" + hit.join("|") + ")", "gu"), tag:String(rules.tag), linkTag:String(rules.linkTag),
+      address:new RegExp("(?:" + lit("http") + curseChar("s") + "?:\\/\\/|\\/" + lit("uploads") + "\\/)[^" + CURSE_SPACE + "<>]*", "gu") };
+  } catch (e) { return null; }
+}
+const CURSE_EDGES = new RegExp("^[" + CURSE_SPACE + "]+|[" + CURSE_SPACE + "]+$", "gu");
+const CURSE_ANY_SPACE = new RegExp("[" + CURSE_SPACE + "]", "u");
+// the text as the board reads a message's body: stripped as Python strips
+const curseStrip = text => text.replace(CURSE_EDGES, "");
+// each [words](target) in the text as _markdown_links reads one: the words' span
+// and the target's
+function curseMarkdownLinks(text){
+  if (!text.includes("](")) return [];
+  const n = text.length, escaped = new Array(n).fill(false);
+  for (let k = 0, run = 0; k < n; k++){
+    escaped[k] = run % 2 === 1;
+    run = text[k] === "\\" ? run + 1 : 0;
+  }
+  const nextClose = new Array(n + 1).fill(-1);
+  for (let k = n - 1; k >= 0; k--) nextClose[k] = text[k] === "]" && !escaped[k] ? k : nextClose[k + 1];
+  const closes = new Map(), opened = [];
+  for (let k = 0; k < n; k++){
+    if (escaped[k]) continue;
+    if (text[k] === "(") opened.push(k);
+    else if (text[k] === ")" && opened.length) closes.set(opened.pop(), k);
+  }
+  const found = [];
+  let at = text.indexOf("[");
+  while (at >= 0){
+    const close = !escaped[at] ? nextClose[at + 1] : -1;
+    const end = close >= 0 && closes.has(close + 1) ? closes.get(close + 1) : -1;
+    if (end < 0){ at = text.indexOf("[", at + 1); continue; }
+    found.push([[at + 1, close], [close + 2, end]]);
+    at = text.indexOf("[", end + 1);
+  }
+  return found;
+}
+// spans in order, with the ones that overlap joined (_merged)
+function curseMerged(spans){
+  const out = [];
+  for (const [s, e] of [...spans].sort((a, b) => a[0] - b[0] || a[1] - b[1])){
+    if (out.length && s <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+// whether s to e overlaps one of the spans (_inside)
+function curseInside(spans, s, e){
+  let lo = 0, hi = spans.length;
+  while (lo < hi){ const mid = (lo + hi) >> 1; if (spans[mid][0] < e) lo = mid + 1; else hi = mid; }
+  return lo > 0 && spans[lo - 1][1] > s;
+}
+// the text with every curse word replaced by its tag, as WordList.mask does:
+// a link or address left alone, the words of a markdown link taking the
+// escaped tag
+function curseMask(words, text){
+  if (!words || !text) return text;
+  const kept = [...text.matchAll(words.address)].map(m => [m.index, m.index + m[0].length]);
+  const labels = [];
+  for (const [label, [s, e]] of curseMarkdownLinks(text)){
+    labels.push(label);
+    const target = curseStrip(text.slice(s, e));
+    if ((target.startsWith("<") && target.endsWith(">")) || !CURSE_ANY_SPACE.test(target)) kept.push([s, e]);
+  }
+  const keep = curseMerged(kept), inLabel = curseMerged(labels);
+  let out = "", at = 0, any = false;
+  for (const m of text.matchAll(words.pattern)){
+    if (m.groups.hit === undefined) continue;
+    const s = m.index, e = s + m[0].length;
+    if (curseInside(keep, s, e)) continue;
+    out += text.slice(at, s) + (curseInside(inLabel, s, e) ? words.linkTag : words.tag);
+    at = e;
+    any = true;
+  }
+  return any ? out + text.slice(at) : text;
+}
+// the words the board will keep of a send of text, when the switch is on and
+// they are not the words typed; null when nothing changes or the page cannot
+// tell, and the bubble shows the typed words until the board's come
+function sentCurseFree(text){
+  const on = typeof SENT_CURSES.switch === "function" ? SENT_CURSES.switch() : SENT_CURSES.on;
+  if (!on || !SENT_CURSES.words || typeof text !== "string") return null;
+  const body = curseStrip(text), kept = curseMask(SENT_CURSES.words, body);
+  return kept !== body ? kept : null;
+}
+// the board's switch and list, read again; the newest answer stands
+function sentCursesRead(){
+  if (typeof fetch !== "function") return;
+  const mine = ++SENT_CURSES.asked;
+  fetch("/expletives").then(r => r.ok ? r.json() : null).then(answer => {
+    if (mine !== SENT_CURSES.asked || !answer) return;
+    SENT_CURSES.on = answer.on === true;
+    SENT_CURSES.words = curseWords(answer.rules);
+  }, () => {});
+}
+
 // a send on its way to the board, drawn faded from the press: el is the card's
 // page object, which holds its sentItems and its guard. the board's readings
 // are kept from replacing the list for as long as any send is out, since one
 // asked before the board had the words knows nothing of them. every send is an
 // operation, its id minted here before the first try and kept for every try
-// after it; route is the path it is posted to, without the id
+// after it; route is the path it is posted to, without the id. saved is the
+// words the board will keep, when they are not the ones typed (sentCurseFree):
+// the bubble shows them, and the typed words are what is sent, kept in the
+// draft and given back
 function sentLaunch(el, text, route){
-  const item = { text, stage: "local", op: newOpId(), ts: Date.now(), route };
+  const saved = route ? sentCurseFree(text) : null;
+  const item = { text, stage: "local", op: newOpId(), ts: Date.now(), route, ...(saved !== null ? { saved } : {}) };
   el.sentItems = [...el.sentItems, item];
   el.sendsOut = (el.sendsOut || 0) + 1;
   el.sendGuard = Infinity;
@@ -4714,6 +4995,8 @@ function sentLanded(el, item){
   sentSettled(el);
   syncSent(el, el.sentItems);
   draftSave(draftCardOf(el));
+  // the next send's saved words are worked out on the board's list as it is now
+  if (item.route) sentCursesRead();
 }
 // one try of a send, under the id it was minted with. the board keeps a receipt
 // beside the message, so a try asked again after a lost answer is answered from
@@ -5119,8 +5402,10 @@ function syncSent(el, batch, arrive){
 }
 
 // the saved words, when they are not the words a bubble shows: the board saves
-// a curse word as [expletive] (_curse_free in server.py), and a send's bubble
-// shows the typed words from the press until the page reads what was saved.
+// a curse word as [expletive] (_curse_free in server.py). a send's bubble shows
+// the saved words the page worked out at the press (sentCurseFree), and the
+// typed words from the press until the board's copy says otherwise where it
+// could work none out, or where the board saved other words after all.
 // was is the bubble before its rows change: the flight still carrying it, which
 // keeps its own copy, or the bubble's box and a copy of it, for a bubble on
 // screen that nothing else is moving; null for no change, or one shown at once
@@ -5143,9 +5428,10 @@ function sentRewording(el, panel){
 // the bubble's grey cut out by the four clips (sentClips) easing from the box
 // it had to the box it has now, and over it the copy of the bubble as it stood
 // and one as it stands, riding the box's top left, their words going over
-// from one to the other (sentInkSwap), all on the swap's curve. the bubble
-// counts as busy until it is itself again (sentBusy), the frame after the
-// run, or at once when something lands it first (sentRewording)
+// from one to the other (sentInkSwap), the box on the swap's curve once the
+// words that go need it to move (the change's delay). the bubble counts as
+// busy until it is itself again (sentBusy), the frame after the change's last,
+// or at once when something lands it first (sentRewording)
 function sentReword(el, panel, was){
   if (was.flight){ was.flight.reword(); return; }
   const now = panel.getBoundingClientRect(), s = sentExactScale(panel, now);
@@ -5183,11 +5469,16 @@ function sentReword(el, panel, was){
   for (const [part] of hid) part.style.visibility = "hidden";
   panel.style.setProperty("background", "transparent");
   panel.appendChild(layer);
-  const timing = { duration:length, easing:SENT_SWAP_EASE, fill:"both" };
+  // the words first, since the box waits as long as the words that go need
+  // (sentInkSwap); in the copies' px, which are the bubble's, the box is the
+  // one easing from the box it had to the one it has
+  const ink = sentInkSwap(was.copy, copy, { duration:length, room:f => ({
+    width:from.width + (to.width - from.width) * f, height:from.height + (to.height - from.height) * f }) });
+  const timing = { delay:ink.delay, duration:length, easing:SENT_SWAP_EASE, fill:"both" };
   const runs = [...box.clips, box.ground].map((node, n) =>
     node.animate([{ transform:sentShift(box.layers(from)[n]) }, { transform:sentShift(box.layers(to)[n]) }], timing));
   runs.push(words.animate([{ transform:sentShift([from.left, from.top]) }, { transform:"translate(0px,0px)" }], timing));
-  runs.push(...sentInkSwap(was.copy, copy, timing));
+  runs.push(...ink.runs);
   const run = panel.sentReword = { land:null };
   let raf = 0, over = false;
   // quiet: landed by a redraw, which asks for the next merge itself
@@ -5213,7 +5504,7 @@ function sentReword(el, panel, was){
     if (over) return;
     if (!panel.isConnected || stillMotion()){ land(); return; }
     const t = typeof clock.currentTime === "number" ? clock.currentTime : 0;
-    raf = requestAnimationFrame(t >= length ? land : step);
+    raf = requestAnimationFrame(t >= ink.total ? land : step);
   };
   raf = requestAnimationFrame(step);
 }

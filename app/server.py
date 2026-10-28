@@ -591,6 +591,14 @@ Endpoints:
                                whether it was. Answers {ok, rev, values}.
                                Never moves the board's revision, so a box
                                dragged on the desktop sends no phone a new board
+  GET  /expletives          -> {on, rules}: whether "Replace curse words" is on,
+                               and the word list as the pages need it to work
+                               out a send's saved words at the press
+                               (expletives.page_rules: anywhere, alone, never,
+                               endings, infixes, tag, linkTag), or rules null
+                               when the list cannot be read. The board still
+                               does the swap itself (_curse_free), and its
+                               words are the ones kept
   GET  /spotify/session     -> the Spotify sign-in magic box 1 plays with,
                                {access, refresh, expires, scopes}, or {} when
                                none is kept: in settings.json, owner-only, so a
@@ -8435,6 +8443,22 @@ def _curse_free(text: str) -> str | None:
         return None
 
 
+def _get_expletives(q: Query, _):
+    """The switch and the board's own word list as its pages need them to work
+    out a message's saved words at the press (card-logic.js, curseWords), so a
+    sent bubble takes them in the air rather than when the board's copy comes
+    back: on, and the rules (expletives.page_rules), or null rules when the
+    list cannot be read, which leaves the page to wait for the board's words."""
+    with _settings_lock:
+        on = _settings_file()["values"].get(EXPLETIVES_SETTING) == "1"
+    try:
+        import expletives
+        rules = expletives.page_rules()
+    except (ImportError, OSError, ValueError):
+        rules = None
+    return 200, {"on": on, "rules": rules}
+
+
 # the via values /send keeps on a message: the small card, and the voice layer
 SEND_VIAS = ("mini", "voice")
 # the by values /send keeps on a message: an agent that sent it for the reader
@@ -11986,6 +12010,8 @@ ROUTES = [
     Route("/board-settings.js", _endpoint(_get_board_settings_js), methods=["GET"]),
     Route("/settings", _endpoint(_get_settings), methods=["GET"]),
     Route("/settings", _endpoint(_post_settings, "text"), methods=["POST"]),
+    # the curse word switch and list, for the pages' own swap at the press
+    Route("/expletives", _endpoint(_get_expletives), methods=["GET"]),
     Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
     Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),

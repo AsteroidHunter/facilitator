@@ -1,16 +1,21 @@
 // A send whose saved words are not the typed ones (the board's "Replace curse
-// words" switch): the reading that brings the saved words lands while the
-// bubble is in the air, or after it has landed, and the bubble changes to them
-// at that moment, gently. Its edges ease from the box it had to the box it has
-// now on one curve over a fifth of a second, and its words go over from one
-// copy to the other on the same run, at Mac size and at phone size. Every
-// frame at 60 a second is checked against the same flight with nothing
-// swapped: no edge may move more than EDGE_LIMIT further than that flight's
-// between two frames. The same reading taken the way the page took it before
-// (the seat simply moved under the flight) moves an edge about 12px in one
-// frame, and the same check catches it. Boxes are synthetic viewport
-// rectangles laid out by hand; no layout engine and no browser runs, so
-// nothing here claims how it looks.
+// words" switch). Worked out by the page at the press (sentCurseFree), the
+// saved words stand in the bubble from the start: the flight is the clean
+// flight to the bubble the tagged sentence fills, frame for frame, and starts
+// on a copy of the bubble as the typed words lay it out, whose words change to
+// the saved ones in the air, done before the bubble is on its seat. Where the
+// page could work none out, the reading that brings the saved words lands
+// while the bubble is in the air, or after it has landed, and the bubble
+// changes to them at that moment, gently: its edges ease from the box it had
+// to the box it has now on one curve over a fifth of a second, and its words
+// go over from one copy to the other, the typed words gone before the saved
+// ones come, at Mac size and at phone size. Every frame at 60 a second is
+// checked against the same flight with nothing swapped: no edge may move more
+// than EDGE_LIMIT further than that flight's between two frames. The same
+// reading taken the way the page took it before (the seat simply moved under
+// the flight) moves an edge about 12px in one frame, and the same check
+// catches it. Boxes are synthetic viewport rectangles laid out by hand; no
+// layout engine and no browser runs, so nothing here claims how it looks.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
@@ -20,6 +25,10 @@ const { drawn, running, numbers } = require("./sent-flight-drawn.cjs");
 const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
 const FLIGHT_MS = 650;
 const SWAP_MS = 200;
+const AT_MS = 80;        // a change worked out at the press starts this far into the flight
+const UP_MS = 430;       // and the bubble is on its seat by this
+const OUT_MS = 80;       // the words that go fade out over this, from the change's start
+const IN_MS = 80;        // and the words that come fade in over this, once nothing stands in their way
 const EDGE_LIMIT = 4;    // px between two frames at 60 a second, against the flight with nothing swapped
 const FRAME = 1000 / 60;
 const READ_MS = 100 / 3; // the reading lands two frames into the flight, as the Mac's does (about 35ms)
@@ -114,6 +123,21 @@ function element(tag = "div", cls = "") {
       return out;
     },
     querySelector: selector => node.querySelectorAll(selector)[0] || null,
+    // a row's words drawn again (answeredFill) and its own nodes given back
+    // (sentTyped): the bubble's layout follows the words it holds (onFill)
+    get childNodes() { return node.children; },
+    set innerHTML(text) {
+      for (const kid of [...node.children]) kid.remove();
+      const block = element("p");
+      block.textContent = String(text);
+      node.appendChild(block);
+      if (node.onFill) node.onFill(String(text));
+    },
+    replaceChildren(...kids) {
+      for (const kid of [...node.children]) kid.remove();
+      kids.forEach(kid => node.appendChild(kid));
+      if (node.onFill && kids.length) node.onFill(kids.map(kid => kid.textContent).join(""));
+    },
     cloneNode(deep) {
       const copy = element(tag, node.className);
       copy.textContent = node.textContent;
@@ -153,6 +177,7 @@ function scene(surface) {
     cancelAnimationFrame: () => {},
     setTimeout: () => 0, clearTimeout: () => {},
     matchMedia: () => ({ matches: false }),
+    CardMarkdown: { render: text => text, safeImageTarget: () => false },
     getComputedStyle: node => ({
       visibility: "visible", display: "block", transform: node.transform, opacity: node.ink,
       fontSize: node.font ? node.font + "px" : "", lineHeight: node.line + "px",
@@ -175,8 +200,10 @@ function scene(surface) {
   const sentwrap = element("div", "sentwrap");
   card.appendChild(sentwrap);
   const el = { box: card, ta, sent: null, sentwrap, answwrap: null, reply: null };
-  // the bubble the page draws for the send, with its one row, laid out on r
-  const bubble = (r, text) => {
+  // the bubble the page draws for the send, with its one row, laid out on r;
+  // typed, for a send whose saved words (text) the page worked out at the
+  // press, laid out on typedAt while the row holds the typed words
+  const bubble = (r, text, typed, typedAt) => {
     const p = element("div", "answered sent");
     p.radius = surface.round;
     p.fill = "rgb(243, 243, 243)";
@@ -193,9 +220,10 @@ function scene(surface) {
     row.appendChild(block);
     stack.appendChild(row);
     sentwrap.appendChild(p);
-    p.sentMsgs = [{ text, op: "op-1", stage: "sent" }];
+    p.sentMsgs = [typed ? { text: typed, saved: text, op: "op-1", stage: "local" } : { text, op: "op-1", stage: "sent" }];
     el.sent = p;
     lay(p, r);
+    if (typed) row.onFill = words => lay(p, words === typed ? typedAt : r);
     return p;
   };
   const lay = (p, r) => {
@@ -295,24 +323,27 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     assert.ok(worst > 10, `the old way moved an edge only ${worst.toFixed(2)}px in one frame`);
   });
 
-  test(`${name}: in the air, the saved words' copy is laid over the typed one and the two fade over on the swap's run, on the flight's clock`, () => {
+  test(`${name}: in the air, the saved words' copy is laid over the typed one, and the typed words go before the saved ones come, on the flight's clock`, () => {
     const s = fly(surface, (one, p) => saved(one, p, surface));
     const copies = s.shell().querySelector(".sentmorph-target").children;
     assert.equal(copies.length, 2, "the saved words' copy is not laid over the typed one");
     assert.equal(copies[1].style.position, "absolute", "the saved words' copy does not stand on the typed one's origin");
-    // the stand-in lays out no text, so the copies fade over whole: the typed
-    // words out, the saved ones in, on the swap's curve and length, from the
-    // moment the reading landed
+    // the stand-in lays out no text, so the copies go over whole, one after
+    // the other and never drawn over each other: the typed words out first,
+    // and the saved ones in once the box has eased to the bubble they fill,
+    // from the moment the reading landed
     const fades = copies.map(copy => running(copy));
     assert.deepEqual(fades.map(run => run && Array.from(run.keys, k => k.opacity)), [[1, 0], [0, 1]]);
     const length = s.context.sentSwapMs(surface.typedBox.left - surface.savedBox.left);
     assert.ok(length >= SWAP_MS && length < SWAP_MS + 5, `a change of about 25px takes ${length}ms`);
     for (const run of fades) {
       assert.equal(run.id, "reword");
-      assert.equal(run.options.duration, length);
       assert.equal(run.options.easing, "cubic-bezier(.3,0,.7,1)");
       assert.equal(run.currentTime, 0, "the fade does not start at the reading");
     }
+    assert.deepEqual([fades[0].options.delay, fades[0].options.duration], [0, OUT_MS], "the typed words do not go first");
+    assert.deepEqual([fades[1].options.delay, fades[1].options.duration], [length, IN_MS],
+      "the saved words come before the box holds them");
     // the copy is the saved bubble's size in the copies' own px (the typed
     // bubble's scale, read at the press), and the real bubble stays hidden
     // until the landing
@@ -337,8 +368,9 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     saved(s, p, surface);
     const clip = s.shell().querySelector(".sentmorph-clip");
     const length = s.context.sentSwapMs(surface.typedBox.left - surface.savedBox.left);
-    assert.equal(running(clip).options.duration, Math.ceil(550 + length), "the flight was not handed over for the swap's run");
-    const end = Math.ceil(550 + length);
+    // the box eases over the swap's length, and the saved words come in after it
+    assert.equal(running(clip).options.duration, Math.ceil(550 + length + IN_MS), "the flight was not handed over for the swap's run");
+    const end = Math.ceil(550 + length + IN_MS);
     let before = edgesAt(s, 550);
     for (let ms = 550 + FRAME; ms <= end; ms += FRAME) {
       const now = edgesAt(s, ms);
@@ -353,7 +385,7 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     assert.equal(s.shell(), null);
   });
 
-  test(`${name}: saved words read after the landing change the landed bubble on the swap's curve, its word left where it is`, () => {
+  test(`${name}: saved words read after the landing change the landed bubble on the swap's curve, its word left where it is, the typed words gone before the saved ones come`, () => {
     const s = fly(surface);
     for (let ms = 3 * FRAME; ms <= FLIGHT_MS + 2 * FRAME; ms += FRAME) s.frame(ms);
     assert.equal(s.shell(), null, "the flight did not land");
@@ -392,12 +424,14 @@ for (const [name, surface] of Object.entries(SURFACES)) {
       for (const k of Object.keys(now)) assert.ok(Math.abs(now[k] - prev[k]) <= EDGE_LIMIT, `the ${k} moved ${Math.abs(now[k] - prev[k])}px at ${ms}ms`);
       prev = now;
     }
-    // the words: the copy as it stood and the copy as it stands fade over
+    // the words: the copy as it stood goes, and the copy as it stands comes
+    // once the box has eased to it, never the two over each other
     const copies = layer.querySelector(".sentmorph-target").children;
     assert.equal(copies.length, 2);
     assert.deepEqual(copies.map(copy => Array.from(running(copy).keys, k => k.opacity)), [[1, 0], [0, 1]]);
+    assert.deepEqual(copies.map(copy => [running(copy).options.delay, running(copy).options.duration]), [[0, OUT_MS], [length, IN_MS]]);
     // the bubble is itself again the frame after the run's last one
-    for (const node of layer.querySelectorAll("*")) for (const run of node.animations) run.currentTime = length;
+    for (const node of layer.querySelectorAll("*")) for (const run of node.animations) run.currentTime = length + IN_MS;
     s.frame(FLIGHT_MS + 100);
     assert.ok(s.p.querySelector(".sentreword"), "the layer went before the run's last frame was drawn");
     s.frame(FLIGHT_MS + 117);
@@ -431,3 +465,55 @@ test("a fifth of a second for a change of up to about 25px, longer for more so n
     assert.ok(worst <= 3.01, `a ${change}px change over ${length}ms moves ${worst.toFixed(2)}px in a frame`);
   }
 });
+
+for (const [name, surface] of Object.entries(SURFACES)) {
+  test(`${name}: saved words worked out at the press fly at the tagged sentence's width and change in the air, done before the bubble is on its seat`, () => {
+    // the page knew the saved words at the press (sentCurseFree), so the bubble
+    // stands for them from the start: the flight is the clean flight to it,
+    // frame for frame, and starts on a copy of the bubble as the typed words
+    // would lay it out
+    const s = scene(surface);
+    const motion = s.context.armSentMotion(s.el);
+    const p = s.bubble(surface.savedBox, "that is so [expletive]", "that is so fucked", surface.typedBox);
+    motion.play();
+    const plain = scene(surface);
+    const plainMotion = plain.context.armSentMotion(plain.el);
+    plain.bubble(surface.savedBox, "that is so [expletive]");
+    plainMotion.play();
+    for (let ms = 0; ms <= FLIGHT_MS + 1e-9; ms += FRAME) {
+      const a = edgesAt(s, ms), b = edgesAt(plain, ms);
+      for (const k of Object.keys(a)) assert.ok(Math.abs(a[k] - b[k]) <= 1e-6, `at ${ms.toFixed(1)}ms the ${k} is ${a[k]}, not the clean flight's ${b[k]}`);
+    }
+    const end = edgesAt(s, FLIGHT_MS), want = surface.savedBox;
+    assert.ok(Math.abs(end.r - end.l - want.width) <= 1e-6, `the bubble lands ${end.r - end.l}px wide, not the tagged sentence's ${want.width}`);
+    // the copies: the typed words' bubble, then the saved words' over it
+    const copies = s.shell().querySelector(".sentmorph-target").children;
+    assert.equal(copies.length, 2);
+    const scale = surface.savedBox.width / Math.round(surface.savedBox.width);
+    assert.ok(Math.abs(parseFloat(copies[0].style.width) - surface.typedBox.width / scale) < 1e-9, `the typed copy is ${copies[0].style.width} wide`);
+    assert.ok(Math.abs(parseFloat(copies[1].style.width) - surface.savedBox.width / scale) < 1e-9, `the saved copy is ${copies[1].style.width} wide`);
+    assert.equal(copies[1].style.position, "absolute");
+    assert.equal(copies[0].querySelector("p").textContent, "that is so fucked");
+    assert.equal(copies[1].querySelector("p").textContent, "that is so [expletive]");
+    // the real bubble has its own words back, and its own box
+    assert.equal(p.querySelector(".answmsg").children.length, 1);
+    assert.equal(p.querySelector(".answmsg").children[0].textContent, "that is so [expletive]");
+    assert.deepEqual(p.layout, surface.savedBox);
+    // the change, on the flight's own clock from SENT_SWAP_AT_MS: the stand-in
+    // lays out no words, so the copies go over whole, the typed words out and
+    // then the saved ones in, all in well before the box is on its seat
+    const fades = copies.map(copy => running(copy));
+    assert.deepEqual(fades.map(run => Array.from(run.keys, k => k.opacity)), [[1, 0], [0, 1]]);
+    assert.deepEqual(fades.map(run => [run.options.delay, run.options.duration]), [[0, OUT_MS], [OUT_MS, IN_MS]]);
+    for (const run of fades) {
+      assert.equal(run.id, "reword");
+      assert.ok(Math.abs(run.currentTime - (FRAME - AT_MS)) < 1e-9, `the change starts at ${FRAME - run.currentTime}ms of the flight`);
+    }
+    assert.ok(AT_MS + OUT_MS + IN_MS <= UP_MS, "the change is not in before the bubble is on its seat");
+    // and the flight hands over at its own length, with nothing left to change
+    assert.equal(running(s.shell().querySelector(".sentmorph-clip")).options.duration, FLIGHT_MS);
+    for (let ms = FRAME; ms <= FLIGHT_MS + 2 * FRAME; ms += FRAME) s.frame(ms);
+    assert.ok(s.shell() === null, "the flight did not hand over at its own length");
+    assert.ok(s.context.sentRewording(s.el, p) === null, "the bubble would change again when the board's copy says the same words");
+  });
+}

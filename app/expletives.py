@@ -269,6 +269,19 @@ def mask(text: str, path=LIST_PATH) -> str:
     return word_list(path).mask(text)
 
 
+def page_rules(path=LIST_PATH) -> dict:
+    """What the board's pages need to work out the saved words themselves at
+    the moment a message is sent (GET /expletives in server.py, curseWords in
+    card-logic.js): the list's three kinds of entry, each in the order the
+    pattern tries them, the endings, and the two tags. The matching itself is
+    the page's own copy of WordList's, which curse-words-page.test.cjs holds
+    to this module's by running both on the same words. A list that cannot be
+    read raises OSError."""
+    words = word_list(path)
+    return {"anywhere": list(words.anywhere), "alone": list(words.alone), "never": list(words.never),
+            "endings": list(ENDINGS), "infixes": list(INFIXES), "tag": TAG, "linkTag": LINK_TAG}
+
+
 # ---- the scan and the dry run ------------------------------------------------------
 # Both read the person's own messages out of the transcript, read-only: every
 # "user" row an agent did not send, and every "widget" row (the person's
