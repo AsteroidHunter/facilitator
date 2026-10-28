@@ -244,10 +244,30 @@ test("with the switch off again the words are kept as sent", async () => {
   ok(await page("/settings", JSON.stringify({ expletives: "1" })), "the flip on");
 });
 
+test("the pages read the switch and the board's own list from /expletives, on the Mac and the phone alike", async () => {
+  // what a page works a send's saved words out with at the press
+  // (sentCurseFree in card-logic.js): the list as expletives.page_rules hands
+  // it over, read from the board's file, and the switch as it stands
+  const rules = JSON.parse(execFileSync(PYTHON, ["-B", "-c", "import json, expletives; print(json.dumps(expletives.page_rules()))"],
+    { cwd: board.app, encoding: "utf8" }));
+  for (const read of [() => page("/expletives", "", "GET"), () => phone("/expletives", "", "GET")]) {
+    const said = ok(await read(), "/expletives");
+    assert.equal(said.on, true);
+    assert.deepEqual(said.rules, rules);
+    assert.ok(said.rules.anywhere.includes("fuck") && said.rules.alone.includes("ass") && said.rules.never.length);
+    assert.equal(said.rules.tag, "[expletive]");
+  }
+  ok(await page("/settings", JSON.stringify({ expletives: null })), "the flip off");
+  assert.equal(ok(await page("/expletives", "", "GET"), "/expletives").on, false);
+  ok(await page("/settings", JSON.stringify({ expletives: "1" })), "the flip on");
+});
+
 test("a word list that cannot be read refuses the message and keeps nothing", async () => {
   const list = path.join(board.app, "expletives.txt");
   await rename(list, list + ".away");
   try {
+    // and the pages are told there is no list to work anything out with
+    assert.deepEqual(ok(await page("/expletives", "", "GET"), "/expletives"), { on: true, rules: null });
     const before = (await stored("8")).pending.length;
     const refused = await page("/send?box=8&op=pagesend0099", "this shit must not be kept");
     assert.equal(refused.status, 503);

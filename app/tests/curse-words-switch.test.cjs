@@ -83,11 +83,14 @@ function macPage(stored = {}) {
     feedbackBox: () => ({ setReady() {} }),
     feedbackOverlay: () => ({ open() {}, close() {}, seat() {} }),
     controlShiftEnter: () => false, bareControlEnter: () => false,
+    // card-logic.js's side of the page's own swap at the press (sentCurseFree)
+    SENT_CURSES: { on: false, switch: null }, sentCursesRead() { reads.count++; },
   });
+  const reads = { count: 0 };
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
   const curses = element("setcurses");
   return {
-    store, curses,
+    store, curses, reads, curseSwitch: () => context.SENT_CURSES.switch(),
     flip(on) { curses.checked = on; curses.events.change(); },
     open() { element("setbtn").events.click(); },
   };
@@ -108,15 +111,33 @@ test("on the Mac page the switch is off until the board's setting says 1, and a 
   assert.equal(on.curses.checked, false, "opening the page does not show the board's choice");
 });
 
+test("on the Mac page a send's saved words follow the live switch, and the board's list is read at the start", () => {
+  // what sentCurseFree works the saved words out with at the press: the
+  // board's setting as this window's store holds it now, and the board's list
+  const page = macPage();
+  assert.equal(page.reads.count, 1, "the board's word list was not read as the page started");
+  assert.equal(page.curseSwitch(), false);
+  page.flip(true);
+  assert.equal(page.curseSwitch(), true, "the switch flipped here is not what a send reads");
+  page.store.delete("expletives");    // turned off in another window or on the phone
+  assert.equal(page.curseSwitch(), false, "a switch turned off elsewhere is not what a send reads");
+});
+
 function phonePage({ values = {}, refuse = false } = {}) {
-  const board = { values: { ...values }, calls: [], refuse };
+  const board = { values: { ...values }, calls: [], refuse, listReads: 0 };
   const curses = { checked: false, events: {}, addEventListener(type, fn) { this.events[type] = fn; } };
   const item = { events: {}, addEventListener(type, fn) { this.events[type] = fn; } };
+  const shown = { visibilityState: "visible", events: {} };
   const context = vm.createContext({
     document: {
       getElementById: id => (id === "setcurses" ? curses : null),
       querySelector: sel => (sel === '#setpage .sp-item[data-section="editor"]' ? item : null),
+      get visibilityState() { return shown.visibilityState; },
+      addEventListener(type, fn) { shown.events[type] = fn; },
     },
+    // card-logic.js's side of the page's own swap at the press (sentCurseFree)
+    SENT_CURSES: { on: false },
+    sentCursesRead() { board.listReads++; },
     fetch: async (url, init = {}) => {
       board.calls.push([url, init.method || "GET", init.body ? JSON.parse(init.body) : null]);
       if (init.method === "POST") {
@@ -130,7 +151,8 @@ function phonePage({ values = {}, refuse = false } = {}) {
   });
   vm.runInContext(between(PHONE, "// whether the reader's curse words are saved as [expletive]", "// the profile the Mac keeps"), context);
   return {
-    board, curses,
+    board, curses, sendsMask: () => context.SENT_CURSES.on,
+    comeBack() { shown.visibilityState = "visible"; shown.events.visibilitychange(); },
     async flip(on) { curses.checked = on; curses.events.change(); await settle(); },
     async openSection() { item.events.click(); await settle(); },
   };
@@ -163,4 +185,15 @@ test("on the phone a board switched on shows on, a change on the Mac shows when 
   await settle();
   await refused.flip(true);
   assert.equal(refused.curses.checked, false, "a flip the board did not keep stays shown");
+});
+
+test("on the phone a send's saved words follow the switch as last read, and the board's list is read at the start and on coming back", async () => {
+  const page = phonePage({ values: { expletives: "1" } });
+  await settle();
+  assert.equal(page.board.listReads, 1, "the board's word list was not read as the app started");
+  assert.equal(page.sendsMask(), true, "a switch read on is not what a send reads");
+  await page.flip(false);
+  assert.equal(page.sendsMask(), false, "a switch flipped off here is not what a send reads");
+  page.comeBack();
+  assert.equal(page.board.listReads, 2, "the list was not read again when the app came back on screen");
 });

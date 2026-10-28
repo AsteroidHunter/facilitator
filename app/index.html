@@ -14640,6 +14640,11 @@ function updateWatch(state){
   // off, so every window and the phone's drawer show the same choice
   const curses = document.getElementById("setcurses");
   const masking = () => settingsStore.getItem("expletives") === "1";
+  // a send's bubble shows its saved words from the press, worked out on the
+  // board's own list (sentCurseFree, in card-logic.js) while this switch,
+  // which follows the board, is on
+  SENT_CURSES.switch = masking;
+  sentCursesRead();
   // the profile (GET and POST /profile in server.py): what the onboarding
   // saved, read from the board each time the page opens and saved a field at a
   // time as each is changed. a change the board refuses (an empty name, an
