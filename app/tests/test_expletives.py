@@ -8,6 +8,9 @@
              hello, shell, Dickens, Scunthorpe and more
   kept       the text around a match is kept exactly; the swap is the same
              every time and does nothing to text it already swapped
+  links      an attached file's address, a web link and a markdown link's
+             target are never swapped, curse words around them still are, and
+             a markdown link's words take the tag with its brackets escaped
   list       the shipped list reads with no problems, names its source and
              licence, and has all three kinds of entry; a bad line is left out
              and named; an empty list swaps nothing; a changed file is read again
@@ -180,6 +183,62 @@ class Kept(unittest.TestCase):
         self.assertEqual(mask("nothing to swap here"), "nothing to swap here")
 
 
+class Links(unittest.TestCase):
+    L = expletives.LINK_TAG
+
+    def test_an_attached_files_address_is_kept(self):
+        for address in ("/uploads/1761600000000000000-shit-list.pdf",
+                        "/uploads/1761600000000000001-fucking%20notes.docx",
+                        "/uploads/1761600000000000002-ASS.png"):
+            with self.subTest(address=address):
+                self.assertEqual(mask(address), address)
+                # the Mac board's way round, the words then the file
+                self.assertEqual(mask("the damn file\n" + address), f"the {T} file\n" + address)
+
+    def test_the_phones_layout_keeps_every_address(self):
+        text = ("/uploads/1-a.png /uploads/2-shit.png\n\n/uploads/3-fuck.pdf\n/uploads/4-hell.mp3\n\n"
+                "what the hell is this shit")
+        self.assertEqual(mask(text), text.replace("the hell is this shit", f"the {T} is this {T}"))
+
+    def test_a_web_link_is_kept(self):
+        link = "https://example.com/shit-happens?q=fuck#ass"
+        self.assertEqual(mask(link), link)
+        self.assertEqual(mask("HTTP://EXAMPLE.COM/SHIT"), "HTTP://EXAMPLE.COM/SHIT")
+        self.assertEqual(mask(f"<{link}>"), f"<{link}>")
+
+    def test_a_markdown_links_target_is_kept_and_its_words_swapped(self):
+        self.assertEqual(mask("[my shit list](https://example.com/shit-list)"),
+                         f"[my {self.L} list](https://example.com/shit-list)")
+        self.assertEqual(mask("![shit](/uploads/1-shit.png)"), f"![{self.L}](/uploads/1-shit.png)")
+        self.assertEqual(mask("[mail the ass](mailto:ass@example.com)"),
+                         f"[mail the {self.L}](mailto:ass@example.com)")
+        self.assertEqual(mask("[notes](<my fuck file.pdf>)"), "[notes](<my fuck file.pdf>)")
+        self.assertEqual(mask("[a](b(shit)c)"), "[a](b(shit)c)")
+
+    def test_curse_words_outside_a_link_are_still_swapped(self):
+        self.assertEqual(mask("look at https://example.com/shit then fix this shit"),
+                         f"look at https://example.com/shit then fix this {T}")
+        self.assertEqual(mask("[the list](https://example.com/fuck) is fucking long, damn"),
+                         f"[the list](https://example.com/fuck) is {T} long, {T}")
+        self.assertEqual(mask("fuck/uploads/x"), f"{T}/uploads/x")
+        # brackets that make no link are words, and so is a target with spaces in it
+        self.assertEqual(mask("[shit] (fuck)"), f"[{T}] ({T})")
+        self.assertEqual(mask("[note](what the fuck)"), f"[note](what the {T})")
+        self.assertEqual(mask("\\[shit](https://example.com/shit)"), f"\\[{T}](https://example.com/shit)")
+
+    def test_the_swap_of_a_link_is_the_same_every_time(self):
+        once = mask("[shit](https://example.com/shit) and /uploads/1-shit.pdf, shit")
+        self.assertEqual(once, f"[{self.L}](https://example.com/shit) and /uploads/1-shit.pdf, {T}")
+        self.assertEqual(mask(once), once)
+
+    def test_a_long_message_of_brackets_is_read_quickly(self):
+        for text in ("[" * 65536, "](" * 32768, "[a](" * 16384 + ")" * 16384):
+            with self.subTest(start=text[:4]):
+                started = time.monotonic()
+                self.assertEqual(mask(text), text)
+                self.assertLess(time.monotonic() - started, 2)
+
+
 class List(unittest.TestCase):
     def test_the_shipped_list(self):
         words = expletives.word_list()
@@ -269,6 +328,16 @@ class Command(unittest.TestCase):
         self.assertIn("ass  -> [expletive]  (also a normal word)" if expletives.DICTIONARY_PATH.exists()
                       else "words replaced", out)
         self.assertIn("[unfuckingbelievable] un<<fucking>>believable, and the class assessment passed", out)
+
+    def test_words_in_a_link_are_not_counted(self):
+        rows = self.ROWS
+        self.ROWS = rows + [{"kind": "user", "box": "1", "text": "/uploads/1-crap.pdf https://example.com/crap", "ts": 8}]
+        try:
+            out = self.run_command("dryrun")
+        finally:
+            self.ROWS = rows
+        self.assertIn("Messages read: 5; messages a swap would change: 3; words replaced: 4", out)
+        self.assertNotIn("crap", out)
 
     def test_a_missing_transcript_is_said_plainly(self):
         err = io.StringIO()

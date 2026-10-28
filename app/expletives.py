@@ -8,6 +8,12 @@ saved message, every screen, the history and every agent only ever have
 "[expletive]" where a curse word was. Messages an agent sends (by=agent) are
 saved as they came.
 
+Links and addresses are never swapped, so a link keeps working: a web link
+("https://..."), an attached file's address ("/uploads/<stamp>-<file name>"),
+and the target of a markdown link or picture ("[words](target)"). The words of
+a markdown link are swapped, with the tag's brackets escaped ("\\[expletive\\]")
+so the link still shows as one.
+
 The word list is expletives.txt beside this file, a plain text file with three
 headings:
 
@@ -43,6 +49,7 @@ Standard library only, and Python 3.9 compatible.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import os
 import re
@@ -51,6 +58,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 TAG = "[expletive]"
+# the tag inside the words of a markdown link, where a bare ] would end them
+LINK_TAG = "\\[expletive\\]"
 HERE = Path(__file__).resolve().parent
 LIST_PATH = HERE / "expletives.txt"
 TRANSCRIPT_PATH = HERE.parent / "data" / "transcript.jsonl"
@@ -76,6 +85,82 @@ def _either(patterns) -> str:
 
 def _by_length(words) -> list:
     return sorted(set(words), key=lambda w: (-len(w), w))
+
+
+# ---- links and addresses, which the swap leaves alone ---------------------------------
+# the places the board's pages write an address into a message and the card
+# renderer (card-markdown.js) shows one as a link: a web link and an attached
+# file's address, each up to a space or < >, as renderInline reads a bare one
+ADDRESS = re.compile(r"(?:https?://|/uploads/)[^\s<>]*", re.IGNORECASE)
+
+
+def _markdown_links(text: str) -> list:
+    """Each [words](target) and ![words](target) in the text, read as
+    card-markdown.js reads one (bracketTarget): the words run to the next ]
+    no backslash escapes, a ( follows it at once, and the target runs to the )
+    that closes that (. Each as (the words' span, the target's span)."""
+    if "](" not in text:
+        return []
+    n = len(text)
+    escaped = [False] * n
+    run = 0
+    for k, c in enumerate(text):
+        escaped[k] = run % 2 == 1
+        run = run + 1 if c == "\\" else 0
+    next_close = [-1] * (n + 1)
+    for k in range(n - 1, -1, -1):
+        next_close[k] = k if text[k] == "]" and not escaped[k] else next_close[k + 1]
+    closes, opened = {}, []
+    for k, c in enumerate(text):
+        if escaped[k]:
+            continue
+        if c == "(":
+            opened.append(k)
+        elif c == ")" and opened:
+            closes[opened.pop()] = k
+    found = []
+    at = text.find("[")
+    while at >= 0:
+        close = next_close[at + 1] if not escaped[at] else -1
+        end = closes.get(close + 1, -1) if close >= 0 else -1
+        if end < 0:
+            at = text.find("[", at + 1)
+            continue
+        found.append(((at + 1, close), (close + 2, end)))
+        at = text.find("[", end + 1)
+    return found
+
+
+def _merged(spans) -> list:
+    """Spans in order, with the ones that overlap joined."""
+    out = []
+    for s, e in sorted(spans):
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def _inside(spans: list, starts: list, s: int, e: int) -> bool:
+    """Whether s to e overlaps one of spans (in order, apart; starts their starts)."""
+    k = bisect.bisect_left(starts, e) - 1
+    return k >= 0 and spans[k][1] > s
+
+
+def links(text: str) -> tuple:
+    """Where the swap leaves the text alone and where it writes LINK_TAG: the
+    spans of every web link, attached file's address and markdown target that
+    is one address (no space in it, or wrapped in < >), and the spans of the
+    words of every markdown link, each in order and apart."""
+    kept = [m.span() for m in ADDRESS.finditer(text)]
+    words = []
+    for label, (s, e) in _markdown_links(text):
+        words.append(label)
+        target = text[s:e].strip()
+        if (target.startswith("<") and target.endswith(">")) or not re.search(r"\s", target):
+            kept.append((s, e))
+    return _merged(kept), _merged(words)
 
 
 class WordList:
@@ -104,17 +189,34 @@ class WordList:
     def __len__(self) -> int:
         return len(self.anywhere) + len(self.alone)
 
-    def spans(self, text: str) -> list:
-        """Where each match is: (start, end) pairs, in order."""
+    def swaps(self, text: str) -> list:
+        """Each match the swap replaces, in order: (start, end, the tag), for
+        every match that touches no link or address (links), with LINK_TAG in
+        the words of a markdown link and TAG everywhere else."""
         if not self.pattern or not text:
             return []
-        return [m.span("hit") for m in self.pattern.finditer(text) if m.group("hit") is not None]
+        kept, words = links(text)
+        kept_at, words_at = [s for s, _ in kept], [s for s, _ in words]
+        out = []
+        for m in self.pattern.finditer(text):
+            if m.group("hit") is None:
+                continue
+            s, e = m.span("hit")
+            if not _inside(kept, kept_at, s, e):
+                out.append((s, e, LINK_TAG if _inside(words, words_at, s, e) else TAG))
+        return out
+
+    def spans(self, text: str) -> list:
+        """Where each match the swap replaces is: (start, end) pairs, in order."""
+        return [(s, e) for s, e, _ in self.swaps(text)]
 
     def mask(self, text: str) -> str:
-        """The text with every match replaced by TAG and nothing else changed."""
-        if not self.pattern or not text:
-            return text
-        return self.pattern.sub(lambda m: m.group(0) if m.group("hit") is None else TAG, text)
+        """The text with every match replaced by its tag and nothing else changed."""
+        pieces, at = [], 0
+        for s, e, tag in self.swaps(text):
+            pieces += [text[at:s], tag]
+            at = e
+        return "".join(pieces) + text[at:] if pieces else text
 
 
 def parse(source: str) -> WordList:
