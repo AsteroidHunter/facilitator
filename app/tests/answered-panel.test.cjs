@@ -1907,7 +1907,7 @@ test("a new answer turns the page at once whatever the reader is doing with the 
   }
   // nothing of the hold is left on the shared file or the pages
   for (const [where, text] of [["card-logic.js", LOGIC], ["index.html", DESKTOP], ["m.html", PHONE]])
-    for (const name of ["turnHolding", "turnHold", "TURN_HELD", "turnAgain", "turnHeld", "noteTyping", "watchReading",
+    for (const name of ["turnHolding", "turnHold", "TURN_HELD", "turnHeld", "noteTyping", "watchReading",
                         "typedAt", "quietScroll", "READ_QUIET_MS", "TYPE_QUIET_MS", "HOLD_LOOK_MS", "liveMeta"])
       assert.ok(!text.includes(name), `${where} still carries the hold's ${name}`);
 });
@@ -2048,8 +2048,12 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     assert.ok(ask > 0 && ask < swap && swap < go && sent < go && answered < go,
       `${where} does not lay the picture first and glide once the new page is drawn`);
     // a new answer takes an older page of the history back to the live one
-    assert.match(text, /if \(el\.reply\.dataset\.raw !== rawReply\)\{\s*el\.reply\.dataset\.raw = rawReply;[\s\S]{0,120}if \(hist && hist\.id === b\.id\) histExit\(b\.id\);/,
+    assert.match(text, /if \(!waits && el\.reply\.dataset\.raw !== rawReply\)\{\s*el\.reply\.dataset\.raw = rawReply;[\s\S]{0,120}if \(hist && hist\.id === b\.id\) histExit\(b\.id\);/,
       `${where} does not show a new answer over an older page`);
+    // and one that waits for a merge leaves both panels as they stand, and is drawn again once it ends
+    assert.match(text, /const waits = turn === TURN_WAIT;/, `${where} does not let a new answer wait for a merge`);
+    assert.match(text, /if \(!waits && !\(hist && hist\.id === b\.id\)\) syncAnswered\(el, liveAnswered\(b\)\);/);
+    assert.match(text, /turnAgain = /, `${where} cannot show an answer that waited for a merge`);
     // (the Mac board reads the band in its stage's pixels, which the phone does not scale)
     assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap(, 0, stageScale \|\| 1)?\)\)/, `${where} does not hold the band for a run`);
   }
@@ -3519,6 +3523,13 @@ test("a second message stands in a bubble of its own, and joins only once it sta
   assert.ok(first.classList.contains("markout") && first.classList.contains("markmove"), "the first word does not go out gently");
   assert.equal(second.dataset.mark, undefined, "a word stood under the second while the first was still going");
   assert.ok(first.classList.contains("coalesce"), "the refresh does not wait out the merge");
+  // a new answer landing now waits for this merge, and the page draws its cards
+  // again on the frame the merge ends (turnWaits)
+  let again = 0;
+  context.turnAgain = () => { again++; };
+  s.run("turnAgain = () => globalThis.turnAgain()");
+  assert.equal(context.turnWaits(el), true, "a page turn would cut the merge short");
+  assert.equal(context.turnWaits(el), true, "a second pass while the merge runs did not wait");
   // the moment the word is gone the first falls into the second, and the word
   // comes in under it on the mark's own run as it falls
   ringFor(s.merge.OUT_MS);
@@ -3547,6 +3558,9 @@ test("a second message stands in a bubble of its own, and joins only once it sta
   assert.equal(first.style.visibility, "", "the joined bubble stayed hidden");
   assert.equal(first.classList.contains("coalesce"), false);
   assert.deepEqual(marks(bubbles()), ["Delivered"], "the joined bubble lost its word");
+  frame(s.merge.MS + 34);
+  assert.equal(again, 1, "the page was not drawn again once the merge ended");
+  assert.equal(context.turnWaits(el), false, "the new answer still waited after the merge ended");
 });
 
 test("two bubbles standing in different places never merge, each keeping its own word, and join the moment they match", () => {

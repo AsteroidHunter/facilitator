@@ -6504,8 +6504,10 @@ function statusOf(b){
 // so is the page turn that takes the one up to the other when an answer lands.
 // what the desktop tells them: the panel over the answer taking or giving back
 // its room re-snaps the answer's lines against it (the sent panel's own word is
-// sentRoom, below, which only writes its band again)
+// sentRoom, below, which only writes its band again), and a new answer that
+// waited for a merge of the waiting bubbles is shown by asking the board again
 answeredRoomChanged = snapCard;
+turnAgain = () => poll();
 
 // the chevron the top-bar history buttons draw, the phone page's same path and
 // dimensions
@@ -7752,9 +7754,12 @@ function* applyPass(state){
     const rawReply = replyFull(b);
     // a new answer on the card on show turns the page (card-logic.js): the sheet
     // over the page the reader was on is laid here, before anything of the new
-    // one is drawn, and turnGo below glides it once the new page stands under it
+    // one is drawn, and turnGo below glides it once the new page stands under
+    // it. while it waits for a merge of the waiting bubbles, this pass leaves
+    // the answer and both panels exactly as they stand
     const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    if (el.reply.dataset.raw !== rawReply){
+    const waits = turn === TURN_WAIT;
+    if (!waits && el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached history
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
@@ -7810,7 +7815,7 @@ function* applyPass(state){
     // bringing the same list touches no dom at all, and a reading asked for
     // before this page's own last send landed knows nothing of it and may not
     // take it away
-    if ((state.fetchedAt || 0) >= (el.sendGuard || 0)){
+    if (!waits && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
       el.sentItems = sentFrom(b);
       syncSent(el, el.sentItems);
     }
@@ -7820,7 +7825,7 @@ function* applyPass(state){
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the composer moves
-    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
+    if (!waits && !(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     // the new page stands under the sheet: the glide and the print
     turnGo(el, turn);
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
@@ -12405,19 +12410,21 @@ function renderMiniCards(state){
     // a new one on the card on show turns the page as the large card's does
     // (turnBegin in card-logic.js): the sent panel rises to the head of the card
     // with the new answer under it, in one glide, or the answer is printed in
-    // place when nothing was sent. a card built just now has nothing to turn from
+    // place when nothing was sent. it waits for a merge of the waiting bubbles,
+    // as the large card's does, and a card built just now has nothing to turn from
     const shortReply = replyShort(b);
     const turn = el.reply.dataset.raw !== undefined && el.reply.dataset.raw !== shortReply
       ? turnBegin(el, b) : null;
-    if (el.reply.dataset.raw !== shortReply){
+    const waits = turn === TURN_WAIT;
+    if (!waits && el.reply.dataset.raw !== shortReply){
       el.reply.dataset.raw = shortReply;
       el.reply.innerHTML = fmt(shortReply);
     }
     // the large card's own passes, told to answer to nobody: the small card has
     // no answer to re-snap when a panel opens or is cut back. a reading asked
     // for before this card's own last send landed may not take it away
-    syncAnswered(el, liveAnswered(b), null);
-    if ((state.fetchedAt || 0) >= (el.sendGuard || 0)){
+    if (!waits) syncAnswered(el, liveAnswered(b), null);
+    if (!waits && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
       el.sentItems = sentFrom(b);
       syncSent(el, el.sentItems);
     }

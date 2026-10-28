@@ -2714,9 +2714,12 @@ function drawCard(el, b, state){
     const rawReply = replyFull(b);
     // a new answer on the card on show turns the page, as it does on the desktop
     // (card-logic.js): the sheet over the page the reader was on is laid before
-    // anything of the new one is drawn, and turnGo below glides it
+    // anything of the new one is drawn, and turnGo below glides it. while it
+    // waits for a merge of the waiting bubbles, this pass leaves the answer and
+    // both panels exactly as they stand
     const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    if (el.reply.dataset.raw !== rawReply){
+    const waits = turn === TURN_WAIT;
+    if (!waits && el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];
       if (hist && hist.id === b.id) histExit(b.id);
@@ -2742,14 +2745,14 @@ function drawCard(el, b, state){
     // and clear the panel in view. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (!stale) syncSentPhone(el, b);
+    if (!waits && !stale) syncSentPhone(el, b);
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
     // on show the stepper owns that panel, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the typing row moves
-    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
+    if (!waits && !(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     // the new page stands under the sheet: the glide and the print
     turnGo(el, turn);
     const cs = cardState(b);
@@ -2789,6 +2792,7 @@ function dropCard(id, gone){
   }
   omniSweepEnd(el);
   turnEnd(el);
+  el.turnWait = null;
   clearTimeout(el.printTimer);
   if (el.bandObserver) el.bandObserver.disconnect();
   if (el.shownObserver) el.shownObserver.disconnect();
@@ -2970,6 +2974,10 @@ function sentMarkAct(el, id, act){
   if (act === "retry") resendOp(op);
   else if (act === "cross") crossOp(op);
 }
+// a new answer that waited for a merge of the waiting bubbles is shown by
+// drawing the reading this page already holds, since the board has nothing
+// newer to say
+turnAgain = () => { if (lastState) apply(lastState); };
 
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the

@@ -502,6 +502,8 @@ test("both pages read every bubble: the desktop's snap leaves the bubbles' seat 
   const draw = PHONE.slice(PHONE.indexOf("function drawSent(el, id, arrive){"), PHONE.indexOf("function opBadge(op){"));
   assert.match(draw, /for \(const panel of sentPanels\(el\)\)/);
   assert.match(draw, /sentRows\(panel\)\.some\(row => ids\.includes\(row\.dataset\.op\)\)\) openAnswered\(panel, true\)/);
-  // the timed refresh waits out a merge as it waits out a run
+  // the timed refresh and the page turn wait out a merge as they wait out a run
   assert.match(LOGIC, /\.answered\.sentflight, \.answered\.coalesce, \.answered\.markin/);
+  const waits = LOGIC.slice(LOGIC.indexOf("function turnWaits(el){"), LOGIC.indexOf("function turnBegin(el, b){"));
+  assert.match(waits, /if \(wait && wait\.run === el\.sentMerge\) return true;/);
 });

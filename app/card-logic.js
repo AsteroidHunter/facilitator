@@ -37,6 +37,10 @@ let cardAnswerOff = null;
 // foot is told per card instead (el.sentRoom), since its room is a measure
 // each card keeps for itself
 let answeredRoomChanged = null;
+// turnAgain: how a page draws its cards again, once a new answer that waited
+// for a merge of the waiting bubbles can be shown. the desktop asks the board;
+// the phone draws the reading it already holds
+let turnAgain = null;
 // waitNewestFirst: whether the cards awaiting the reader are listed newest turn
 // first. a page answers from the board's waitnewest setting ("1" is newest
 // first); until it does, and wherever it is not set, they are listed oldest
@@ -6615,9 +6619,15 @@ function stillCopy(el, { noIds = false } = {}){
 // is not on show has nothing to turn and simply shows the new page, and so does
 // a card whose reader asked for no motion. a new answer with no sent panel
 // standing has nothing to glide and is printed in place instead (printReply).
-// a progress note is not an answer and turns nothing
+// a progress note is not an answer and turns nothing.
+//
+// the one thing a new answer waits for is a merge of two waiting bubbles that
+// is running as it lands: the turn would land the merge at once (turnSheet),
+// and the bubbles would jump to where it ends. it waits for that merge alone,
+// and the page draws its cards again on the frame the merge ends
 const TURN_GLIDE_MS = 560;    // the sheet's --turn-glide
 const PRINT_MS = 780;         // the sheet's print: the last blocks start at 400ms and take 380
+const TURN_WAIT = "wait";
 
 function scrollCardTop(el){
   (el.replyview || el.reply).scrollTop = 0;
@@ -6678,14 +6688,33 @@ function cardOnShow(el){
   return getComputedStyle(el.box).visibility !== "hidden";
 }
 
+// whether a new answer waits for the merge running as it lands. a merge that
+// starts after that one has ended is not waited for: the turn takes it on
+function turnWaits(el){
+  const wait = el.turnWait;
+  if (wait && wait.run === el.sentMerge) return true;
+  el.turnWait = null;
+  if (wait || !el.sentMerge) return false;
+  const mine = el.turnWait = { run: el.sentMerge };
+  const look = () => {
+    if (el.turnWait !== mine) return;
+    if (el.sentMerge === mine.run){ requestAnimationFrame(look); return; }
+    if (turnAgain) turnAgain();
+  };
+  requestAnimationFrame(look);
+  return true;
+}
+
 // called by the page's pass over a card whose answer has changed, before it
-// draws anything of the new one. it answers a turn, which the page hands to
-// turnGo once it has drawn the new page, or nothing, for the plain swap the
-// card always had
+// draws anything of the new one. it answers TURN_WAIT while a merge runs, and
+// the page then leaves the answer and both panels as they stand; a turn, which
+// the page hands to turnGo once it has drawn the new page; or nothing, for the
+// plain swap the card always had
 function turnBegin(el, b){
   if (el.turning) turnEnd(el);   // a turn still going lands at once
   if (!b || b.replyKind !== "agent" || !cardOnShow(el)) return null;
   if (stillMotion()) return null;
+  if (turnWaits(el)) return TURN_WAIT;
   const turn = { mode: "print" };
   if (el.sent && el.sentwrap && el.sentwrap.getBoundingClientRect().height) turnSheet(el, turn, b);
   // the new page opens at its head
@@ -6809,7 +6838,7 @@ function turnSheet(el, turn, b){
 // called once the page has drawn the new page under the sheet: the glide, which
 // brings the new answer up with it, or the print alone where nothing glides
 function turnGo(el, turn){
-  if (!turn) return;
+  if (!turn || turn === TURN_WAIT) return;
   if (turn.mode !== "glide"){ printReply(el); return; }
   // where the new page's own panel stands: the panel the sent messages have
   // just become. a new page with no panel at its head has nowhere to glide to,
