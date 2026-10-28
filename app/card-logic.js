@@ -4605,12 +4605,15 @@ function newOpId(){
 // the panel's list, out of the board's reading of a card: what a note has
 // already taken toward the answer to come, which is read, then the queued
 // messages, each where it stands and, for one an agent sent for the reader,
-// by whom (pendingBy)
+// by whom (pendingBy), and the operation id it was sent under (pendingOps),
+// which keeps a page's own send in its bubble when the words saved are not
+// the words typed (sentGroups)
 function sentFrom(b){
   const noted = ((b && b.notedTexts) || []).map(text => ({ text, stage: "read" }));
   const texts = (b && b.pendingTexts) || [], states = (b && b.pendingStates) || [];
-  const by = (b && b.pendingBy) || [];
-  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "", ...(by[i] ? { by: by[i] } : {}) })));
+  const by = (b && b.pendingBy) || [], ops = (b && b.pendingOps) || [];
+  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "", ...(by[i] ? { by: by[i] } : {}),
+    ...(ops[i] ? { op: ops[i] } : {}) })));
 }
 // the mark's own motion, which the sheet draws (card-tokens.css): a word comes
 // in over the send's run (--answ-come), and one giving way to another goes out
@@ -4738,25 +4741,30 @@ function sentStands(shown){ return shown && shown.length ? sentState(shown[shown
 
 // the messages shown, shared out into bubbles. before is the messages of each
 // bubble standing, oldest first; own is the message this page has just sent,
-// or null for a reading. what stood keeps its bubble, matched by its words in
-// order; a new message that lands between two messages of one bubble joins it;
-// own starts a bubble of its own; any other new message joins the bubble
-// before it when it stands where the message before it stands, and starts one
-// of its own when it does not. answers each group's id, which names the
-// standing bubble it is when it is under before.length
+// or null for a reading. what stood keeps its bubble, matched in order by the
+// operation id it was sent under where both sides know it, and by its words
+// where either does not: the board can save other words than the ones typed
+// (_curse_free in server.py), so a send is the same message under its id
+// whatever words it comes back with. a new message that lands between two
+// messages of one bubble joins it; own starts a bubble of its own; any other
+// new message joins the bubble before it when it stands where the message
+// before it stands, and starts one of its own when it does not. answers each
+// group's id, which names the standing bubble it is when it is under
+// before.length
 function sentGroups(before, shown, own){
   const old = [];
-  before.forEach((msgs, id) => { for (const m of msgs) old.push({ text:answeredText(m), id }); });
-  const now = shown.map(answeredText);
-  // the longest run of words the two lists share, in order
+  before.forEach((msgs, id) => { for (const m of msgs) old.push({ text:answeredText(m), op:m.op || "", id }); });
+  const now = shown.map(m => ({ text:answeredText(m), op:m.op || "" }));
+  const same = (a, b) => a.op && b.op ? a.op === b.op : a.text === b.text;
+  // the longest run of messages the two lists share, in order
   const n = old.length, k = now.length;
   const table = Array.from({ length:n + 1 }, () => new Array(k + 1).fill(0));
   for (let i = n - 1; i >= 0; i--)
     for (let j = k - 1; j >= 0; j--)
-      table[i][j] = old[i].text === now[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+      table[i][j] = same(old[i], now[j]) ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
   const matched = new Array(k).fill(-1);
   for (let i = 0, j = 0; i < n && j < k;){
-    if (old[i].text === now[j]){ matched[j] = old[i].id; i++; j++; }
+    if (same(old[i], now[j])){ matched[j] = old[i].id; i++; j++; }
     else if (table[i + 1][j] >= table[i][j + 1]) i++;
     else j++;
   }
