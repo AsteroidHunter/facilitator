@@ -3952,8 +3952,28 @@ const SENT_GLIDE_MS = 340;
 const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 const SENT_GLIDE = [.24, .1, .15, 1];   // the same curve, for a flight whose seat glides
 
+// A send whose saved words are not the ones typed (the board's "Replace curse
+// words" switch: _curse_free in server.py) changes its bubble once, at the
+// moment the page reads the saved words, in the air or after it has landed
+// (sentReword): the words that changed fade out as the saved ones fade in, the
+// words the two share slide from where they stood to where they stand now,
+// and the bubble's edges ease from the box it had to the one it has now, all
+// on one curve over a fifth of a second, so nothing jumps and nothing is
+// swapped in the typing row. A box that changes by more than about 25px takes
+// longer, so no edge moves more than SENT_SWAP_STEP between two frames; it
+// never takes longer than the flight
+const SENT_SWAP_MS = 200;
+const SENT_SWAP = [.3, 0, .7, 1];
+const SENT_SWAP_EASE = "cubic-bezier(.3,0,.7,1)";
+const SENT_SWAP_SLOPE = 1.43;   // the curve at its steepest: its way over its time
+const SENT_SWAP_STEP = 3;       // px between two frames, at most
+function sentSwapMs(change){
+  return Math.min(SENT_FLIGHT_MS, Math.max(SENT_SWAP_MS, Math.abs(change) * SENT_SWAP_SLOPE * SENT_FRAME_MS / SENT_SWAP_STEP));
+}
+
 const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
 const sentCompressCurve = sentCurve(SENT_COMPRESS), sentGlideCurve = sentCurve(SENT_GLIDE);
+const sentSwapCurve = sentCurve(SENT_SWAP);
 // the track at ms from the tap: how far the box has come across and risen and
 // how far its size has gone (0 the typing box's, 1 the seat's)
 function sentTrack(ms){
@@ -4038,6 +4058,186 @@ function sentScale(node, rect){
   return { x:node.offsetWidth ? rect.width / node.offsetWidth : 1,
     y:node.offsetHeight ? rect.height / node.offsetHeight : 1 };
 }
+// The box a bubble's motion is cut out by: four clips nested one in the next,
+// each as large as the box ever is and rounding one corner of it, each riding
+// its own corner, so the four cut out the box at its width and height while
+// each only moves, and inside them a ground held at the origin of whatever
+// holds the first clip, on which the face and the words are placed. fit sizes
+// the clips; layers is where each layer stands for a box: the first clip at
+// the box's top left, the next three by how far their corners stand from the
+// one before (the top right, the foot's right, the foot's left), and the
+// ground back at the origin; place stands them there, and round gives each
+// corner its radius (armSentMotion, sentReword)
+const SENT_CORNERS = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
+const sentShift = ([x, y]) => "translate(" + x + "px," + y + "px)";
+function sentClips(){
+  const clips = SENT_CORNERS.map(() => {
+    const clip = document.createElement("div");
+    clip.className = "sentmorph-clip";
+    return clip;
+  });
+  const ground = document.createElement("div");
+  ground.className = "sentmorph-ground";
+  clips.reduce((outer, inner) => outer.appendChild(inner)).appendChild(ground);
+  const room = { width:0, height:0 };
+  const fit = (width, height) => {
+    Object.assign(room, { width, height });
+    for (const clip of clips) Object.assign(clip.style, { width:width + "px", height:height + "px" });
+  };
+  const layers = box => [[box.left, box.top], [box.width - room.width, 0], [0, box.height - room.height],
+    [room.width - box.width, 0], [-box.left, room.height - box.height - box.top]];
+  const place = box => layers(box).forEach((at, i) => { (clips[i] || ground).style.transform = sentShift(at); });
+  const round = radii => clips.forEach((clip, i) => { clip.style[SENT_CORNERS[i]] = radii[i] + "px"; });
+  return { clips, ground, room, fit, layers, place, round };
+}
+// a node's scale on screen, read off its own laid-out size rather than the
+// whole px offsetWidth rounds it to, for a layer that has to stand on it to
+// the hair (sentReword)
+function sentExactScale(node, rect){
+  const style = getComputedStyle(node), w = parseFloat(style.width), h = parseFloat(style.height);
+  return { x:w > 0 ? rect.width / w : 1, y:h > 0 ? rect.height / h : 1 };
+}
+// The words of a bubble giving way to the same bubble's saved words, in one
+// layer holding both copies at one origin (sentReword): was, the copy as it
+// stood, and now, a copy as it stands, laid over it. Each copy's words are
+// read where it lays them out, in order, before anything in it is touched,
+// and each is then set in a span of its own with the copy's lines held where
+// they stood: a break before every word a line wrapped to, and no wrapping of
+// the copy's own. Set apart, a word measures a hair wider than in its run of
+// text, and the last word of a line that fit to the pixel, as every one-line
+// bubble's does, went down to the next line. The two runs of words are paired
+// from their heads and from their feet, and one for one between when as many
+// changed as came in, since the board swaps a word for another where it stands
+// and keeps the text around it exactly as it was. A word both hold that stands
+// where it stood is drawn by now alone; one that has moved slides there on now
+// from where it stood, on its own offset (position:relative, which lays
+// nothing out again); any other fades out of was as the one in its place comes
+// in on now. Was is drawn only where its words fade out, and words below both
+// copies' cuts are not moved at all. Copies with no words to read, or with a
+// word broken over two lines, which no break before it can hold, are left as
+// they are and fade over whole. Answers the animations, each named "reword",
+// on timing
+function sentInkSwap(was, now, timing){
+  const runs = [];
+  const go = (node, keys) => {
+    if (typeof node.animate !== "function") return;
+    const run = node.animate(keys, timing);
+    run.id = "reword";
+    runs.push(run);
+  };
+  // a page that cannot measure words in their text reads none
+  const range = typeof document.createRange === "function" ? document.createRange() : null;
+  const measures = !!range && typeof range.setStart === "function" && typeof document.createDocumentFragment === "function";
+  const blockOf = node => {
+    for (let at = node.parentElement; at; at = at.parentElement)
+      if (!getComputedStyle(at).display.startsWith("inline")) return at;
+    return null;
+  };
+  // a copy's words where it lays them out, and whether each starts a line it
+  // wrapped to: below the word before it in the same block, with no line
+  // break of the text's own between them
+  const read = copy => {
+    const out = [];
+    const walk = node => {
+      for (const child of [...(node.childNodes || [])]){
+        if (child.nodeType === 3){
+          const re = /\S+/g;
+          let m;
+          while ((m = re.exec(child.nodeValue))){
+            range.setStart(child, m.index);
+            range.setEnd(child, m.index + m[0].length);
+            const rects = range.getClientRects();
+            out.push({ node:child, at:m.index, text:m[0], lines:rects.length, block:blockOf(child),
+              top:rects.length ? rects[0].top : 0, bottom:rects.length ? rects[0].bottom : 0 });
+          }
+        } else if (child.nodeType === 1 && !child.matches(".answmark, svg")) walk(child);
+      }
+    };
+    if (measures) for (const row of copy.querySelectorAll(".answmsg")) walk(row);
+    out.forEach((one, i) => {
+      const prev = out[i - 1];
+      if (!prev || prev.block !== one.block || !one.lines || !prev.lines || one.top < prev.bottom - .5) return;
+      range.setStart(prev.node, prev.at + prev.text.length);
+      range.setEnd(one.node, one.at);
+      one.wrapped = !range.toString().includes("\n") && !range.cloneContents().querySelector("br");
+    });
+    return out;
+  };
+  const a = read(was), b = read(now);
+  if (!a.length || !b.length || a.some(one => one.lines > 1) || b.some(one => one.lines > 1)){
+    go(was, [{ opacity:1 }, { opacity:0 }]);
+    go(now, [{ opacity:0 }, { opacity:1 }]);
+    return runs;
+  }
+  const pin = (copy, words) => {
+    for (const node of [copy, ...copy.querySelectorAll("*")]){
+      const wrap = getComputedStyle(node).whiteSpace;
+      if (wrap === "normal") node.style.whiteSpace = "nowrap";
+      else if (wrap === "pre-wrap" || wrap === "break-spaces") node.style.whiteSpace = "pre";
+    }
+    const byNode = new Map();
+    for (const one of words) byNode.set(one.node, [...(byNode.get(one.node) || []), one]);
+    for (const [node, list] of byNode){
+      const text = node.nodeValue, parts = document.createDocumentFragment();
+      let from = 0;
+      for (const one of list){
+        if (one.at > from) parts.appendChild(document.createTextNode(text.slice(from, one.at)));
+        if (one.wrapped) parts.appendChild(document.createElement("br"));
+        const word = one.word = document.createElement("span");
+        word.textContent = one.text;
+        word.style.opacity = "1";
+        parts.appendChild(word);
+        from = one.at + one.text.length;
+      }
+      if (from < text.length) parts.appendChild(document.createTextNode(text.slice(from)));
+      node.parentNode.replaceChild(parts, node);
+    }
+  };
+  pin(was, a);
+  pin(now, b);
+  const n = a.length, m = b.length;
+  let head = 0, foot = 0;
+  while (head < n && head < m && a[head].text === b[head].text) head++;
+  while (foot < n - head && foot < m - head && a[n - 1 - foot].text === b[m - 1 - foot].text) foot++;
+  const pairs = [];
+  for (let i = 0; i < head; i++) pairs.push([a[i], b[i]]);
+  for (let i = 0; i < foot; i++) pairs.push([a[n - 1 - i], b[m - 1 - i]]);
+  const changedA = a.slice(head, n - foot), changedB = b.slice(head, m - foot);
+  if (changedA.length === changedB.length) changedA.forEach((one, i) => pairs.push([one, changedB[i]]));
+  else pairs.push(...changedA.map(one => [one, null]), ...changedB.map(one => [null, one]));
+  // where a word stands in its copy, in the copy's own px, and the copy's cut
+  const placer = copy => {
+    const r = copy.getBoundingClientRect(), s = sentExactScale(copy, r);
+    const cut = copy.querySelector(".answclip");
+    return {
+      cut:cut ? (cut.getBoundingClientRect().bottom - r.top) / s.y : Infinity,
+      at:word => { const w = word.getBoundingClientRect(); return { x:(w.left - r.left) / s.x, y:(w.top - r.top) / s.y }; },
+    };
+  };
+  const inA = placer(was), inB = placer(now);
+  const slides = [], fades = [];
+  for (const [one, two] of pairs){
+    const from = one && inA.at(one.word), to = two && inB.at(two.word);
+    if (one && two && one.text === two.text){
+      const dx = from.x - to.x, dy = from.y - to.y;
+      if ((Math.abs(dx) <= .25 && Math.abs(dy) <= .25) || (from.y >= inA.cut && to.y >= inB.cut)) continue;
+      slides.push({ word:two.word, dx, dy });
+      continue;
+    }
+    if (one) fades.push([one.word, 1, 0]);
+    if (two) fades.push([two.word, 0, 1]);
+  }
+  was.style.visibility = "hidden";
+  for (const { word, dx, dy } of slides){
+    word.style.position = "relative";
+    go(word, [{ left:dx + "px", top:dy + "px" }, { left:"0px", top:"0px" }]);
+  }
+  for (const [word, from, to] of fades){
+    if (from) word.style.visibility = "visible";
+    go(word, [{ opacity:from }, { opacity:to }]);
+  }
+  return runs;
+}
 function sentMotionVisible(node){
   if (!node || !node.isConnected) return false;
   const rect = node.getBoundingClientRect();
@@ -4111,8 +4311,7 @@ function armSentMotion(el){
   const rows = new Set(standing.flatMap(sentRows));
   const start = source.getBoundingClientRect(), sourceScale = sentScale(source, start);
   const sourceStyle = getComputedStyle(source);
-  const corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
-  const startCorners = corners.map(name => (parseFloat(sourceStyle[name]) || 0) * sourceScale.x);
+  const startCorners = SENT_CORNERS.map(name => (parseFloat(sourceStyle[name]) || 0) * sourceScale.x);
   // where the typed words start and how big they are, in viewport px
   const typedSize = (parseFloat(sourceStyle.fontSize) || 17) * sourceScale.y;
   const typed = {
@@ -4121,10 +4320,8 @@ function armSentMotion(el){
     size:typedSize,
     line:(parseFloat(sourceStyle.lineHeight) * sourceScale.y) || typedSize * 1.5,
   };
-  // The box is cut out of a grey face by four clips nested one in the next, each
-  // as large as the box ever is and rounding one corner of it: each clip rides
-  // its own corner, so the four cut out the box at its width and height while
-  // each only moves. Inside them the ground the face and the words stand on is
+  // The box is cut out of a grey face by four clips nested one in the next
+  // (sentClips). Inside them the ground the face and the words stand on is
   // held at the viewport's origin, so everything in it is placed in viewport px.
   // The shell itself is cut where the card shows its foot (sentView), and the
   // four stand in a frame held at the viewport's origin inside that cut, so the
@@ -4134,14 +4331,7 @@ function armSentMotion(el){
   shell.setAttribute("aria-hidden", "true");
   const view = document.createElement("div");
   view.className = "sentmorph-view";
-  const clips = corners.map(() => {
-    const clip = document.createElement("div");
-    clip.className = "sentmorph-clip";
-    return clip;
-  });
-  const ground = document.createElement("div");
-  ground.className = "sentmorph-ground";
-  clips.reduce((outer, inner) => outer.appendChild(inner)).appendChild(ground);
+  const { clips, ground, fit, layers, place, round } = sentClips();
   view.appendChild(clips[0]);
   shell.appendChild(view);
   // the cut, written again whenever the flight is handed over again, since
@@ -4167,20 +4357,6 @@ function armSentMotion(el){
   const incoming = document.createElement("div");
   incoming.className = "sentmorph-target";
   ground.append(face, outgoing, incoming);
-  // the clips' own size, and where each layer stands for a box: the first clip
-  // at the box's top left, the next three by how far their corners stand from
-  // the one before (the top right, the foot's right, the foot's left), and the
-  // ground back at the origin
-  const room = { width:0, height:0 };
-  const fit = (width, height) => {
-    Object.assign(room, { width, height });
-    for (const clip of clips) Object.assign(clip.style, { width:width + "px", height:height + "px" });
-  };
-  const layers = box => [[box.left, box.top], [box.width - room.width, 0], [0, box.height - room.height],
-    [room.width - box.width, 0], [-box.left, room.height - box.height - box.top]];
-  const move = ([x, y]) => "translate(" + x + "px," + y + "px)";
-  const place = box => layers(box).forEach((at, i) => { (clips[i] || ground).style.transform = move(at); });
-  const round = radii => clips.forEach((clip, i) => { clip.style[corners[i]] = radii[i] + "px"; });
   const cover = boxes => {
     const left = Math.min(...boxes.map(b => b.left)), top = Math.min(...boxes.map(b => b.top));
     Object.assign(face.style, { left:left + "px", top:top + "px",
@@ -4194,7 +4370,7 @@ function armSentMotion(el){
   document.body.appendChild(shell);
   sourceCopy.scrollTop = source.scrollTop;
   sourceCopy.scrollLeft = source.scrollLeft;
-  let raf = 0, done = false, played = false, target = null, panel = null, flying = [];
+  let raf = 0, done = false, played = false, target = null, panel = null, flying = [], inked = [];
   const shifts = [];
   const stopShifts = () => {
     for (const shift of shifts.splice(0)) shift.cancel();
@@ -4205,7 +4381,7 @@ function armSentMotion(el){
     done = true;
     if (raf) cancelAnimationFrame(raf);
     stopShifts();
-    for (const anim of flying.splice(0)) anim.cancel();
+    for (const anim of [...flying.splice(0), ...inked.splice(0)]) anim.cancel();
     if (target){
       if (previousOpacity) target.style.setProperty("opacity", previousOpacity, previousPriority);
       else target.style.removeProperty("opacity");
@@ -4285,7 +4461,7 @@ function armSentMotion(el){
       // they stand inside the start box
       const from = { x:typed.left - start.left, y:typed.top + typed.line / 2 - start.top };
       const panelStyle = getComputedStyle(panel);
-      const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
+      const endCorners = SENT_CORNERS.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
       // the bubble's face and corners, written before the first frame and kept
       // for the whole flight: the grey a saved message stands on, whole, and
       // the dissolve at a long message's cut in that same grey
@@ -4327,13 +4503,25 @@ function armSentMotion(el){
       // the glide a later send gives it, whose offset goes to nothing on the
       // glide's own curve from the flight's ms it set off at; as the page reads
       // it, or as the flight lands on it, on whole pixels
-      const seat = { base:targetRect, glide:null, since:0, seen:target.sentGlide || null };
+      const seat = { base:targetRect, glide:null, since:0, seen:target.sentGlide || null, swap:null };
       const held = sentHeldMs();
-      const seatAt = (ms, drawn) => {
+      const laidAt = (ms, drawn) => {
         const { glide, since } = seat, base = drawn ? onPixels(seat.base) : seat.base;
         const left = glide ? 1 - sentGlideCurve((ms - since) / SENT_GLIDE_MS) : 0;
         return left ? { left:base.left + glide.x * left, top:base.top + glide.y * left, width:base.width, height:base.height } : base;
       };
+      // and the seat the flight goes to: the one laid out, or, once the saved
+      // words have been read in the air (reword, below), the seat it was
+      // heading for, easing over to the one laid out on the swap's curve
+      const seatAt = (ms, drawn) => {
+        const laid = laidAt(ms, drawn), swap = seat.swap;
+        const left = swap ? 1 - sentSwapCurve((ms - swap.since) / swap.length) : 0;
+        return left ? { left:laid.left + swap.left * left, top:laid.top + swap.top * left,
+          width:laid.width + swap.width * left, height:laid.height + swap.height * left } : laid;
+      };
+      // how long the flight runs: its own length, or until a swap begun late
+      // in it has eased in
+      let end = SENT_FLIGHT_MS;
       // the whole flight handed to the browser on that seat: each layer's
       // transform at as few moments as keep every edge, the words' place and
       // their reach within SENT_TRUE_PX of where the curves put them on every
@@ -4341,7 +4529,7 @@ function armSentMotion(el){
       // start, so the clock carries on through the change
       const hand = () => {
         const all = [];
-        for (let ms = 0; ms <= SENT_FLIGHT_MS; ms++) all.push(at(ms, seatAt(ms, true)));
+        for (let ms = 0; ms <= end; ms++) all.push(at(ms, seatAt(ms, true)));
         const marks = all.map(({ box, x, y, k }) => [box.left, box.top, box.left + box.width, box.top + box.height, x, y, k * reach]);
         const straight = (i, j) => {
           for (let n = i + 1; n < j; n++) for (let v = 0; v < marks[n].length; v++)
@@ -4350,9 +4538,10 @@ function armSentMotion(el){
         };
         // each curve's landing is a keyframe of its own, so nothing creeps on
         // once its move is in
-        const lands = [SENT_SIDE_MS, SENT_COMPRESS_MS, SENT_UP_MS, SENT_FLIGHT_MS];
+        const lands = [SENT_SIDE_MS, SENT_COMPRESS_MS, SENT_UP_MS, SENT_FLIGHT_MS, end,
+          ...(seat.swap ? [Math.min(end, Math.ceil(seat.swap.since + seat.swap.length))] : [])].sort((p, q) => p - q);
         const moments = [0];
-        for (let i = 0; i < SENT_FLIGHT_MS;){
+        for (let i = 0; i < end;){
           const stop = lands.find(ms => ms > i);
           let j = i + 1;
           while (j < stop && straight(i, j + 1)) j++;
@@ -4363,10 +4552,10 @@ function armSentMotion(el){
         fit(Math.max(...all.map(one => one.box.width)) + 1, Math.max(...all.map(one => one.box.height)) + 1);
         cover(all.map(one => one.box));
         cut();
-        const keys = transform => moments.map((ms, i) => ({ offset:ms / SENT_FLIGHT_MS, transform:transform(i) }));
-        const timing = { duration:SENT_FLIGHT_MS, fill:"both", easing:"linear" };
+        const keys = transform => moments.map((ms, i) => ({ offset:ms / end, transform:transform(i) }));
+        const timing = { duration:end, fill:"both", easing:"linear" };
         const before = flying;
-        flying = [...clips, ground].map((node, n) => node.animate(keys(i => move(layers(boxes[i])[n])), timing));
+        flying = [...clips, ground].map((node, n) => node.animate(keys(i => sentShift(layers(boxes[i])[n])), timing));
         flying.push(incoming.animate(keys(i => words(frames[i])), timing));
         const clock = before[0];
         for (const anim of flying){
@@ -4387,11 +4576,49 @@ function armSentMotion(el){
           seat.glide = glide && glide.shift.playState !== "idle" ? glide : null;
           seat.since = ms - (seat.glide && typeof glide.shift.currentTime === "number" ? glide.shift.currentTime : 0);
         }
-        const want = seatAt(ms);
+        const want = laidAt(ms);
         if (!fresh && ["left", "top", "width", "height"].every(key => Math.abs(now[key] - want[key]) <= .5)) return;
         if (seat.glide && seat.glide.shift.playState === "idle") seat.glide = null;
-        const off = seatAt(ms);
+        const off = laidAt(ms);
         seat.base = { left:now.left - (off.left - seat.base.left), top:now.top - (off.top - seat.base.top), width:now.width, height:now.height };
+        hand();
+      };
+      // the saved words, read while the flight is in the air (sentReword):
+      // the seat is the bubble as it is laid out now, and the flight eases over
+      // to it from the seat it was heading for, from this moment of its own
+      // clock, while a copy of the bubble as it stands now is laid over the
+      // one it flies with and the words go over from one to the other
+      // (sentInkSwap) on the same run. a swap still going when another comes
+      // lands first
+      let shown = targetCopy;
+      motion.reword = () => {
+        if (done) return;
+        const clock = flying[0];
+        const ms = clock && typeof clock.currentTime === "number" ? Math.max(0, clock.currentTime) : held;
+        const was = seatAt(ms, true);
+        const now = target.getBoundingClientRect(), off = laidAt(ms);
+        seat.base = { left:now.left - (off.left - seat.base.left), top:now.top - (off.top - seat.base.top), width:now.width, height:now.height };
+        const laid = laidAt(ms, true);
+        const swap = { left:was.left - laid.left, top:was.top - laid.top, width:was.width - laid.width, height:was.height - laid.height, since:ms };
+        swap.length = sentSwapMs(Math.max(Math.abs(swap.left), Math.abs(swap.top),
+          Math.abs(swap.left + swap.width), Math.abs(swap.top + swap.height)));
+        seat.swap = swap;
+        end = Math.max(SENT_FLIGHT_MS, Math.ceil(ms + swap.length));
+        for (const run of inked.splice(0)) run.finish();
+        for (const old of [...incoming.children]) if (old !== shown) old.remove();
+        const copy = sentSnapshot(target);
+        Object.assign(copy.style, { position:"absolute", left:"0", top:"0", background:"transparent", opacity:"1",
+          width:now.width / targetScale.x + "px", height:now.height / targetScale.y + "px" });
+        for (const pair of copy.sentInk) pair.copy.style.opacity = "1";
+        const copyCut = copy.querySelector(".answclip");
+        if (copyCut) copyCut.style.setProperty("--answ-fill", grey);
+        incoming.appendChild(copy);
+        inked = sentInkSwap(shown, copy, { duration:swap.length, easing:SENT_SWAP_EASE, fill:"both" });
+        for (const run of inked){
+          if (clock && typeof clock.startTime === "number") run.startTime = clock.startTime + ms;
+          else run.currentTime = (clock && typeof clock.currentTime === "number" ? clock.currentTime : held) - ms;
+        }
+        shown = copy;
         hand();
       };
       previousOpacity = target.style.getPropertyValue("opacity");
@@ -4418,9 +4645,9 @@ function armSentMotion(el){
         if (done) return;
         if (!target.isConnected || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
         if (t0 === null) t0 = now - held;
-        const ms = Math.max(0, Math.min(SENT_FLIGHT_MS, now - t0));
+        const ms = Math.max(0, Math.min(end, now - t0));
         follow(ms);
-        if (ms < SENT_FLIGHT_MS) raf = requestAnimationFrame(step);
+        if (ms < end) raf = requestAnimationFrame(step);
         else raf = requestAnimationFrame(finish);
       };
       raf = requestAnimationFrame(step);
@@ -4869,6 +5096,10 @@ function syncSent(el, batch, arrive){
   el.sent = drawn[drawn.length - 1].panel;
   const merging = el.sentMerge;
   drawn.forEach(({ panel, born }, i) => {
+    // a bubble whose message comes back under its own id with other words
+    // than the ones it shows changes to them gently (sentReword), from the
+    // bubble as it stands before its rows are drawn again
+    const was = born ? null : sentRewording(el, panel);
     stackAnswered(panel, panel.sentMsgs);
     // a bubble standing where the one above it stands waits to join it, and its
     // word with it; a merge under way holds its bubbles' words itself
@@ -4876,6 +5107,7 @@ function syncSent(el, batch, arrive){
       panel.markHeld = i > 0 && sentStands(drawn[i - 1].panel.sentMsgs) === sentStands(panel.sentMsgs);
     sentMarks(panel, panel.sentMsgs, !born);
     fitAnswered(panel);
+    if (was) sentReword(el, panel, was);
   });
   if (fresh && !el.sentMotion) arriveSent(fresh);
   // a send cuts back a bubble standing open on the fold's own run, so what has
@@ -4884,6 +5116,106 @@ function syncSent(el, batch, arrive){
   if (own) for (const { panel } of drawn) if (panel !== fresh && panel.classList.contains("open")) openAnswered(panel, false);
   if (room) room();
   sentCoalesce(el);
+}
+
+// the saved words, when they are not the words a bubble shows: the board saves
+// a curse word as [expletive] (_curse_free in server.py), and a send's bubble
+// shows the typed words from the press until the page reads what was saved.
+// was is the bubble before its rows change: the flight still carrying it, which
+// keeps its own copy, or the bubble's box and a copy of it, for a bubble on
+// screen that nothing else is moving; null for no change, or one shown at once
+// (no motion, a bubble off screen, open, or folding)
+function sentRewording(el, panel){
+  const rows = sentRows(panel);
+  if (!(panel.sentMsgs || []).some(m => m.op && rows.some(row => row.dataset.op === m.op && row.dataset.text !== answeredText(m))))
+    return null;
+  if (panel.sentReword) panel.sentReword.land(true);
+  const flight = [...(el.sentMotions || [])].find(one => one.panel === panel && one.reword);
+  if (flight) return { flight };
+  if (stillMotion() || typeof requestAnimationFrame !== "function" || typeof panel.animate !== "function" ||
+      !sentMotionVisible(panel) || panel.classList.contains("open") || panel.classList.contains("motion")) return null;
+  return { rect:panel.getBoundingClientRect(), copy:sentSnapshot(panel, true) };
+}
+// the change itself. in the air the flight takes it (armSentMotion's reword).
+// once landed, a layer inside the bubble, in its own px so whatever moves the
+// bubble moves it too (a later send's glide), draws it over the bubble, whose
+// own grey and words are hidden under it while its word under its foot stays:
+// the bubble's grey cut out by the four clips (sentClips) easing from the box
+// it had to the box it has now, and over it the copy of the bubble as it stood
+// and one as it stands, riding the box's top left, their words going over
+// from one to the other (sentInkSwap), all on the swap's curve. the bubble
+// counts as busy until it is itself again (sentBusy), the frame after the
+// run, or at once when something lands it first (sentRewording)
+function sentReword(el, panel, was){
+  if (was.flight){ was.flight.reword(); return; }
+  const now = panel.getBoundingClientRect(), s = sentExactScale(panel, now);
+  const from = { left:(was.rect.left - now.left) / s.x, top:(was.rect.top - now.top) / s.y,
+    width:was.rect.width / s.x, height:was.rect.height / s.y };
+  const to = { left:0, top:0, width:now.width / s.x, height:now.height / s.y };
+  const length = sentSwapMs(Math.max(Math.abs(from.left), Math.abs(from.top), Math.abs(from.left + from.width - to.width),
+    Math.abs(from.top + from.height - to.height)) * Math.max(s.x, s.y));
+  const look = getComputedStyle(panel);
+  const layer = document.createElement("div");
+  layer.className = "sentreword";
+  layer.setAttribute("aria-hidden", "true");
+  const box = sentClips();
+  box.fit(Math.max(from.width, to.width) + 1, Math.max(from.height, to.height) + 1);
+  box.round(SENT_CORNERS.map(name => parseFloat(look[name]) || 0));
+  box.place(from);
+  const face = document.createElement("div");
+  face.className = "sentmorph-face";
+  const left = Math.min(from.left, 0), top = Math.min(from.top, 0);
+  Object.assign(face.style, { left:left + "px", top:top + "px", background:look.backgroundColor,
+    width:Math.max(from.left + from.width, to.width) - left + "px", height:Math.max(from.top + from.height, to.height) - top + "px" });
+  const words = document.createElement("div");
+  words.className = "sentmorph-target";
+  words.style.transform = sentShift([from.left, from.top]);
+  const copy = sentSnapshot(panel, true);
+  Object.assign(was.copy.style, { background:"transparent", width:from.width + "px", height:from.height + "px" });
+  Object.assign(copy.style, { position:"absolute", left:"0", top:"0", background:"transparent",
+    width:to.width + "px", height:to.height + "px" });
+  words.append(was.copy, copy);
+  box.ground.append(face, words);
+  layer.appendChild(box.clips[0]);
+  // the bubble's own grey and words, hidden under the layer, as they stood
+  const hid = [...panel.children].map(part => [part, part.style.getPropertyValue("visibility")]);
+  const fill = panel.style.getPropertyValue("background");
+  for (const [part] of hid) part.style.visibility = "hidden";
+  panel.style.setProperty("background", "transparent");
+  panel.appendChild(layer);
+  const timing = { duration:length, easing:SENT_SWAP_EASE, fill:"both" };
+  const runs = [...box.clips, box.ground].map((node, n) =>
+    node.animate([{ transform:sentShift(box.layers(from)[n]) }, { transform:sentShift(box.layers(to)[n]) }], timing));
+  runs.push(words.animate([{ transform:sentShift([from.left, from.top]) }, { transform:"translate(0px,0px)" }], timing));
+  runs.push(...sentInkSwap(was.copy, copy, timing));
+  const run = panel.sentReword = { land:null };
+  let raf = 0, over = false;
+  // quiet: landed by a redraw, which asks for the next merge itself
+  const land = run.land = quiet => {
+    if (over) return;
+    over = true;
+    if (raf) cancelAnimationFrame(raf);
+    for (const one of runs) one.cancel();
+    layer.remove();
+    for (const [part, visibility] of hid){
+      if (visibility) part.style.visibility = visibility;
+      else part.style.removeProperty("visibility");
+    }
+    if (fill) panel.style.setProperty("background", fill);
+    else panel.style.removeProperty("background");
+    if (panel.sentReword === run) panel.sentReword = null;
+    if (quiet !== true) sentCoalesce(el);
+  };
+  // the bubble is itself again the frame after the run's last one is drawn
+  const clock = runs[0];
+  const step = () => {
+    raf = 0;
+    if (over) return;
+    if (!panel.isConnected || stillMotion()){ land(); return; }
+    const t = typeof clock.currentTime === "number" ? clock.currentTime : 0;
+    raf = requestAnimationFrame(t >= length ? land : step);
+  };
+  raf = requestAnimationFrame(step);
 }
 
 // the arrival's dress, taken off again by the clock rather than by the end of
@@ -4957,7 +5289,7 @@ const MERGE_EASE = [.6, 0, .3, 1];
 // asks again
 function sentBusy(panel){
   return panel.classList.contains("sentflight") || panel.classList.contains("motion") ||
-    panel.classList.contains("markout");
+    panel.classList.contains("markout") || !!panel.sentReword;
 }
 // the next two bubbles that may become one, if any, and if nothing else is
 // moving them: the move of the word and then the merge, or both at once with
@@ -5028,11 +5360,10 @@ function sentMove(el, a, b){
     one.classList.remove("markin");
     one.classList.add("markout", "markmove");
   }
-  later(MERGE_OUT_MS, () => {
-    for (const one of going){
-      one.classList.remove("markout", "markmove");
-      showMark(one, "", false);
-    }
+  // a bubble taking its saved words as its word goes (sentReword) is let
+  // finish first, its word already gone
+  const fall = () => {
+    if ([a, b].some(one => one.sentReword && one.isConnected)){ later(2 * SENT_FRAME_MS, fall); return; }
     const panels = sentPanels(el);
     if (panels.indexOf(b) !== panels.indexOf(a) + 1 || panels.indexOf(a) < 0 ||
         sentStands(a.sentMsgs) !== sentStands(b.sentMsgs) || sentBusy(a) || sentBusy(b)){
@@ -5048,6 +5379,13 @@ function sentMove(el, a, b){
     }
     if (sentColumnGrown(el, run)) return;
     sentMerge(el, run);
+  };
+  later(MERGE_OUT_MS, () => {
+    for (const one of going){
+      one.classList.remove("markout", "markmove");
+      showMark(one, "", false);
+    }
+    fall();
   });
 }
 // a move whose bubbles no longer match, or that something else has taken: each
@@ -5406,11 +5744,10 @@ function sentColumnMove(el, panels){
     one.classList.remove("markin");
     one.classList.add("markout", "markmove");
   }
-  later(MERGE_OUT_MS, () => {
-    for (const one of going){
-      one.classList.remove("markout", "markmove");
-      showMark(one, "", false);
-    }
+  // a bubble taking its saved words as the words go (sentReword) is let
+  // finish first, as in sentMove
+  const fall = () => {
+    if (panels.some(one => one.sentReword && one.isConnected)){ later(2 * SENT_FRAME_MS, fall); return; }
     const now = sentPanels(el), at = now.indexOf(a), stands = sentStands(a.sentMsgs);
     if (at < 0 || panels.some((one, i) => now[at + i] !== one || sentStands(one.sentMsgs) !== stands || sentBusy(one))){
       sentMoveBack(el);
@@ -5425,6 +5762,13 @@ function sentColumnMove(el, panels){
     }
     if (sentColumnGrown(el, run)) return;
     sentColumnMerge(el, run);
+  };
+  later(MERGE_OUT_MS, () => {
+    for (const one of going){
+      one.classList.remove("markout", "markmove");
+      showMark(one, "", false);
+    }
+    fall();
   });
 }
 // the column's fall, drawn as a pair's merge is drawn (sentMerge): the joined
