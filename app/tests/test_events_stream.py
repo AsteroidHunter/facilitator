@@ -87,8 +87,8 @@ DESK = {
 DESK_CARD = {
     "saved": {"id", "bucket", "title", "reply", "replyFull", "replyShort", "done", "replies", "olderReplies",
               "ball", "docked", "parked", "dockedTs", "parkedTs", "doneTs", "ts", "context", "owner", "pending",
-              "pendingTexts", "pendingStamps", "pendingBy", "pendingStates", "notedTexts", "ws", "task",
-              "worktree", "agentTs", "agent", "replyKind", "replyId", "replyTs", "answered", "seen", "turnTs",
+              "pendingTexts", "pendingStamps", "pendingOps", "pendingBy", "pendingStates", "notedTexts", "ws",
+              "task", "worktree", "agentTs", "agent", "replyKind", "replyId", "replyTs", "answered", "seen", "turnTs",
               "engine", "writing", "state", "testing", "queuePos", "magic"},
     "swept": {"bg"},
 }

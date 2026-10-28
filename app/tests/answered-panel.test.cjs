@@ -2464,7 +2464,8 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   // the pages draw from it on every reading, and a send lands as sent
   assert.match(DESKTOP, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
   assert.match(PHONE, /el\.sentItems = sentFrom\(b\);\s*drawSent\(el, b\.id\);/);
-  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, stage: "sent" \}\];/);
+  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, op: op\.id, stage: "sent" \}\];/,
+    "the phone's landed send does not keep the id the reading finds it by");
   assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, badge: opBadge\(op\), stage: "local" \}\);/,
     "the phone's own messages are not marked as not yet on the board");
   // and the sheet draws the stages: faded words and grey, the one quiet mark in its room
@@ -3461,6 +3462,49 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   assert.equal(secondBubble.dataset.mark, "Delivered");
   assert.equal(context.sentPanels(el).length, 2, "a Delivered bubble joined one still on its way");
   assert.equal(el.sentMotions.size, 0);
+});
+
+// the board can save other words than the ones typed ("Replace curse words",
+// _curse_free in server.py), and the reading behind the send brings them while
+// the send is still in the air. the send is found by the operation id it went
+// under (pendingOps), so it keeps its flight and its bubble, as a send whose
+// words came back the same does, and lands showing the words as saved
+test("a send the board saves with other words keeps its flight and its bubble, and lands on the saved words", () => {
+  const typed = "Invented words, damn it.", saved = "Invented words, [expletive] it.";
+  for (const ops of [true, false]) {
+    const s = motionScene(), { context, el, frame } = s;
+    // a message already standing, Delivered, where the new one will stand
+    const older = s.insert("Invented older message.");
+    context.sentLanded(el, older);
+    const olderBubble = el.sent;
+    const motion = context.armSentMotion(el);
+    const item = s.insert(typed);
+    const bubble = el.sent;
+    rect(olderBubble, 150, 150, 170, 45);
+    motion.play();
+    frame(1000 / 60); frame(60);
+    context.sentLanded(el, item);
+    // the reading the landing asks for: the words as the board kept them
+    const reading = { pendingTexts: [older.text, ops ? saved : typed], pendingStates: ["sent", "sent"],
+                      ...(ops ? { pendingOps: [older.op, item.op] } : {}) };
+    el.sentItems = context.sentFrom(reading);
+    context.syncSent(el, el.sentItems);
+    const why = ops ? "saved words" : "same words";
+    assert.deepEqual([...context.sentPanels(el)], [olderBubble, bubble], why + ": the reading took the send out of its bubble");
+    assert.equal(bubble.parentNode, el.sentwrap, why + ": the bubble the send flies to was dropped");
+    assert.ok(s.shell(), why + ": the reading cut the flight off");
+    assert.equal(bubble.classList.contains("sentflight"), true, why + ": the bubble showed under its own flight");
+    assert.equal(bubble.style.opacity, "0", why + ": the bubble showed under its own flight");
+    assert.deepEqual([...context.sentRows(olderBubble)].map(row => row.dataset.text), [older.text],
+      why + ": the send joined the bubble standing at once");
+    assert.deepEqual([...context.sentRows(bubble)].map(row => row.dataset.text), [ops ? saved : typed],
+      why + ": the bubble does not hold the words as saved");
+    frame(300); frame(650); frame(667);
+    assert.equal(s.shell(), null, why + ": the flight did not land");
+    assert.equal(bubble.style.opacity, "", why);
+    assert.equal(bubble.classList.contains("sentflight"), false, why);
+    assert.deepEqual([...context.sentRows(bubble)].map(row => row.dataset.text), [ops ? saved : typed], why);
+  }
 });
 
 // ---- one bubble for each send, and the merge ------------------------------------------

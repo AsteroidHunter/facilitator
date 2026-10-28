@@ -5477,6 +5477,11 @@ def _ui_state() -> dict:
                 # entries queued before times were recorded, which the
                 # page shows unstamped
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
+                # the operation id each queued message was sent under, or null
+                # for one that came without: the page keeps its own sent bubble
+                # by it, as the phone does, since the words saved can differ
+                # from the words typed (_curse_free)
+                "pendingOps": [m.get("op") for m in b["pending"]],
                 # who sent each, matching pendingTexts one to one: "agent" for
                 # a message an agent sent for the reader, null for the reader's
                 # own. the bubble holding an agent's message carries the robot

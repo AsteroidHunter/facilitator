@@ -146,6 +146,10 @@ test("with the switch on, the reader's messages are saved masked and every readi
   assert.deepEqual((await rows("7")).map(r => r.text), want);
   // both pages' readings
   assert.deepEqual((await live("7")).pendingTexts, want, "the Mac board's reading");
+  // and the id each went under, so the page that sent it keeps the bubble it
+  // drew from the typed words when the saved ones differ (sentGroups)
+  assert.deepEqual((await live("7")).pendingOps, ["pagesend0001", "phonesend0001", null],
+    "the Mac board's reading does not say which send each message is");
   const phoneCard = ok(await phone("/m/state", "", "GET"), "/m/state").boxes.find(b => b.id === "7");
   clean(phoneCard, "the phone's reading");
   assert.match(JSON.stringify(phoneCard), /un\[expletive\]believable/);

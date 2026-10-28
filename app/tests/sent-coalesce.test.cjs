@@ -102,6 +102,34 @@ test("a message an agent sent stands apart from the reader's own in every place,
   assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a"], pendingStates: ["sent"] })), [m("a", "sent")]);
 });
 
+// the board can keep other words than the ones typed ("Replace curse words",
+// _curse_free in server.py): a send is the same message under the operation id
+// it went under, whatever words the reading brings back for it
+const sent = (text, stage, op) => ({ text, stage, op });
+
+test("a reading's message keeps the bubble of the send it is, by its operation id, when its words were changed on saving", () => {
+  const { context } = load();
+  // the board's reading carries each message's id (pendingOps), and none for one sent without
+  assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a", "b"], pendingStates: ["sent", "sent"], pendingOps: [null, "op-b"] })),
+    [m("a", "sent"), sent("b", "sent", "op-b")]);
+  // his case: a Delivered bubble standing, and the send flying into its own under it
+  const before = [[m("There is an error", "sent")], [sent("it fucks the animation", "sent", "op-2")]];
+  const reading = [m("There is an error", "sent"), sent("it [expletive] the animation", "sent", "op-2")];
+  const groups = context.sentGroups(before, reading, null);
+  assert.deepEqual(words(groups), [["There is an error"], ["it [expletive] the animation"]],
+    "the saved words joined the bubble standing at once");
+  assert.deepEqual(plain(groups).map(g => g.id), [0, 1], "the send's own bubble was not kept");
+  // the phone: the send still its own, and then landed, before the reading
+  const local = [[m("x", "sent")], [{ ...sent("damn", "local", "op-3"), state: "pending" }]];
+  assert.deepEqual(plain(context.sentGroups(local, [m("x", "sent"), sent("[expletive]", "sent", "op-3")], null)).map(g => g.id), [0, 1]);
+  // two sends of the same words are two messages under their own ids
+  const twice = context.sentGroups([[sent("ok", "sent", "op-a")]], [sent("ok", "sent", "op-b"), sent("ok", "sent", "op-a")], null);
+  assert.deepEqual(plain(twice).map(g => g.id), [1, 0]);
+  // a message with no id on either side is matched by its words, as before
+  assert.deepEqual(plain(context.sentGroups([[sent("a", "sent", "op-a")]], [m("a", "sent")], null)).map(g => g.id), [0]);
+  assert.deepEqual(plain(context.sentGroups([[m("a", "sent")]], [sent("a", "sent", "op-a")], null)).map(g => g.id), [0]);
+});
+
 test("an agent's messages and the reader's never share a bubble, however they arrive", () => {
   const { context } = load();
   // a first draw: runs standing in one place are one bubble only while one hand sent them

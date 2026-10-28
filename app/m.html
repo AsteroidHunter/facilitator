@@ -3365,8 +3365,11 @@ function landSend(op, result){
   const el = ensureCard(op.box);
   if (!el) return;
   if (op.followView?.()) renderTickets(lastState);
-  // saved by the board now: sent, which reads Delivered, until a reading says more
-  el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
+  // saved by the board now: sent, which reads Delivered, until a reading says
+  // more. it keeps its operation id, so the reading that brings the words as
+  // saved, which can differ from the typed ones (_curse_free), finds it in the
+  // bubble it flew into (sentGroups)
+  el.sentItems = [...el.sentItems, { text: op.text, op: op.id, stage: "sent" }];
   drawSent(el, op.box);
   el.sendGuard = Date.now();
   if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
