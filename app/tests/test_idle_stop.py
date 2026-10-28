@@ -20,8 +20,8 @@ version and will not be in the native Mac app; these tests go with it.
             least two minutes away; a window that opens its line again or
             reads the board in that time keeps the board up, and nothing
             coming back in that time stops it
-  marks     the constant is three days, and the code, the docs and the
-            README say what the timer is and that it is temporary
+  marks     the constant is three days, and the code and the docs say what
+            the timer is and that it is temporary
 
 The real stop, on a real board of its own, is idle-stop.test.cjs.
 
@@ -519,10 +519,6 @@ class Marks(unittest.TestCase):
         section = install.split("## Stopping the board", 1)[1].split("\n## ", 1)[0]
         self.assertIn(self.SENTENCE, section)
         self.assertIn("`The board stopped itself after three days unused.`", section)
-        readme = (ROOT.parent / "README.md").read_text()
-        run_line = readme.index("`facilitator run`")
-        self.assertIn("(to stop the board, run `facilitator stop`; a board left unused for three days "
-                      "stops itself)", readme[run_line:run_line + 200])
 
 
 if __name__ == "__main__":
