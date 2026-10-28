@@ -1793,6 +1793,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function land(card, b){
     const el = card.el;
     const turn = turnBegin(el, b);
+    if (turn === TURN_WAIT){ card.waiting = b; return; }
+    card.waiting = null;
     keepHistory(card);
     render(el, pageRaw(card, card.pages.length - 1));
     if (!turn) headOnSwap(el, b);
@@ -1809,6 +1811,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
     caretQueue();
     paintTickets();
   }
+  // a new answer that waited for a merge of the waiting bubbles is drawn once
+  // the merge has ended (turnWaits in card-logic.js)
+  turnAgain = () => { for (const card of cards) if (card.waiting) land(card, card.waiting); };
 
   // ---- the reply history --------------------------------------------------------
   // the board asks itself for a card's older replies (histList in
