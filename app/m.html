@@ -2539,9 +2539,6 @@ function makeBox(b){
   };
   ta.addEventListener("input", () => {
     clearPhoneEnterAgain();
-    // the moment of the last key, which is what holds a new answer back while
-    // the reader is typing (turnHolding in card-logic.js)
-    noteTyping(ta);
     tick(true);
     draftSave(b.id);   // kept on this phone as it is typed (card-logic.js)
   });
@@ -2690,8 +2687,6 @@ function makeBox(b){
   // the answer has scrolled away under the title
   watchBand(els[b.id]);
   watchRise(replyview);
-  // and the reader's own scrolling of the answer, which holds a page turn back
-  watchReading(els[b.id]);
   // and the row's height, on the frame the card is shown
   watchShown(els[b.id]);
   return els[b.id];
@@ -2719,12 +2714,9 @@ function drawCard(el, b, state){
     const rawReply = replyFull(b);
     // a new answer on the card on show turns the page, as it does on the desktop
     // (card-logic.js): the sheet over the page the reader was on is laid before
-    // anything of the new one is drawn, and turnGo below glides it. while the
-    // reader is busy with the card the new answer is held back, and this pass
-    // leaves the answer and both panels exactly as they stand
+    // anything of the new one is drawn, and turnGo below glides it
     const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== rawReply){
+    if (el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];
       if (hist && hist.id === b.id) histExit(b.id);
@@ -2750,17 +2742,14 @@ function drawCard(el, b, state){
     // and clear the panel in view. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (!held && !stale) syncSentPhone(el, b);
+    if (!stale) syncSentPhone(el, b);
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
     // on show the stepper owns that panel, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the typing row moves
-    if (!held){
-      el.liveMeta = liveAnswered(b);
-      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
-    }
+    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     // the new page stands under the sheet: the glide and the print
     turnGo(el, turn);
     const cs = cardState(b);
@@ -2800,7 +2789,7 @@ function dropCard(id, gone){
   }
   omniSweepEnd(el);
   turnEnd(el);
-  clearTimeout(el.turnHeld); clearTimeout(el.printTimer);
+  clearTimeout(el.printTimer);
   if (el.bandObserver) el.bandObserver.disconnect();
   if (el.shownObserver) el.shownObserver.disconnect();
   // the row's typed formatting is held by the formatter as well as by this
@@ -2826,7 +2815,6 @@ function seatScroll(el){
   if (!due || !cardLaidOut(el)) return;
   el.scrollDue = null;
   if (el.reply.dataset.raw !== due.raw) return;
-  el.quietScroll = Date.now();
   el.replyview.scrollTop = due.top;
 }
 
@@ -2982,9 +2970,6 @@ function sentMarkAct(el, id, act){
   if (act === "retry") resendOp(op);
   else if (act === "cross") crossOp(op);
 }
-// a new answer held back while the reader was busy is shown by drawing the
-// reading this page already holds, since the board has nothing newer to say
-turnAgain = () => { if (lastState) apply(lastState); };
 
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the

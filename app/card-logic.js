@@ -37,10 +37,6 @@ let cardAnswerOff = null;
 // foot is told per card instead (el.sentRoom), since its room is a measure
 // each card keeps for itself
 let answeredRoomChanged = null;
-// turnAgain: how a page draws its cards again from the board, once a new answer
-// it held back while the reader was busy can be shown. the desktop asks the
-// board; the phone draws the reading it already holds
-let turnAgain = null;
 // waitNewestFirst: whether the cards awaiting the reader are listed newest turn
 // first. a page answers from the board's waitnewest setting ("1" is newest
 // first); until it does, and wherever it is not set, they are listed oldest
@@ -6611,33 +6607,19 @@ function stillCopy(el, { noIds = false } = {}){
 // as they stood, and nothing that glides is drawn over them: only the bubbles
 // the answer was given rise, and the new answer comes up under them.
 //
-// the reader is never moved while busy with the card. a new answer is held
-// back, the page left exactly as it was, while the reader is reading (the answer
-// was scrolled in the last three seconds, words in it are picked out, or an older
-// page of its history is on show) or typing (a key went into the row in the last
-// two seconds), and the card looks again every half second; the page turns
-// once the card has been left still. a card that is not on show has nothing to
-// turn and simply shows the new page, and so does a card whose reader asked for
-// no motion. a new answer with no sent panel standing has nothing to glide and
-// is printed in place instead (printReply). a progress note is not an answer and
-// turns nothing
+// a new answer turns the page the moment the page has it, whatever the reader
+// is doing with the card: typing, scrolling, picking words out or reading an
+// older page of its history, which the new answer takes the card back from.
+// the row they type in is no part of the turn, so its words, its caret and its
+// focus stay as they are and the typing goes on through the glide. a card that
+// is not on show has nothing to turn and simply shows the new page, and so does
+// a card whose reader asked for no motion. a new answer with no sent panel
+// standing has nothing to glide and is printed in place instead (printReply).
+// a progress note is not an answer and turns nothing
 const TURN_GLIDE_MS = 560;    // the sheet's --turn-glide
 const PRINT_MS = 780;         // the sheet's print: the last blocks start at 400ms and take 380
-const READ_QUIET_MS = 3000;   // this long after the reader last scrolled the answer
-const TYPE_QUIET_MS = 2000;   // this long after the last key into the row
-const HOLD_LOOK_MS = 500;     // how often a held card looks again
-const TURN_HELD = "held";
 
-// the reader's own scrolling of the answer, which is what says they are reading
-// it. the page's own moves of the scroll, a history step or a turn, are marked
-// quiet as they are made, so they are not taken for the reader's
-function watchReading(el){
-  (el.replyview || el.reply).addEventListener("scroll", () => {
-    if (Date.now() - (el.quietScroll || 0) > 200) el.readAt = Date.now();
-  }, { passive: true });
-}
 function scrollCardTop(el){
-  el.quietScroll = Date.now();
   (el.replyview || el.reply).scrollTop = 0;
 }
 function cardLaidOut(el){
@@ -6655,15 +6637,6 @@ function openAtHead(el){
   el.headDue = false;
   scrollCardTop(el);
 }
-// and a key into a row, which is what says the reader is typing. each page calls
-// it from its rows' input: the card's own bar and the phone's row. the
-// formatter also says input when it puts its editor on or takes it off, to
-// every card on load, and that is nobody typing, so only a row holding the
-// caret counts, the way readOnCompose counts it
-function noteTyping(ta){
-  if (typeof ComposeFormat === "object" && ComposeFormat && ComposeFormat.focused(ta)) ta.typedAt = Date.now();
-}
-
 // the typing hold: the board does not hand a card to an agent while the reader is
 // still typing on it, and keeps the one clock for that itself (TYPING_HOLD in
 // server.py). the page only says "a change on this card" each time the reader makes
@@ -6705,46 +6678,14 @@ function cardOnShow(el){
   return getComputedStyle(el.box).visibility !== "hidden";
 }
 
-// whether the reader is busy with the card on show
-function turnHolding(el, id){
-  if (!cardOnShow(el)) return false;
-  if (hist && hist.id === id) return true;
-  const now = Date.now();
-  if (now - (el.readAt || 0) < READ_QUIET_MS) return true;
-  if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
-  if (typeof boxHasSelection === "function" && boxHasSelection(el.replyview || el.reply)) return true;
-  // and the reader's caret standing in the answer (replyCaret), as a selection there does
-  if (el.reply && typeof document === "object" && document.activeElement === el.reply) return true;
-  // and a sent bubble part way through its own run, its flight or a merge is let finish it
-  if (el.sentMerge) return true;
-  if (sentPanels(el).some(one => one.classList.contains("motion") || one.classList.contains("sentflight"))) return true;
-  return false;
-}
-
-// a held card looks again on its own clock, since a page that reads the board by
-// its revision is handed nothing new to draw while the board stands still. once
-// the reader has let the card be, the page draws its cards again and the turn runs
-function turnHold(el, id){
-  if (el.turnHeld) return;
-  const look = () => {
-    if (turnHolding(el, id)){ el.turnHeld = setTimeout(look, HOLD_LOOK_MS); return; }
-    el.turnHeld = null;
-    if (turnAgain) turnAgain();
-  };
-  el.turnHeld = setTimeout(look, HOLD_LOOK_MS);
-}
-
 // called by the page's pass over a card whose answer has changed, before it
-// draws anything of the new one. it answers TURN_HELD when the new answer is to
-// wait, and the page then leaves the answer and both panels as they stand; a
-// turn, which the page hands to turnGo once it has drawn the new page; or
-// nothing, for the plain swap the card always had
+// draws anything of the new one. it answers a turn, which the page hands to
+// turnGo once it has drawn the new page, or nothing, for the plain swap the
+// card always had
 function turnBegin(el, b){
   if (el.turning) turnEnd(el);   // a turn still going lands at once
   if (!b || b.replyKind !== "agent" || !cardOnShow(el)) return null;
   if (stillMotion()) return null;
-  if (turnHolding(el, b.id)){ turnHold(el, b.id); return TURN_HELD; }
-  if (el.turnHeld){ clearTimeout(el.turnHeld); el.turnHeld = null; }
   const turn = { mode: "print" };
   if (el.sent && el.sentwrap && el.sentwrap.getBoundingClientRect().height) turnSheet(el, turn, b);
   // the new page opens at its head
@@ -6868,7 +6809,7 @@ function turnSheet(el, turn, b){
 // called once the page has drawn the new page under the sheet: the glide, which
 // brings the new answer up with it, or the print alone where nothing glides
 function turnGo(el, turn){
-  if (!turn || turn === TURN_HELD) return;
+  if (!turn) return;
   if (turn.mode !== "glide"){ printReply(el); return; }
   // where the new page's own panel stands: the panel the sent messages have
   // just become. a new page with no panel at its head has nowhere to glide to,
@@ -8197,10 +8138,8 @@ function histExit(id){
     // back on the live reply, so the panel over it is the live reply's own batch
     // again. the card is read out of the state the page is holding rather than
     // remembered from the step away, so a reply that landed while an older page
-    // was being read is the one that comes back. while a new answer is held back
-    // for the reader, the live page is still the one the card last drew, and so
-    // is its batch, until the page turn brings the new one
-    syncAnswered(el, el.turnHeld && el.liveMeta !== undefined ? el.liveMeta : liveAnswered(stateBoxOf(id)));
+    // was being read is the one that comes back
+    syncAnswered(el, liveAnswered(stateBoxOf(id)));
   }
 }
 

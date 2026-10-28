@@ -345,16 +345,6 @@ test("the section chords and Control+S may come from the response's caret", () =
   assert.equal(w.context.responseScrollSource(w.reply, w.el), true);
 });
 
-test("a new answer waits while the reader's caret stands in the answer", () => {
-  const w = world();
-  w.context.cardOnShow = () => true;
-  assert.equal(w.context.turnHolding(w.el, "7"), false);
-  w.place(-1);
-  assert.equal(w.context.turnHolding(w.el, "7"), true);
-  w.ta.focus();
-  assert.equal(w.context.turnHolding(w.el, "7"), false);
-});
-
 // ---- each page's key ------------------------------------------------------------------
 
 function pageAction(source, globals) {
