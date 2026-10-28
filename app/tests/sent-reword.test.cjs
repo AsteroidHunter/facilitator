@@ -8,14 +8,18 @@
 // while the bubble is in the air, or after it has landed, and the bubble
 // changes to them at that moment, gently: its edges ease from the box it had
 // to the box it has now on one curve over a fifth of a second, and its words
-// go over from one copy to the other, the typed words gone before the saved
-// ones come, at Mac size and at phone size. Every frame at 60 a second is
+// roll over from one copy to the other on the same curve and length, the
+// typed words up and out as the saved ones come up and in, at Mac size and at
+// phone size. Every frame at 60 a second is
 // checked against the same flight with nothing swapped: no edge may move more
 // than EDGE_LIMIT further than that flight's between two frames. The same
 // reading taken the way the page took it before (the seat simply moved under
 // the flight) moves an edge about 12px in one frame, and the same check
 // catches it. Boxes are synthetic viewport rectangles laid out by hand; no
-// layout engine and no browser runs, so nothing here claims how it looks.
+// layout engine and no browser runs, so nothing here claims how it looks: the
+// stand-in lays out no words, so its copies roll whole, each copy's messages
+// inside its own cut, which is the roll a page that cannot read its words
+// makes; the roll word by word is checked frame by frame in a browser.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
@@ -27,8 +31,6 @@ const FLIGHT_MS = 650;
 const SWAP_MS = 200;
 const AT_MS = 80;        // a change worked out at the press starts this far into the flight
 const UP_MS = 430;       // and the bubble is on its seat by this
-const OUT_MS = 80;       // the words that go fade out over this, from the change's start
-const IN_MS = 80;        // and the words that come fade in over this, once nothing stands in their way
 const EDGE_LIMIT = 4;    // px between two frames at 60 a second, against the flight with nothing swapped
 const FRAME = 1000 / 60;
 const READ_MS = 100 / 3; // the reading lands two frames into the flight, as the Mac's does (about 35ms)
@@ -274,6 +276,25 @@ function saved(s, p, surface, gentle = true) {
   if (was) s.context.sentReword(s.el, p, was);
   return was;
 }
+// the roll of two copies as the stand-in has it, laying out no words: each
+// copy's messages inside its own cut, the copy as it stood up and out and the
+// one as it stands up and in, by the taller of the two, over length ms on the
+// swap's curve from the change's start
+function rolledWhole(copies, length) {
+  const way = Math.max(...copies.map(copy => parseFloat(copy.style.height)));
+  const runs = copies.map(copy => running(copy.querySelector(".answstack")));
+  assert.deepEqual(runs.map(run => run && Array.from(run.keys, k => numbers(k.transform)[0])), [[0, -way], [way, 0]],
+    "the copies do not roll, the one as it stood up and out and the one as it stands up and in");
+  for (const run of runs) {
+    assert.equal(run.id, "reword");
+    assert.equal(run.options.easing, "cubic-bezier(.3,0,.7,1)");
+    assert.equal(run.options.duration, length);
+    assert.ok(!run.options.delay, "the roll waits");
+  }
+  // neither copy is faded or hidden: each rolls whole
+  for (const copy of copies) assert.notEqual(copy.style.visibility, "hidden");
+  return runs;
+}
 const edgesAt = (s, ms) => {
   const d = drawn(s.shell(), ms);
   return { l: d.left, t: d.top, r: d.right, b: d.bottom };
@@ -323,27 +344,15 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     assert.ok(worst > 10, `the old way moved an edge only ${worst.toFixed(2)}px in one frame`);
   });
 
-  test(`${name}: in the air, the saved words' copy is laid over the typed one, and the typed words go before the saved ones come, on the flight's clock`, () => {
+  test(`${name}: in the air, the saved words' copy is laid over the typed one, and the typed words roll out as the saved ones roll in, on the flight's clock`, () => {
     const s = fly(surface, (one, p) => saved(one, p, surface));
     const copies = s.shell().querySelector(".sentmorph-target").children;
     assert.equal(copies.length, 2, "the saved words' copy is not laid over the typed one");
     assert.equal(copies[1].style.position, "absolute", "the saved words' copy does not stand on the typed one's origin");
-    // the stand-in lays out no text, so the copies go over whole, one after
-    // the other and never drawn over each other: the typed words out first,
-    // and the saved ones in once the box has eased to the bubble they fill,
-    // from the moment the reading landed
-    const fades = copies.map(copy => running(copy));
-    assert.deepEqual(fades.map(run => run && Array.from(run.keys, k => k.opacity)), [[1, 0], [0, 1]]);
+    // from the moment the reading landed, over the box's own length
     const length = s.context.sentSwapMs(surface.typedBox.left - surface.savedBox.left);
     assert.ok(length >= SWAP_MS && length < SWAP_MS + 5, `a change of about 25px takes ${length}ms`);
-    for (const run of fades) {
-      assert.equal(run.id, "reword");
-      assert.equal(run.options.easing, "cubic-bezier(.3,0,.7,1)");
-      assert.equal(run.currentTime, 0, "the fade does not start at the reading");
-    }
-    assert.deepEqual([fades[0].options.delay, fades[0].options.duration], [0, OUT_MS], "the typed words do not go first");
-    assert.deepEqual([fades[1].options.delay, fades[1].options.duration], [length, IN_MS],
-      "the saved words come before the box holds them");
+    for (const run of rolledWhole(copies, length)) assert.equal(run.currentTime, 0, "the roll does not start at the reading");
     // the copy is the saved bubble's size in the copies' own px (the typed
     // bubble's scale, read at the press), and the real bubble stays hidden
     // until the landing
@@ -368,9 +377,9 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     saved(s, p, surface);
     const clip = s.shell().querySelector(".sentmorph-clip");
     const length = s.context.sentSwapMs(surface.typedBox.left - surface.savedBox.left);
-    // the box eases over the swap's length, and the saved words come in after it
-    assert.equal(running(clip).options.duration, Math.ceil(550 + length + IN_MS), "the flight was not handed over for the swap's run");
-    const end = Math.ceil(550 + length + IN_MS);
+    // the box eases over the swap's length, and the words roll over the same
+    assert.equal(running(clip).options.duration, Math.ceil(550 + length), "the flight was not handed over for the swap's run");
+    const end = Math.ceil(550 + length);
     let before = edgesAt(s, 550);
     for (let ms = 550 + FRAME; ms <= end; ms += FRAME) {
       const now = edgesAt(s, ms);
@@ -385,7 +394,7 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     assert.equal(s.shell(), null);
   });
 
-  test(`${name}: saved words read after the landing change the landed bubble on the swap's curve, its word left where it is, the typed words gone before the saved ones come`, () => {
+  test(`${name}: saved words read after the landing change the landed bubble on the swap's curve, its word left where it is, the typed words rolling out as the saved ones roll in`, () => {
     const s = fly(surface);
     for (let ms = 3 * FRAME; ms <= FLIGHT_MS + 2 * FRAME; ms += FRAME) s.frame(ms);
     assert.equal(s.shell(), null, "the flight did not land");
@@ -424,14 +433,13 @@ for (const [name, surface] of Object.entries(SURFACES)) {
       for (const k of Object.keys(now)) assert.ok(Math.abs(now[k] - prev[k]) <= EDGE_LIMIT, `the ${k} moved ${Math.abs(now[k] - prev[k])}px at ${ms}ms`);
       prev = now;
     }
-    // the words: the copy as it stood goes, and the copy as it stands comes
-    // once the box has eased to it, never the two over each other
+    // the words: the copy as it stood rolls out and the copy as it stands
+    // rolls in, with the box
     const copies = layer.querySelector(".sentmorph-target").children;
     assert.equal(copies.length, 2);
-    assert.deepEqual(copies.map(copy => Array.from(running(copy).keys, k => k.opacity)), [[1, 0], [0, 1]]);
-    assert.deepEqual(copies.map(copy => [running(copy).options.delay, running(copy).options.duration]), [[0, OUT_MS], [length, IN_MS]]);
+    rolledWhole(copies, length);
     // the bubble is itself again the frame after the run's last one
-    for (const node of layer.querySelectorAll("*")) for (const run of node.animations) run.currentTime = length + IN_MS;
+    for (const node of layer.querySelectorAll("*")) for (const run of node.animations) run.currentTime = length;
     s.frame(FLIGHT_MS + 100);
     assert.ok(s.p.querySelector(".sentreword"), "the layer went before the run's last frame was drawn");
     s.frame(FLIGHT_MS + 117);
@@ -499,17 +507,11 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     assert.equal(p.querySelector(".answmsg").children.length, 1);
     assert.equal(p.querySelector(".answmsg").children[0].textContent, "that is so [expletive]");
     assert.deepEqual(p.layout, surface.savedBox);
-    // the change, on the flight's own clock from SENT_SWAP_AT_MS: the stand-in
-    // lays out no words, so the copies go over whole, the typed words out and
-    // then the saved ones in, all in well before the box is on its seat
-    const fades = copies.map(copy => running(copy));
-    assert.deepEqual(fades.map(run => Array.from(run.keys, k => k.opacity)), [[1, 0], [0, 1]]);
-    assert.deepEqual(fades.map(run => [run.options.delay, run.options.duration]), [[0, OUT_MS], [OUT_MS, IN_MS]]);
-    for (const run of fades) {
-      assert.equal(run.id, "reword");
+    // the change, on the flight's own clock from SENT_SWAP_AT_MS over a fifth
+    // of a second, all in well before the box is on its seat
+    for (const run of rolledWhole(copies, SWAP_MS))
       assert.ok(Math.abs(run.currentTime - (FRAME - AT_MS)) < 1e-9, `the change starts at ${FRAME - run.currentTime}ms of the flight`);
-    }
-    assert.ok(AT_MS + OUT_MS + IN_MS <= UP_MS, "the change is not in before the bubble is on its seat");
+    assert.ok(AT_MS + SWAP_MS <= UP_MS, "the change is not in before the bubble is on its seat");
     // and the flight hands over at its own length, with nothing left to change
     assert.equal(running(s.shell().querySelector(".sentmorph-clip")).options.duration, FLIGHT_MS);
     for (let ms = FRAME; ms <= FLIGHT_MS + 2 * FRAME; ms += FRAME) s.frame(ms);
