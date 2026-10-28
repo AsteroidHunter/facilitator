@@ -6504,10 +6504,8 @@ function statusOf(b){
 // so is the page turn that takes the one up to the other when an answer lands.
 // what the desktop tells them: the panel over the answer taking or giving back
 // its room re-snaps the answer's lines against it (the sent panel's own word is
-// sentRoom, below, which only writes its band again), and a new answer held back while the
-// reader was busy is shown by asking the board again
+// sentRoom, below, which only writes its band again)
 answeredRoomChanged = snapCard;
-turnAgain = () => poll();
 
 // the chevron the top-bar history buttons draw, the phone page's same path and
 // dimensions
@@ -7240,9 +7238,6 @@ function makeBox(b, i, state){
     ta.addEventListener("input", () => {
       cancelAutoNext();
       tick();
-      // the moment of the last key, which is what holds a new answer back
-      // while the reader is typing (turnHolding in card-logic.js)
-      noteTyping(ta);
       draftSave(b.id);   // kept on this Mac as it is typed (card-logic.js)
     });
     // a focus moves no scroll inside the field, so a caret put at the end of a
@@ -7353,8 +7348,6 @@ function makeBox(b, i, state){
     if (window.ResizeObserver) new ResizeObserver(() => {
       if (document.body.classList.contains("newlayout")) queueFatCaret();
     }).observe(tray);
-    // and the reader's own scrolling of the answer, which holds a page turn back
-    watchReading(els[b.id]);
 
     // Tab on the card walks the title, the text box and the card and nothing else (cardTab),
     // and no other part of the card is a stop of the browser's own Tab (quietStops); a
@@ -7759,12 +7752,9 @@ function* applyPass(state){
     const rawReply = replyFull(b);
     // a new answer on the card on show turns the page (card-logic.js): the sheet
     // over the page the reader was on is laid here, before anything of the new
-    // one is drawn, and turnGo below glides it once the new page stands under
-    // it. while the reader is busy with the card the new answer is held back,
-    // and this pass leaves the answer and both panels exactly as they stand
+    // one is drawn, and turnGo below glides it once the new page stands under it
     const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== rawReply){
+    if (el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached history
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
@@ -7820,7 +7810,7 @@ function* applyPass(state){
     // bringing the same list touches no dom at all, and a reading asked for
     // before this page's own last send landed knows nothing of it and may not
     // take it away
-    if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
+    if ((state.fetchedAt || 0) >= (el.sendGuard || 0)){
       el.sentItems = sentFrom(b);
       syncSent(el, el.sentItems);
     }
@@ -7830,10 +7820,7 @@ function* applyPass(state){
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the composer moves
-    if (!held){
-      el.liveMeta = liveAnswered(b);
-      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
-    }
+    if (!(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     // the new page stands under the sheet: the glide and the print
     turnGo(el, turn);
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
@@ -9762,8 +9749,7 @@ function pipeSync(){
     else pipeOff();
     return;
   }
-  // the response the card shows, its live one (a new answer is held back from
-  // the card while the reply is typed, and from here with it)
+  // the response the card shows, its live one
   const raw = el.reply.dataset.raw || "";
   if (PIPE.id !== shownId){
     // new beside the card: it comes flat, as a box new on its card does, and
@@ -12391,11 +12377,7 @@ function renderMiniCards(state){
         }
       });
       ta.addEventListener("keyup", e => e.stopPropagation());
-      ta.addEventListener("input", () => {
-        ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px";
-        // a key here holds a new answer on this card back, as on the large one
-        noteTyping(ta);
-      });
+      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
       watchTyping(ta, b.id);
@@ -12404,8 +12386,6 @@ function renderMiniCards(state){
                              answwrap, answ: null, answId: null,
                              sentwrap, sent: null, sentKey: "", sentItems: [],
                              tick: () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; } };
-      // and the reader's own scrolling of its answer, which holds a turn back too
-      watchReading(el);
       list.appendChild(box);
     }
     // one card at a time; the rest stay built so their half-typed messages
@@ -12425,21 +12405,19 @@ function renderMiniCards(state){
     // a new one on the card on show turns the page as the large card's does
     // (turnBegin in card-logic.js): the sent panel rises to the head of the card
     // with the new answer under it, in one glide, or the answer is printed in
-    // place when nothing was sent. it waits while the reader is busy with the
-    // card, and a card built just now has nothing to turn from
+    // place when nothing was sent. a card built just now has nothing to turn from
     const shortReply = replyShort(b);
     const turn = el.reply.dataset.raw !== undefined && el.reply.dataset.raw !== shortReply
       ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== shortReply){
+    if (el.reply.dataset.raw !== shortReply){
       el.reply.dataset.raw = shortReply;
       el.reply.innerHTML = fmt(shortReply);
     }
     // the large card's own passes, told to answer to nobody: the small card has
     // no answer to re-snap when a panel opens or is cut back. a reading asked
     // for before this card's own last send landed may not take it away
-    if (!held) syncAnswered(el, liveAnswered(b), null);
-    if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
+    syncAnswered(el, liveAnswered(b), null);
+    if ((state.fetchedAt || 0) >= (el.sendGuard || 0)){
       el.sentItems = sentFrom(b);
       syncSent(el, el.sentItems);
     }

@@ -1505,7 +1505,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     watchBand(el);
     watchRise(replyview);
     watchRise(ta);
-    watchReading(el);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(el.tick);
     return el;
   }
@@ -1610,7 +1609,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
         ta.focus();
       }
     });
-    ta.addEventListener("input", () => { el.tick(); noteTyping(ta); });
+    ta.addEventListener("input", () => el.tick());
     // Enter sends and Shift + Enter is a new line. Control + Shift + Enter
     // with the box empty only moves (composerEnter in index.html); with words
     // in it, it sends them and stays, since the card that has waited longest is
@@ -1734,18 +1733,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
     item.field = page.field;
     card.pending.push(item);
     // nothing stands between the send and its answer: no Delivered, no Read
-    // and no working spinner. the send ends the typing, so the two quiet
-    // seconds the board leaves after the last key (TYPE_QUIET_MS in
-    // card-logic.js) do not hold the answer back
-    el.ta.typedAt = 0;
+    // and no working spinner
     answerOnLanding(card);
     return true;
   }
   // the answer comes the moment the send's flight has landed (SENT_FLIGHT_MS,
-  // 650ms). the board holds a new answer while a bubble is in flight
-  // (turnHolding), and an answer drawn sooner would take the bubble the flight
-  // is landing on away and cut the flight short. it comes once, after the last
-  // of a run of sends, and answers them all
+  // 650ms): an answer drawn sooner would take the bubble the flight is landing
+  // on away and cut the flight short. it comes once, after the last of a run
+  // of sends, and answers them all
   function answerOnLanding(card){
     const el = card.el;
     cancelAnimationFrame(card.replyTimer);
@@ -1798,8 +1793,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function land(card, b){
     const el = card.el;
     const turn = turnBegin(el, b);
-    if (turn === TURN_HELD){ card.held = b; return; }
-    card.held = null;
     keepHistory(card);
     render(el, pageRaw(card, card.pages.length - 1));
     if (!turn) headOnSwap(el, b);
@@ -1816,9 +1809,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     caretQueue();
     paintTickets();
   }
-  // a new answer held back while the reader was busy with the card is drawn
-  // once they have let it be (turnHold in card-logic.js)
-  turnAgain = () => { for (const card of cards) if (card.held) land(card, card.held); };
 
   // ---- the reply history --------------------------------------------------------
   // the board asks itself for a card's older replies (histList in
