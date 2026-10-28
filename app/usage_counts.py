@@ -343,6 +343,8 @@ def day_counts(days: list[dt.date], transcript: Path, phone_file: Path) -> dict:
         if t is None:
             continue
         kind = row.get("kind")
+        if kind == "user" and row.get("by") == "agent":
+            continue   # an agent put this message on the card: not his message, not his time
         if kind in OWNER_KINDS:
             t["owner"].append(row["ts"])
         if kind == "user":

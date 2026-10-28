@@ -387,6 +387,20 @@ class Counts(Board):
                                           "phone_used": False})
         self.assertNotIn(AFTER, counts, "a day nobody used counted as used")
 
+    def test_a_message_an_agent_sent_is_not_his_message_or_his_time(self):
+        voice = [{"ts": at(DAY, 14, minute), "kind": "user", "box": "7", "text": "from the voice agent",
+                  "by": "agent", "agent": "voice", "via": "voice"} for minute in range(0, 50, 10)]
+        mine = [{"ts": at(DAY, 10, 0), "kind": "user", "box": "7", "text": "mine"},
+                {"ts": at(DAY, 10, 1), "kind": "user", "box": "7", "text": "mine too", "via": "mini"}]
+        only_agents = [{"ts": at(AFTER, 9, 0), "kind": "user", "box": "7", "text": "alone", "by": "agent"}]
+        self.write_rows(voice + mine + only_agents)
+        counts = uc.day_counts([DAY, AFTER], self.transcript, self.phone)
+        # his two messages (one 5-minute stretch) and the phone's stretch; the five agent
+        # messages add neither a message nor the 14:00 to 14:40 stretches
+        self.assertEqual(counts[DAY], {**{k: 0 for k in EXPECTED}, "minutes_used": 10, "messages_sent": 2,
+                                       "phone_used": True})
+        self.assertNotIn(AFTER, counts, "a day only an agent wrote on counted as used")
+
     def test_a_damaged_or_half_written_line_is_passed_over(self):
         with open(self.transcript, "a") as f:
             f.write("not json at all\n")
