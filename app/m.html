@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<!-- maximum-scale=1: iOS zooms the whole page in when a text field set under
+     16px takes the caret, by 16 over the field's size, and it zooms no
+     further than this limit allows. a field in a page in the magic box counts
+     too, since the zoom is the phone page's and never the frame's, and the
+     pinch guard below then leaves no way back out. so no field, the board's
+     or an agent's, ever zooms the page. iOS still lets a pinch go past the
+     limit, which the guard stops as before; the box's own picture zoom is its
+     script's, which this leaves alone -->
 <title>facilitator</title>
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
