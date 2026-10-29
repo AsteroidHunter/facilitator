@@ -165,9 +165,12 @@ class Case(unittest.TestCase):
         return json.loads((self.app / "profile.json").read_text())
 
     def lead(self):
-        """What the server writes in front of board-settings.js."""
-        status, body, _ = S._get_board_settings_js(S.Query({}), None)
-        self.assertEqual(status, 200)
+        """What the server writes in front of board-settings.js. A script goes
+        out as a Response, gzip compressed only when asked, which this is not."""
+        answer = S._get_board_settings_js(S.Query({}), None)
+        self.assertEqual(answer.status_code, 200)
+        self.assertNotIn("content-encoding", answer.headers)
+        body = answer.body
         own = (ROOT / "board-settings.js").read_bytes()
         self.assertTrue(body.endswith(own))
         return body[:-len(own)].decode()

@@ -386,11 +386,12 @@ test("signed in, /m carries the shared card sheet's own text in place of its lin
   const worker = await readFile(path.join(ROOT, "m-sw.js"), "utf8");
   assert.doesNotMatch(worker, /const SHELL\b|"\/card-tokens\.css"/, "the phone's worker keeps or asks for the sheet itself");
   // a page open is asked of the server every time; the worker keeps no copy of
-  // it and only stands the server-down screen in when the server cannot answer
+  // it and only stands the server-down screen in when the server cannot answer,
+  // or has not answered within its first silence
   assert.match(worker, /if \(request\.mode === "navigate"\) \{\s*if \(url\.pathname === "\/m"\) event\.respondWith\(openPage\(request\)\);\s*return;\s*\}/,
     "the worker does something other than ask the server for a page open");
   const openPage = worker.slice(worker.indexOf("async function openPage"), worker.indexOf("function bounded"));
-  assert.ok(openPage.includes("await fetch(request)") && !/caches/.test(openPage),
+  assert.ok(openPage.includes("answer = await Promise.race([fetch(request), silence]);") && !/caches/.test(openPage),
     "the worker answers a page open from a kept copy");
   // the served page's scripts still parse
   for (const code of inlineScripts(served.text)) new vm.Script(code, { filename: "m.html" });

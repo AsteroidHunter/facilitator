@@ -86,7 +86,8 @@ const LABELS = {
   "home-widgets.js": ["Close (Escape)", "Another Look", "Download", "Download Chart"],
   "onboarding.html": ["Doing And Docked", "Deferred And Done", "Share Feedback", "Older Reply (Ctrl + Shift + Up)",
     "Newer Reply (Ctrl + Shift + Down)"],
-  "page.html": ["Edit Layout", "Background Color", "Settings", "Send (Enter)", "Edit Goal", "Cycle Status",
+  // page.html's "Send (Enter)" went with its quick chat panel (Oct 26)
+  "page.html": ["Edit Layout", "Background Color", "Settings", "Edit Goal", "Cycle Status",
     "Edit Task", "Previous Row", "Previous Card (Left)", "Next Card (Right)", "Next Row", "New Project",
     "New Box", "Done", "Deferred", "Remove To-Do"],
 };

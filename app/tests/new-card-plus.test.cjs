@@ -85,7 +85,7 @@ test("the plus is the board's plus on no glass, tuned: .9 of 24px, 1.6px lines, 
   assert.match(svg, /width:var\(--plus-drawn\); height:var\(--plus-drawn\); stroke-width:calc\(var\(--plus-thick\) \/ var\(--plus-mult\)\); opacity:\.42$/);
   assert.ok(Math.abs(1.6 / .9 * (24 * .9) / 24 - 1.6) < 1e-9);
   // none of the bar's glass: its stack, its zoom rule, its press and its press list
-  assert.match(MAC, /body\.focus :is\(\.bar \.qn-glass, #projmenu\)\{/);
+  assert.match(MAC, /body\.focus :is\(\.bar \.qn-glass, #projmenu, #homeglass\)\{/);
   assert.match(MAC, /body\.p3zoom \.bar \.qn-glass\{backdrop-filter:none; -webkit-backdrop-filter:none\}/);
   assert.match(MAC, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill\)\.pressed\{/);
   assert.match(MAC, /body\.focus #projpill\.pressed\{transform:scale\(var\(--press-x, 1\.06\), 1\.06\)\}/);

@@ -1727,7 +1727,8 @@ test("people and agents know it as the magic box: the pages' labels, the command
   assert.match(skill, /the runbook's "The magic box" section/);
   // what the board says back to an agent, in the same name
   const server = read("server.py");
-  assert.ok(!/side[ -]?note/i.test(server), "the server still says side note");
+  // from a word's start, so a comment's "beside notes" is not the old name
+  assert.ok(!/\bside[ -]?note/i.test(server), "the server still says side note");
   for (const words of ["this card has no magic box", "the box would be empty", "the box could not be written",
     "a website box takes one web address on one line", "this card's box holds no picture"])
     assert.ok(server.includes(`"${words}"`), words);
