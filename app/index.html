@@ -9517,6 +9517,18 @@ addEventListener("keydown", e => {
   e.preventDefault();
   getSelection().selectAllChildren(words);
 });
+// control+shift+left and right while the box is expanded go to the widget's
+// page in it, which flips its items with them, as they would with the keys in
+// the page (view.widgetKey), and not to the cards under the dimmed board.
+// heard in capture, ahead of the board's and the small card's own, and only
+// while nothing over the box holds the keys (magicEscape). a box that holds
+// no widget's page, or one put back, leaves the keys as they were
+if (MB.el) addEventListener("keydown", e => {
+  if (!FOCUS || !MB.view.big || e.altKey || imeKey(e) || !boardKeysLive() || projOpen() || searchOpen || p3Zoom || cardPictureShown) return;
+  const shortcut = cardShortcut(e);
+  if (!shortcut || shortcut.action !== "navigate" || !MB.view.widgetKey(e)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
 
 // ---- the response piped out beside a long reply -------------------------------
 // the card's typing row grows in two steps. it grows a line at a time to the

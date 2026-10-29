@@ -259,10 +259,18 @@
   //                                     page sends, with no reload
   // It adds no power: a page could post the same objects itself. Its requests
   // go once the page has said its word on load, so the board has heard the
-  // word first (magicView)
+  // word first (magicView). The board also hands it control+shift+left and
+  // right typed on the board while the box is expanded (widget/key, with the
+  // key and its modifiers), which never reach a frame without the focus: the
+  // page gets them as a keydown of its own, on what has its focus, so a page
+  // that listens for those keys flips with them and needs nothing more
   const WIDGET = "(() => {" +
     "const waiting = new Map(), early = [], heard = { data: [] }; let n = 0, loaded = false, ready = null;" +
     "const post = m => parent.postMessage(m, '*');" +
+    "const key = p => { if (!p || typeof p !== 'object') return;" +
+    "(document.activeElement || document.body || document).dispatchEvent(new KeyboardEvent('keydown', { key: String(p.key || ''), code: String(p.code || '')," +
+    " ctrlKey: p.ctrlKey === true, shiftKey: p.shiftKey === true, altKey: p.altKey === true, metaKey: p.metaKey === true, repeat: p.repeat === true," +
+    " bubbles: true, cancelable: true, composed: true })); };" +
     "addEventListener('load', () => { loaded = true; for (const m of early.splice(0)) post(m); });" +
     "const ask = (method, params) => new Promise((resolve, reject) => {" +
     "const id = 'w' + (++n).toString(36) + Math.random().toString(36).slice(2, 10); waiting.set(id, { resolve, reject });" +
@@ -271,7 +279,8 @@
     "if (e.source !== parent || !m || typeof m !== 'object' || m.jsonrpc !== '2.0') return;" +
     "if (typeof m.id === 'string' && waiting.has(m.id)) { const w = waiting.get(m.id); waiting.delete(m.id);" +
     "if (m.error) w.reject(m.error); else w.resolve(m.result); return; }" +
-    "if (m.method === 'widget/data') for (const fn of heard.data) { try { fn(m.params); } catch (_) {} } });" +
+    "if (m.method === 'widget/data') { for (const fn of heard.data) { try { fn(m.params); } catch (_) {} } }" +
+    "else if (m.method === 'widget/key') key(m.params); });" +
     "Object.defineProperty(window, 'facilitator', { value: Object.freeze({" +
     "ready: () => ready || (ready = ask('widget/ready', {}))," +
     "send: (text, about) => ask('widget/send', { text: String(text == null ? '' : text), about: about == null ? '' : String(about) })," +

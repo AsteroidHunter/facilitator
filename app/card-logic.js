@@ -9761,6 +9761,18 @@ function magicView(el, hooks = {}){
     if (!run || !w || !run.ready || !magic || magic.rev !== w.rev || magic.wrev === run.wrev) return;
     widgetFresh(run, w);
   };
+  // a key typed on the board, handed to the widget's page as it was typed
+  // (widget/key), which the page types into itself (MagicBox.WIDGET): the
+  // board's way to give the page control+shift+left and right while the box
+  // is expanded. true once handed to a widget's page that has said its word
+  // since it last loaded, false with no such page
+  view.widgetKey = e => {
+    const run = view.page;
+    if (!run || !view.widget || !run.said || run.said < run.loads) return false;
+    widgetPost(run, { method: "widget/key", params: { key: e.key, code: e.code, ctrlKey: !!e.ctrlKey, shiftKey: !!e.shiftKey,
+      altKey: !!e.altKey, metaKey: !!e.metaKey, repeat: !!e.repeat } });
+    return true;
+  };
   // an agent's page as something control+S can scroll, in the shape the board's
   // hold-to-scroll motion (responseScrollKey) takes of a response: what it
   // reads and writes is the page's, through the words it and the board
