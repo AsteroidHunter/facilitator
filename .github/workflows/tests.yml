@@ -42,6 +42,10 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Whole history: data-move and startup-overlap read files from old
+          # commits with git show, which a one-commit checkout does not have
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -55,6 +59,7 @@ jobs:
           enable-cache: false
 
       - name: Build data/.venv the way install does
+        id: venv
         # The same uv commands app/facilitator runs at install (build_env and
         # ensure_env), run in data/ as it runs them.
         run: |
@@ -83,7 +88,7 @@ jobs:
 
       - name: Python tests
         # Run even when a Node test failed, so one run shows both
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.venv.outcome == 'success' }}
         working-directory: app
         run: |
           set -uo pipefail
