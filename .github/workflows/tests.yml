@@ -1,0 +1,101 @@
+name: tests
+
+# Run the tests that need no browser on a macOS runner: every push to main and
+# premain, and every pull request into main.
+#
+# Which tests: every app/tests/*.test.cjs, *.test.mjs and test_*.py except the
+# ones that need Chrome. A file needs Chrome when it loads puppeteer-core,
+# names port 9222 (the shared background Chrome), or loads a helper in
+# app/tests that does. no-browser-tests.cjs beside this file makes that choice
+# from what each file contains, so new tests are picked up without editing a
+# list here. The browser suites stay local.
+#
+# The runner gets what ./install.sh would make for the tests: data/.venv built
+# by uv on Python 3.14 from app/requirements.txt, checked against its hashes.
+# No npm install: none of the chosen tests loads a package from npm.
+
+on:
+  push:
+    branches:
+      - main
+      - premain
+  pull_request:
+    branches:
+      - main
+
+# A newer push to the same pull request cancels its older run. Pushes to main
+# and premain each run to the end, so every commit there gets a result.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  no-browser:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # The tests run the board's Python through this, as they do on the Mac
+      FACILITATOR_TEST_PYTHON: ${{ github.workspace }}/data/.venv/bin/python3
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+
+      - name: Build data/.venv the way install does
+        # The same uv commands app/facilitator runs at install (build_env and
+        # ensure_env), run in data/ as it runs them.
+        run: |
+          set -euo pipefail
+          mkdir -m 700 data
+          cd data
+          uv python install --no-bin 3.14
+          uv venv --managed-python --python 3.14 .venv
+          uv pip sync --require-hashes --python .venv/bin/python ../app/requirements.txt
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Node tests
+        run: |
+          set -uo pipefail
+          failed=()
+          count=0
+          for file in $(node .github/workflows/no-browser-tests.cjs node); do
+            count=$((count + 1))
+            echo "::group::$file"
+            node --test "$file" || failed+=("$file")
+            echo "::endgroup::"
+          done
+          echo "Ran $count files, ${#failed[@]} failed."
+          for file in ${failed[@]+"${failed[@]}"}; do echo "::error file=$file::$file failed"; done
+          [ "${#failed[@]}" -eq 0 ]
+
+      - name: Python tests
+        # Run even when a Node test failed, so one run shows both
+        if: ${{ !cancelled() }}
+        working-directory: app
+        run: |
+          set -uo pipefail
+          failed=()
+          count=0
+          for file in $(node ../.github/workflows/no-browser-tests.cjs python); do
+            file="${file#app/}"
+            count=$((count + 1))
+            echo "::group::$file"
+            "$FACILITATOR_TEST_PYTHON" -B -m unittest "$file" || failed+=("$file")
+            echo "::endgroup::"
+          done
+          echo "Ran $count files, ${#failed[@]} failed."
+          for file in ${failed[@]+"${failed[@]}"}; do echo "::error file=app/$file::app/$file failed"; done
+          [ "${#failed[@]}" -eq 0 ]
