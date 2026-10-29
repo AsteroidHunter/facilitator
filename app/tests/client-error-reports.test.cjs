@@ -519,7 +519,7 @@ test("different incident reasons, cards and operation ids share the four-write m
 test("only the three phone operation routes expose a numeric server duration", async () => {
   const state = await fetch(origin + "/m/state");
   assert.match(state.headers.get("x-facilitator-duration-ms"), /^\d+$/);
-  assert.equal((await state.json()).incidentSchema, 5);
+  assert.equal((await state.json()).incidentSchema, 7);
   const ordinary = await fetch(origin + "/state");
   assert.equal(ordinary.headers.get("x-facilitator-duration-ms"), null);
   await ordinary.arrayBuffer();
@@ -684,27 +684,33 @@ test("a notification report with anything else in it is refused whole, and nothi
 
 test("what the worker and the page really send is what the route takes, line for line", async () => {
   await reportsSince();
-  const harness = await loadWorker();
+  // the worker shows every push with no sign-in check and notes each one; a
+  // push the phone refused to show is noted as skipped, with why
+  let refuse = false;
+  const harness = await loadWorker({ shouldShow: () => { if (refuse) throw new Error("the phone refused it"); } });
   const posted = [];
+  // while the board cannot be reached the notes are kept, and they go out
+  // together the first time it answers
+  let reachable = false;
   harness.board.log = async body => {
+    if (!reachable) return { ok: false, status: 503 };
     const answer = await send(body);
     posted.push(answer);
     return { ok: answer.status === 200, status: answer.status };
   };
-  harness.board.auth = async () => ({ ok: false, status: 503, json: async () => ({}) });
   await harness.push({ box: "m12", title: "Private card title" });
-  harness.board.auth = async () => ({ ok: true, status: 200, json: async () => ({ authenticated: false }) });
+  refuse = true;
+  await assert.rejects(harness.push(), /the phone refused it/);
+  refuse = false;
   await harness.push();
-  harness.board.auth = async () => { throw new TypeError("Load failed"); };
-  await harness.push();
-  harness.board.auth = async () => ({ ok: true, status: 200, json: async () => ({ authenticated: true }) });
+  reachable = true;
   await harness.push({ box: "m12", title: "Private card title" });
   assert.deepEqual(posted.map(answer => answer.status), [200], "the board refused what the worker sent");
   assert.deepEqual(harness.idb.rows(), []);
 
   const fresh = await reportsSince();
   assert.deepEqual(fresh.map(line => [line.outcome, line.reason]),
-    [["skipped", "check-failed"], ["skipped", "not-signed-in"], ["skipped", "check-failed"], ["shown", undefined]]);
+    [["shown", undefined], ["skipped", "show-failed"], ["shown", undefined], ["shown", undefined]]);
   assert.deepEqual(fresh.map(line => line.n), [1, 2, 3, 4]);
   assert.ok(!JSON.stringify(fresh).includes("Private card title"), "a title reached the client file");
 

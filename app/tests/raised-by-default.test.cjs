@@ -311,8 +311,11 @@ test("the sheets: the card is raised unless lowered, on both pages, in the app's
   assert.equal(rule(PHONE, "  body.lowered .box.cardswipe:not(.cardswipe-in)"),
     "  body.lowered .box.cardswipe:not(.cardswipe-in){box-shadow:none}");
   assert.doesNotMatch(PHONE, /\.box\.cardswipe-in, body/, "the card swiped to lands flat again");
-  // the board's frame likewise
-  assert.match(rule(DESKTOP, "  body.focus main"), raised);
+  // the board's frame likewise: it wears --shade-raised, which the board sets to the same shadow
+  assert.match(rule(DESKTOP, "  body.focus main"), /box-shadow:var\(--shade-raised\);/);
+  const shade = DESKTOP.match(/^  body\.focus\{--shade-raised:([^;]*);/m);
+  assert.ok(shade, "the board does not set --shade-raised");
+  assert.match("box-shadow:" + shade[1], raised);
   assert.equal(rule(DESKTOP, "  body.focus.lowered main"), "  body.focus.lowered main{box-shadow:none}");
   // nothing here is coloured: no purple, never the accent
   for (const text of [rule(PHONE, "  body.lowered main"), rule(DESKTOP, "  body.focus.lowered main")])

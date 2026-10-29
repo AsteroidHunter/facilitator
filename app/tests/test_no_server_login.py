@@ -63,12 +63,21 @@ SSH_SETUP = re.compile(r"BatchMode|ControlMaster|ControlPath|ControlPersist|Prox
                        r"|[\"'/~]\.ssh\b|ssh://")
 
 
+# The one login program named, and the one line it is named on: `facilitator
+# update` finds ssh-keygen and hands it to git as the checker of release
+# signatures (gpg.ssh.program, for git verify-commit), which reads a signature
+# and a list of keys and logs in to nothing. test_ssh_keygen_only_checks_signatures
+# holds it to that.
+SIGNATURE_CHECKER = ("app/facilitator", 'keygen = "/usr/bin/ssh-keygen" if os.access("/usr/bin/ssh-keygen", os.X_OK) '
+                     'else shutil.which("ssh-keygen")')
+
+
 class NoLogin(unittest.TestCase):
-    def assert_none(self, pattern, files, what, shell=False):
+    def assert_none(self, pattern, files, what, shell=False, allowed=()):
         hits = []
         for path in files:
             for n, line in code_lines(path):
-                if pattern.search(line):
+                if pattern.search(line) and (str(path.relative_to(CLONE)), line.strip()) not in allowed:
                     hits.append(f"{path.relative_to(CLONE)}:{n}: {line.strip()[:120]}")
         self.assertEqual(hits, [], what)
 
@@ -78,9 +87,23 @@ class NoLogin(unittest.TestCase):
             self.assertIn(name, names)
 
     def test_no_login_program_is_started(self):
-        self.assert_none(PROGRAM, sources(), "a login program named in a command line")
+        self.assert_none(PROGRAM, sources(), "a login program named in a command line", allowed={SIGNATURE_CHECKER})
         shells = [p for p in sources() if p.suffix == ".sh"]
         self.assert_none(SHELL_PROGRAM, shells, "a login program run by a shell script")
+
+    def test_ssh_keygen_only_checks_signatures(self):
+        # the CLI's every use of the program it found: kept in one name, which is
+        # only ever git's SSH signature program for verify-commit, never run itself
+        cli = APP / "facilitator"
+        used = [line.strip() for n, line in code_lines(cli) if re.search(r"(?<![\w-])keygen\b", line)]
+        self.assertEqual(used, [
+            "def newest_signed(before, tip, signers, keygen):",
+            'fixed = ["gpg.format=ssh", f"gpg.ssh.allowedSignersFile={listed}", f"gpg.ssh.program={keygen}",',
+            SIGNATURE_CHECKER[1],
+            "if not keygen:",
+            "taken, waiting = newest_signed(before, tip, signers, keygen)",
+        ])
+        self.assertIn('if run_git(*check, "verify-commit", commit).returncode == 0:', cli.read_text())
 
     def test_no_ssh_library(self):
         self.assert_none(LIBRARIES, sources(), "an ssh library imported")

@@ -117,7 +117,8 @@ test("a press dips a phone tab for at least 80ms, by finger and by key", async (
   let now = 0;
   let timers = [];
   const context = {
-    document: { querySelectorAll: sel => (assert.equal(sel, "#tikhead .tvb"), names) },
+    // the drawer's page arrows (.tik-page) press the same way; these four are the names
+    document: { querySelectorAll: sel => (assert.equal(sel, "#tikhead .tvb, #tikhead .tik-page"), names) },
     performance: { now: () => now },
     setTimeout: (fn, ms) => { timers.push({ at: now + ms, fn }); return timers.length; },
     clearTimeout: id => { if (timers[id - 1]) timers[id - 1].fn = () => {}; },
