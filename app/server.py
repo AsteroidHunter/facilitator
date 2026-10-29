@@ -823,9 +823,10 @@ Endpoints:
                                for the daily usage counts, at every log level.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
-                               transcript (read by the quick chat panel and the
-                               page view's own stepper); a user message an agent
-                               sent for the reader carries by and agent
+                               transcript (read by the page view's reply
+                               history and the dormant chat in magic box 3); a
+                               user message an agent sent for the reader
+                               carries by and agent
   GET  /history?box=ID      -> {"replies": [...]}: one card's older final
                                replies, oldest first, without the one the card
                                is showing and without its progress notes, at
@@ -2813,12 +2814,14 @@ def _agent_class(owner: str) -> str:
 # event loop, not on the condition above. Every change to the board comes
 # through _notify: every save that lands calls it (_save), the board clock
 # calls it when a field that moves with no save changes (_board_tick), and a
-# typing change calls it for the typing hold. It moves a version number
-# and asks the loop to wake every waiter, and a waiter that reads the version
-# before sleeping and again on waking can never miss a change that landed in
-# between. _LOOP is the running loop, set by the application's lifespan; a
-# change made before it runs, or after it has gone, wakes nobody, and that is
-# right, since nobody is waiting then.
+# message send and a widget send each call it once more, right after their own
+# save has rung and the typing hold has moved. A typing report (_post_typing)
+# only moves the hold: it never calls _notify, so it wakes no page and no
+# agent. _notify moves a version number and asks the loop to wake every waiter,
+# and a waiter that reads the version before sleeping and again on waking can
+# never miss a change that landed in between. _LOOP is the running loop, set by
+# the application's lifespan; a change made before it runs, or after it has
+# gone, wakes nobody, and that is right, since nobody is waiting then.
 _change_version = 0
 _LOOP = None
 _wakers: set = set()
@@ -10555,7 +10558,8 @@ def _post_startup_sound(q: Query, text: str):
 # going to update-output.txt beside state.json and never to a pipe back here.
 # Started this way, the update writes the stage it has reached on lines of
 # their own (@stage downloading, setting-up, restarting), restarts the board
-# only when the board's own code changed, and opens no window. GET /update
+# only when the board's own code changed, and opens one window only when no
+# open tab could be reached and no window key is kept. GET /update
 # reads those lines, and how the update ended when it ends under this server: a
 # page-only update ends with this server still running, and the page reloads;
 # one that restarts the board ends this server, and the page reloads once a

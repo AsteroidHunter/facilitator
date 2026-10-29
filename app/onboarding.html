@@ -2078,8 +2078,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
       name.addEventListener("keyup", e => { if (e.key === "Enter" || e.key === " ") release(); });
     }
   }
-  // a ticket's age is redrawn when its minute turns, as the board's readings
-  // redraw it; the signature leaves every other pass untouched
+  // a ticket's age is redrawn when its minute turns, by this page's own 10
+  // second pass; the signature leaves every other pass untouched
   setInterval(paintTickets, 10000);
 
   // the done chord, Control + Shift + Backspace or Delete, is the page's on

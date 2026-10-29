@@ -5,7 +5,9 @@ Everything the board writes lives in data/ at the top of the checkout (the
 folder that was cloned), beside app/, which holds the program: cards, history,
 settings, profile, run.config.json, seed.json, attachments, logs, magic boxes,
 the push key, the phone's sign-in, caches, records, the server's lock and its
-.venv. git ignores the folder.
+.venv, and the three files of the board's own-port lock: agent.key (the
+agents' key), agent.curl (a curl config that sends it) and window-keys.json
+(the hashes of the window cookies). git ignores the folder.
 
 A checkout from before this kept those files at its own top, with attachments
 and logs in facilitator-internal/ beside it. `facilitator update` moves them

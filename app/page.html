@@ -4289,7 +4289,9 @@ function docUpdate(b, parts){
 function docOutline(state, st){
   const box = document.getElementById("docoutline");
   // a repaint mid rename would replace the mirrored row under the typer's
-  // hands; the next tick repaints once the edit ends
+  // hands; the next repaint after the edit ends comes with the next change on
+  // the board or the page's own 30 second tick, or the 1.2 second timer while
+  // the live line is down
   const ae = document.activeElement;
   if (ae && (ae.classList.contains("doctitle") || ae.classList.contains("doctask"))) return;
   const { groups, loose } = st || docStructure(state);
