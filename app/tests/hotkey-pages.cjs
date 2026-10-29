@@ -291,6 +291,8 @@ function macPage({ page = "board" } = {}) {
     miniCreate: () => calls.push(["small create"]),
     miniStep: dir => calls.push(["small step", dir]),
     cardDeparture: () => ({ order: [], section: "todo" }), selectNextCard() {},
+    // command+number shuts the project pill's list before it switches
+    closeProjMenu() {},
   });
   const run = source => vm.runInContext(source, ctx, { filename: "index.html" });
   run(between(MAC, "function onBoardPage(state){", "async function addPage(){"));

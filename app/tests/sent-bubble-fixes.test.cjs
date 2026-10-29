@@ -348,7 +348,10 @@ test("the Mac board's snap fits the answer the same whatever stands in the bubbl
       sentPanels: () => [], tiltTitleAir: () => {},
       getComputedStyle: node => ({ lineHeight: "28px", marginBottom: node === view ? "3.5px" : "0px", paddingTop: "0px", font: "18px x" }),
     });
-    vm.runInContext(fn("boxBand") + fn("snapCard"), context);
+    // the title is fitted to its lines first, by card-logic.js's own fitTitle,
+    // which leaves a title that is not laid out, as this stand-in is, as it is
+    const at = LOGIC.indexOf("function fitTitle(");
+    vm.runInContext(fn("boxBand") + fn("snapCard") + LOGIC.slice(at, LOGIC.indexOf("\n}\n", at) + 2), context);
     vm.runInContext("snapCard()", context);
     written.push(view.style.marginTop);
   }

@@ -41,6 +41,9 @@ before(async () => {
     state,
     extraPatches: [
       ["PHONE_KEPT = 32", `PHONE_KEPT = ${KEPT}`],
+      // these cases are about lean reads, not the typing hold
+      // (typing-hold.test.cjs), so a message sent here is free to go out at once
+      ["TYPING_HOLD = 3.5", "TYPING_HOLD = 0.0"],
       [`            box["title"] = _entered_title(box.get("owner", "facilitator"), text)\n        _log("title", bid, box["title"])`,
        `            box["title"] = _entered_title(box.get("owner", "facilitator"), text)\n` +
        `        if box["title"] == "Moved to the end":\n` +
@@ -108,17 +111,20 @@ function page({ legacy = false, patches = [] } = {}){
   }
   const asked = [], answers = [], problems = [];
   let next = null;
-  const flags = { add(){}, remove(){}, toggle(){} };
+  const flags = { add(){}, remove(){}, toggle(){}, contains: () => false };
   const ctx = vm.createContext({
     console, setTimeout, clearTimeout, TextDecoder, AbortController, AbortSignal,
     localStorage: { getItem: () => null, setItem(){}, removeItem(){} },
     // hidden: the page schedules no reading of its own; the test asks for each
-    document: { hidden: true, getElementById: () => ({ textContent: "", classList: flags }), body: { classList: flags } },
-    window: {},
+    // the server-down screen's retry line is found with a selector, and its words inside it
+    document: { hidden: true, getElementById: () => ({ textContent: "", classList: flags }), body: { classList: flags },
+                querySelector: () => ({ textContent: "", classList: flags, querySelector: () => ({ textContent: "" }) }) },
+    window: {}, phoneDeveloperMode: false,
     tracePhone: () => ({}), endPhoneTrace(){}, noteDoing(){}, askIds: () => [], reconcileOps(){},
     validateOwners(){}, holdFlags: state => state, apply(){}, renderTickets(){}, syncSelectedHistory(){},
     startupTrouble(){}, startupAnswered(){}, startupRendered: async () => {}, pageMended(){}, wakeOps(){},
     cardsMoving: () => false, stampText: () => "",
+    remoteFaded: () => false, showRemoteFade(){},   // a server's projects fade while its link is down; none is here
     reportProblem(kind, e){ problems.push(e.message); },
     async fetch(url, opts = {}){
       const target = new URL(url, board.origin);

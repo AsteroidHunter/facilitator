@@ -13,8 +13,10 @@ function fixture(html, isPhone = false) {
   let now = 0, next = 1;
   const timers = new Map(), global = {}, documentEvents = {};
   const element = () => {
-    const classes = new Set(["qn-glass"]), events = {}, props = {};   // the page presses only what wears the glass
+    const classes = new Set(["qn-glass"]), events = {}, props = {}, attrs = {};   // the page presses only what wears the glass
     return { classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c) },
+      // a button switched off (aria-disabled) shows no press; these are all on
+      getAttribute: name => (name in attrs ? attrs[name] : null), setAttribute: (name, value) => { attrs[name] = String(value); },
       offsetWidth: 32, offsetHeight: 32, props, style: { setProperty: (name, value) => { props[name] = value; } },
       addEventListener(type, fn) { (events[type] ||= []).push(fn); },
       fire(type, e = {}) { for (const fn of events[type] || []) fn(e); } };
@@ -190,5 +192,7 @@ test("the Mac's effective press-in transition wins the idle rule and matches the
   const actual = circleTransitions(mac, false), reference = circleTransitions(phone, true);
   assert.equal(actual.down, actual.requested, "the idle selector overrode the short press animation");
   assert.equal(actual.down, reference.down);
-  assert.equal(actual.idle, reference.idle);
+  // the phone's bar also fades its ticket and plus while they are switched off
+  // on home; the Mac's bar has no switched-off button, so that term is the phone's alone
+  assert.equal(reference.idle, actual.idle + ", opacity .5s var(--gentle)");
 });

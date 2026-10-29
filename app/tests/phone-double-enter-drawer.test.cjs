@@ -54,6 +54,7 @@ function phonePage({ view = 'todo' } = {}) {
     traySendable: () => false,
     notePhoneEnter() {}, tracePhone() {}, saveOps() {}, drawSent() {}, ensureCard: id => ctx.els[id],
     undone() {}, drawerNote() {}, endPhoneTrace() {},
+    sentCursesRead() {},   // the next send's saved words, tested in curse-words-switch.test.cjs
     navigationPool: state => state.boxes,
     jumpNextYellow: (id) => { calls.push('jump'); return null; },
     focusBoxAtEnd() {},

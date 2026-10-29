@@ -93,6 +93,7 @@ function macPage(stored = {}) {
     feedbackBox: () => ({ setReady() {} }),   // the feedback box above the switch, tested in feedback-box.test.cjs
     feedbackOverlay: () => ({ open() {}, close() {}, seat() {} }),   // the bar's bug and its sheet, tested there too
     controlShiftEnter: () => false, bareControlEnter: () => false,
+    SENT_CURSES: { on: false, switch: null }, sentCursesRead() {},   // the curse words switch, tested in curse-words-switch.test.cjs
   });
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
   const usage = element("setusage");

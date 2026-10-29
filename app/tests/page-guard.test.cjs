@@ -83,6 +83,10 @@ function fixture({ phone = false, state = 'board', platform = phone ? 'iPhone' :
     const start = html.indexOf('const boardShortcutTyping =');
     const end = html.indexOf('listenResponseScroll();', start);
     vm.runInContext(html.slice(start, end), ctx);
+    // Command+T's own new card, which the board's create action calls
+    const here = html.indexOf('function newCardHere(){');
+    assert.ok(here >= 0, "the board's new card");
+    vm.runInContext(html.slice(here, html.indexOf('\n}\n', here) + 3), ctx);
   }
   return { win, doc, ctx, opened, copied, requests, downloaded, calls, element,
     send: (target, over = {}) => dispatch(target || doc.body, { metaKey: false, ...over }),
