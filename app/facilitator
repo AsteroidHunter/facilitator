@@ -4501,16 +4501,6 @@ def chrome_pid(folder):
     return pid if pid_alive(pid) else None
 
 
-def pid_alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def read_key(valid):
     """One key from the terminal, unechoed, as the installer's other questions
     take it: a key that is not an answer, Enter too, is ignored. None comes back
