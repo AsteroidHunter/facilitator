@@ -59,7 +59,8 @@ test("only the page under an open list blocks native panning and the covered rep
 function gestureWorld() {
   const script = HTML.match(/<script id="page-zoom-guard">([\s\S]*?)<\/script>/);
   assert.ok(script, "the PWA needs its iOS pinch gesture guard");
-  assert.ok(HTML.indexOf(script[0]) < HTML.indexOf("<body>"), "install the guard before the page becomes interactive");
+  // after the curtain, which no script may hold up, and before the page's markup
+  assert.ok(HTML.indexOf(script[0]) < HTML.indexOf('<div id="page">'), "install the guard before the page becomes interactive");
   const listeners = [];
   vm.runInNewContext(script[1], {
     document: { addEventListener: (type, fn, options) => listeners.push({ type, fn, options }) },

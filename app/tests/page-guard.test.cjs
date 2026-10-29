@@ -267,7 +267,10 @@ test('both documents install before body handlers, and phone roots suppress over
   for (const name of ['index.html', 'm.html']) {
     const html = read(name);
     assert.ok(html.indexOf('installCardPageGuard();') > 0);
-    assert.ok(html.indexOf('installCardPageGuard();') < html.indexOf('</head>'));
+    // the Mac board installs it in the head; the phone page just after its
+    // curtain, which no script may hold up, and still ahead of its markup
+    const before = name === 'm.html' ? html.indexOf('<div id="page">') : html.indexOf('</head>');
+    assert.ok(html.indexOf('installCardPageGuard();') < before, name);
     assert.equal((html.match(/src="\/card-logic.js"/g) || []).length, 1);
   }
   assert.match(read('m.html'), /html, body\s*\{overscroll-behavior:\s*none/);

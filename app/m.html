@@ -12,11 +12,6 @@
      limit, which the guard stops as before; the box's own picture zoom is its
      script's, which this leaves alone -->
 <title>facilitator</title>
-<script src="/card-markdown.js"></script>
-<script src="/card-logic.js"></script>
-<script src="/magic-box.js"></script>
-<script>installCardPageGuard();</script>
-<script>watchPictures();</script>
 <!-- the phone page. the same board, drawn for a phone: one card filling the
      screen from the top down to a row of four glass buttons along the bottom
      (the card list, the open project, a new card and the settings), the card
@@ -1829,16 +1824,6 @@
      card-tokens.css -->
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
-<script id="page-zoom-guard">
-// manipulation permits pinching, so cancel iOS's zoom gesture defaults.
-// Capture also covers gestures over controls that stop propagation. Ordinary
-// touch and click events keep their existing scrolling and ticket-tap paths.
-function preventPagePinch(event){
-  if (event.cancelable) event.preventDefault();
-}
-for (const type of ["gesturestart", "gesturechange"])
-  document.addEventListener(type, preventPagePinch, { capture: true, passive: false });
-</script>
 </head>
 <body>
 
@@ -1877,6 +1862,26 @@ for (const type of ["gesturestart", "gesturechange"])
   if (navigator.standalone) {
     document.documentElement.style.setProperty("--screen-h", screen.height + "px");
   }
+</script>
+<!-- the shared card scripts, the page guard, the picture watcher and the pinch
+     guard. they stand here rather than in the head so the curtain is drawn
+     before any of them is fetched or run, and still ahead of the page's own
+     markup and every other script, so the guards are in place before any field,
+     drawer or handler exists -->
+<script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
+<script src="/magic-box.js"></script>
+<script>installCardPageGuard();</script>
+<script>watchPictures();</script>
+<script id="page-zoom-guard">
+// manipulation permits pinching, so cancel iOS's zoom gesture defaults.
+// Capture also covers gestures over controls that stop propagation. Ordinary
+// touch and click events keep their existing scrolling and ticket-tap paths.
+function preventPagePinch(event){
+  if (event.cancelable) event.preventDefault();
+}
+for (const type of ["gesturestart", "gesturechange"])
+  document.addEventListener(type, preventPagePinch, { capture: true, passive: false });
 </script>
 
 <div id="page">
