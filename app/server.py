@@ -424,9 +424,10 @@ Endpoints:
                                card filling the screen, the card list in a
                                drawer off the left edge; before sign-in the bridge
                                serves m-gate.html with PWA installation steps.
-                               m.html goes out with card-tokens.css's text in
-                               place of its link, so the startup curtain's first
-                               frame needs no second file
+                               m.html goes out with card-tokens.css's and
+                               home-widgets.css's text in place of their links,
+                               so the startup curtain's first frame needs no
+                               second file
   GET  /auth/check          -> bridge session status and password setup status
   POST /auth/login          -> JSON {password}; sets a persistent HttpOnly cookie
   POST /auth/logout         -> invalidates that session and clears its cookie
@@ -6993,13 +6994,20 @@ def _get_laneimg(q: Query, _):
     return 404, {"error": "not found"}
 
 
-# the one sheet the phone page links that its first frame is drawn with. /m is
-# served with the sheet's own text in place of this link, so the startup
-# curtain is painted from the page's bytes alone instead of after a second
-# request. the file stays the one copy: the desktop page and the phone's worker
-# still ask for it by name, and a sheet that cannot be read leaves the link,
-# which asks for it the way the page always did
-PHONE_SHEET_LINK = b'<link rel="stylesheet" href="/card-tokens.css">'
+# the two sheets the phone page links in its head: the shared card sheet its
+# first frame is drawn with, and Home's panel sheet. /m is served with each
+# sheet's own text in place of its link, so the startup curtain is painted from
+# the page's bytes alone instead of after a second request. Home's sheet keeps
+# its id, which homeBundle looks for before it adds the link itself. the files
+# stay the one copy: the desktop page still asks for them by name, and a sheet
+# that cannot be read leaves its link, which asks for it the way the page
+# always did. each entry is the link, the file, and the tag it goes out in
+PHONE_SHEETS = (
+    (b'<link rel="stylesheet" href="/card-tokens.css">', "card-tokens.css",
+     b'<style data-sheet="/card-tokens.css">'),
+    (b'<link id="homesheet" rel="stylesheet" href="/home-widgets.css">', "home-widgets.css",
+     b'<style id="homesheet" data-sheet="/home-widgets.css">'),
+)
 
 
 def _get_phone_page(q: Query, _):
@@ -7007,14 +7015,15 @@ def _get_phone_page(q: Query, _):
     if not p.is_file():
         return 404, {"error": "not found"}
     page = p.read_bytes()
-    try:
-        sheet = (HERE / "card-tokens.css").read_bytes()
-    except OSError:
-        return _packed(q, page, ctype)
-    if b"</style" in sheet.lower():
-        return _packed(q, page, ctype)   # it would close the element it is put in
-    inline = b'<style data-sheet="/card-tokens.css">\n' + sheet + b"</style>"
-    return _packed(q, page.replace(PHONE_SHEET_LINK, inline, 1), ctype)
+    for link, name, tag in PHONE_SHEETS:
+        try:
+            sheet = (HERE / name).read_bytes()
+        except OSError:
+            continue
+        if b"</style" in sheet.lower():
+            continue   # it would close the element it is put in
+        page = page.replace(link, tag + b"\n" + sheet + b"</style>", 1)
+    return _packed(q, page, ctype)
 
 
 def _app_name(title: str) -> str:

@@ -31,11 +31,12 @@ const ROOT = path.resolve(__dirname, "..");
 const PASS = "LaunchFixture7!";
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "index.html", "page.html",
-                "manifest.json", "sw.js"];
+                "manifest.json", "sw.js", "home-widgets.css"];
 // board content the signed-out pages must never carry
 const BOARD_SECRETS = ["m874 launch fixture board", "An invented private card title",
                        "Invented private context that no signed-out page may show"];
 const SHEET_LINK = '<link rel="stylesheet" href="/card-tokens.css">';
+const HOME_LINK = '<link id="homesheet" rel="stylesheet" href="/home-widgets.css">';
 // the two web font sheets the page asked for in its head before this change,
 // word for word: moving them must not change which faces the page is set in.
 // Plex Sans is also asked for at 700 now, for the drawer's selected tab name
@@ -369,8 +370,12 @@ test("signed in, /m carries the shared card sheet's own text in place of its lin
   assert.equal(served.text.includes(SHEET_LINK), false, "the served page still links the sheet");
   assert.equal(/href="\/card-tokens\.css"/.test(served.text), false, "the served page still asks for the sheet");
   const inline = `<style data-sheet="/card-tokens.css">\n${sheet}</style>`;
-  assert.equal(served.text, file.replace(SHEET_LINK, () => inline),
-    "the served page differs from the file by more than the one link");
+  // Home's sheet is folded in the same way, keeping the id homeBundle looks for
+  const home = await readFile(path.join(ROOT, "home-widgets.css"), "utf8");
+  assert.ok(file.includes(HOME_LINK), "the file itself lost Home's link");
+  const homeInline = `<style id="homesheet" data-sheet="/home-widgets.css">\n${home}</style>`;
+  assert.equal(served.text, file.replace(SHEET_LINK, () => inline).replace(HOME_LINK, () => homeInline),
+    "the served page differs from the file by more than the two links");
   const at = served.text.indexOf(inline);
   assert.ok(at > 0 && at < served.text.indexOf("</head>"), "the sheet is not in the head");
   assert.ok(at < served.text.indexOf('<div id="loading"'), "the sheet comes after the curtain");
