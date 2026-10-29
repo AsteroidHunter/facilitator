@@ -1639,19 +1639,20 @@
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
-  /* the two lines that tie the box to its card, as the owner chose them in the
-     connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
-     straight across the gap from the card's right edge to the box's left
-     edge, and no further, so none of a line is ever under a faded card or
-     box. they lie beneath the card and the box (#mbline, before the card,
-     under the box's z-index), and wear the card's own shadow, its two layers at the
-     strength a filter gives them (a filter's blur is the spread of the blur
-     a box-shadow asks for, so half of it); the card lowered, they have none,
-     as the box has none. they are drawn by magicLine, in the stage's pixels,
-     from the svg's corner at the stage's. the shadow is on the group inside
-     the svg, not on the svg: the svg is a layer of its own, and a filter on a
-     layer is blurred again on every frame the screen draws, each frame of a
-     scroll among them; on the group it is painted once with the lines (m1216) */
+  /* the one line that ties the box to its card, as the owner chose it in
+     m1497 (magicLine): the card's own edge colour, solid, 4/3 px, straight
+     across the gap at the middle of the box's height, from the card's right
+     edge to the box's left edge, and no further, so none of it is ever under
+     a faded card or box. it lies beneath the card and the box (#mbline,
+     before the card, under the box's z-index), and wears the card's own
+     shadow, its two layers at the strength a filter gives them (a filter's
+     blur is the spread of the blur a box-shadow asks for, so half of it); the
+     card lowered, it has none, as the box has none. it is drawn by magicLine,
+     in the stage's pixels, from the svg's corner at the stage's. the shadow
+     is on the group inside the svg, not on the svg: the svg is a layer of its
+     own, and a filter on a layer is blurred again on every frame the screen
+     draws, each frame of a scroll among them; on the group it is painted once
+     with the line (m1216) */
   #mbline{display:none}
   body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none; z-index:0}
@@ -1687,9 +1688,9 @@
      and the board's other layers while they are up (body.mbup, which outlasts
      the fade out), under the project list, the search, the settings and an
      open picture, which still open over it.
-     expanded, it wears its held look and draws no lines to its card, which
-     fade out as it expands and back in as it comes back, on its move's time
-     and curve, so they are whole the frame it lands (magicLineFade). on its
+     expanded, it wears its held look and draws no line to its card, which
+     fades out as it expands and back in as it comes back, on its move's time
+     and curve, so it is whole the frame it lands (magicLineFade). on its
      way either way (.moving) it stands over the shade, and its strength is
      the move's (magicMove): eased on the same time and curve from what it was
      drawn at to what its own rules give it where it lands, full expanded and
@@ -1761,7 +1762,7 @@
   #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
   /* the brace from the card to it (pipeLine): a { to it on the card's right
      and a } to it on its left, two sets of three straight lines meeting square
-     and touching neither, dashed as the box's lines are at half their width
+     and touching neither, dashed, at half the width of the box's line
      (PIPE_STROKE) and in the card's edge colour, beneath the card and the
      response, with the same shadow on its group */
   #pipeline{display:none}
@@ -4296,14 +4297,14 @@
   </div>
   <div class="mbbody"></div>
 </section>
-<!-- the lines from the card to its magic box, two dashed lines beneath the
-     card and the box: before the card on the page, so it is drawn over them -->
+<!-- the line from the card to its magic box, one solid line beneath the
+     card and the box: before the card on the page, so it is drawn over it -->
 <svg id="mbline" aria-hidden="true"></svg>
 <!-- the card's response piped out beside it while a long reply is typed: a
      second magic box, with no edge (pipeSync); its bar is never shown, and is
      there for the box's view, which measures one. under it the patch of the
      board it stands on, and after it the brace that ties it to the card,
-     beneath the card as the box's lines are -->
+     beneath the card as the box's line is -->
 <div id="pipeground" aria-hidden="true"></div>
 <section id="pipebox" class="magicbox" aria-label="The agent's response">
   <div class="mbbar"></div>
@@ -8759,7 +8760,7 @@ panelPoll(); setInterval(panelPoll, 4000);
 // filled (POST /magic, or `facilitator magic`). each card keeps its own and only
 // the one on screen is ever built, so at most one live frame is on the page. the
 // card's magic field says whether it has one, whether it is open, which
-// revision and which lines join it to its card; what it holds is read from
+// revision and which line joins it to its card; what it holds is read from
 // /magic/body when that revision moves, ahead of the owner coming to the card
 // (magicFetch), so flipping to a card shows its box in the same frame as the
 // card. MagicBox.place (magic-box.js) works out where it stands. the box shows what it
@@ -9120,8 +9121,8 @@ function boxSink(box, off){
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   if (MB.move) return;
-  // expanded, it draws no lines: any it had are fading out (magicLineFade),
-  // which takes them off
+  // expanded, it draws no line: one it had is fading out (magicLineFade),
+  // which takes it off
   if (MB.view.big){ if (!MB.lineFade) MB.line.classList.remove("on"); magicPlaceBig(); return; }
   MB.line.classList.remove("on");
   const room = magicRoom();
@@ -9133,7 +9134,7 @@ function magicPlace(){
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   if (MB.el.style.visibility === "hidden") return;
-  // shown: its lines to the card, and the rise if it is new on the card
+  // shown: its line to the card, and the rise if it is new on the card
   magicLine(rect, at);
   boxRise(MB);
   if (room.side === "left") magicLineLeft(rect, at);
@@ -9172,11 +9173,11 @@ function magicPlaceBig(){
 // stays full. the keys moving while it is on its way take it to its new
 // strength from where it has got to (magicHold). once it lands it is placed
 // as it always is, a picture from its words shown alone (view.solo) giving
-// way to the words as it lands beside the card. its lines to the card fade
-// on the same time and curve, from how strongly they were drawn as it set
+// way to the words as it lands beside the card. its line to the card fades
+// on the same time and curve, from how strongly it was drawn as it set
 // off (lines, magicLineStop): out as it expands and in as it comes back
 // (magicLineFade). with reduced motion it does not travel: it fades in where
-// it now stands, quickly (BIG_FADE_MS), and the lines fade with it
+// it now stands, quickly (BIG_FADE_MS), and the line fades with it
 const BIG_MS = CARD_PICTURE_MS, BIG_EASE = CARD_PICTURE_EASE, BIG_FADE_MS = 160;
 function magicMove(from, lines){
   const s = MB.el.style;
@@ -9215,11 +9216,11 @@ function magicMoveStop(){
   MB.el.classList.remove("moving");
   return at;
 }
-// the lines to the card on the box's way (magicMove), from strength from, on
-// its time: expanding, the lines it had stay where they were drawn and fade
-// out, and are taken off as they reach nothing, so none is left the frame it
-// is expanded; coming back, the lines just drawn at its place beside the card
-// fade in, to whatever the rise gives them, so they are whole the frame it
+// the line to the card on the box's way (magicMove), from strength from, on
+// its time: expanding, the line it had stays where it was drawn and fades
+// out, and is taken off as it reaches nothing, so none is left the frame it
+// is expanded; coming back, the line just drawn at its place beside the card
+// fades in, to whatever the rise gives it, so it is whole the frame it
 // lands
 function magicLineFade(from, time){
   const line = MB.line;
@@ -9233,8 +9234,8 @@ function magicLineFade(from, time){
     fade.onfinish = () => { if (MB.lineFade === fade) MB.lineFade = null; };
   }
 }
-// how strongly the lines are drawn now, 0 when they are not, however far a
-// fade of theirs has got, which stops there
+// how strongly the line is drawn now, 0 when it is not, however far its
+// fade has got, which stops there
 function magicLineStop(){
   const now = MB.line.classList.contains("on") ? +getComputedStyle(MB.line).opacity : 0;
   if (MB.lineFade){ MB.lineFade.cancel(); MB.lineFade = null; }
@@ -9325,52 +9326,43 @@ function magicRoom(){
   if (side) fit.left = lim.left - FRAME_CLEAR;
   return { S, sr, rect, fit, side, most: MagicBox.place(rect, fit, undefined, side) };
 }
-// the lines from the card to its box, the ones every box draws, as the owner
-// chose them in the connector mock (m1237, mock-box-connector-20261013.html:
-// Two lines, Dashed, n = 52). two level dashed lines across the gap, with no
-// tabs, each from the card's right edge to the box's left edge and no further,
-// so nothing of it is under either, which shows through whichever is faded:
-//   the first sits a share of the box's height down from its top and the
-//     second the same share up from its foot: the mock's n of 52 on its box
-//     488 high, so the two keep the same look on a box of any size and never
-//     meet
-//   each is dashes 6 long with gaps of 4, 4/3 wide (two thirds of the 2 the
-//     mock drew, thinned in m1275), with flat ends, in the card's
-//     edge colour, counted from the box's edge, so a whole dash ends exactly
-//     at it
-// a gap narrower than 8 px gives null, and no line is drawn
-const TWO = { gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 };
-function magicTwo(card, box){
+// the line from the card to its box, the one every box draws, as the owner
+// chose it in m1497 (views.html, view 5: one middle line). one level solid
+// line across the gap at exactly the middle of the box's height, from the
+// card's right edge to the box's left edge and no further, so nothing of it is
+// under either, which shows through whichever is faded. it is 4/3 wide (two
+// thirds of the 2 the connector mock drew, thinned in m1275), with flat ends,
+// in the card's edge colour. the box always stands within the card's height
+// (MagicBox.place: its top is the largest box's, which is shorter than the
+// card and centred on it), so its middle is always beside the card. a gap
+// narrower than 8 px gives null, and no line is drawn
+const LINE = { gap: 8, width: 4 / 3 };
+function magicMiddle(card, box){
   const cr = card.left + card.width;
-  if (box.left - cr < TWO.gap) return null;
-  const n = box.height * TWO.share;
-  const ys = [box.top + n, box.top + box.height - n];
-  return { ys, from: cr, to: box.left };
+  if (box.left - cr < LINE.gap) return null;
+  return { y: box.top + box.height / 2, from: cr, to: box.left };
 }
 function magicLine(card, box){
-  const two = magicTwo(card, box);
-  if (!two) return;
-  // the card's own edge colour, read off the card, so the lines are always it
+  const mid = magicMiddle(card, box);
+  if (!mid) return;
+  // the card's own edge colour, read off the card, so the line is always it
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-  // each path starts at the box's edge, where its dashes are counted from. both
-  // are one group, which wears the shadow (#mbline.on > g)
-  MB.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
-    two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
-    '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+  // in a group, which wears the shadow (#mbline.on > g)
+  MB.line.innerHTML = '<g><path d="M' + mid.from.toFixed(2) + ' ' + mid.y.toFixed(2) + 'L' + mid.to.toFixed(2) + ' ' +
+    mid.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + LINE.width + '" stroke-linecap="butt"/></g>';
   MB.line.classList.add("on");
 }
-// the same two lines for a box left of the card, where the new layout stands
-// it (magicRoom): the card and the box are turned over so magicTwo measures
-// them as it measures a box on the right, and the lines are turned back, from
-// the box's right edge to the card's left edge, dashes counted from the box
+// the same line for a box left of the card, where the new layout stands it
+// (magicRoom): the card and the box are turned over so magicMiddle measures
+// them as it measures a box on the right, and the line is turned back, from
+// the card's left edge to the box's right edge
 function magicLineLeft(card, box){
   const turn = r => ({ left: -(r.left + r.width), top: r.top, width: r.width, height: r.height });
-  const two = magicTwo(turn(card), turn(box));
-  if (!two) return;
+  const mid = magicMiddle(turn(card), turn(box));
+  if (!mid) return;
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-  MB.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + (-two.to).toFixed(2) + ' ' + y.toFixed(2) + 'L' +
-    (-two.from).toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
-    '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+  MB.line.innerHTML = '<g><path d="M' + (-mid.from).toFixed(2) + ' ' + mid.y.toFixed(2) + 'L' + (-mid.to).toFixed(2) + ' ' +
+    mid.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + LINE.width + '" stroke-linecap="butt"/></g>';
   MB.line.classList.add("on");
 }
 if (MB.el){
@@ -9551,9 +9543,11 @@ if (MB.el) addEventListener("keydown", e => {
 // step. it rises and sinks quicker than the box, over PIPE_MS on the box's
 // curve, and dims what it stands for and over to PIPE_DIM (pipeDim). its brace
 // stops PIPE_CLEAR short of the card and of it (pipeBrace), its lines
-// PIPE_STROKE wide, half the box's lines (TWO.width)
+// PIPE_STROKE wide, half the box's line (LINE.width), dashed 6 long with
+// gaps of 4 (BRACE), as the box's two lines were before its one middle line
 const PIPE_MS = 600, PIPE_DIM = .1, PIPE_CLEAR = 8;
-const PIPE_STROKE = TWO.width / 2;
+const PIPE_STROKE = LINE.width / 2;
+const BRACE = { share: 52 / 488, dash: 6, space: 4 };
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
   ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
   aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
@@ -9926,21 +9920,22 @@ function pipeInk(words){
 // top, its own top edge there), and the foot arm with its foot, in by its
 // corner (round). the two lines toward the card stand a line of the
 // response's words (apart) apart, either side of the point, a set way under
-// the top arm: where the magic box's first line stands
-// on the largest box beside this card (TWO), or half way down a response too
-// short for that, and no further apart than half of what is left of the brace.
+// the top arm: 52/488 of the largest box beside this card (BRACE.share),
+// where the magic box's upper line stood when it had two, or half way down a
+// response too short for that, and no further apart than half of what is left
+// of the brace.
 // so the upper set keeps its height and the lower stretches with the response.
 // each line is dashed from the corner it leaves, and the spines from the
 // point, each starting half the line's width back so the corners close. a gap
 // with no room on either side of the spine for a clear end and a dash gives null
-function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO.space + PIPE_STROKE, clear = 0 } = {}){
+function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = BRACE.space + PIPE_STROKE, clear = 0 } = {}){
   const s = side === "left" ? -1 : 1;
   const from = s > 0 ? card.left + card.width : card.left;
   const to = s > 0 ? box.left : box.left + box.width;
   const spine = (from + to) / 2, w = PIPE_STROKE / 2;
-  if (s * (to - from) / 2 < clear + w + TWO.dash) return null;
+  if (s * (to - from) / 2 < clear + w + BRACE.dash) return null;
   const top = box.top + lead, foot = box.top + box.height - round;
-  const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
+  const point = top + Math.min(most.height * BRACE.share, (foot - top) / 2);
   const nub = Math.min(apart / 2, (foot - top) / 4);
   const up = point - nub, down = point + nub, near = to - s * clear, far = from + s * clear;
   const upper = [[spine - s * w, top, near, top], [spine, up + w, spine, top], [spine + s * w, up, far, up]];
@@ -9956,12 +9951,12 @@ function pipeLine(card, box, side, most, lead){
   const apart = words ? parseFloat(getComputedStyle(words).lineHeight) || 0 : 0;
   const brace = pipeBrace(card, box, side, most, { round, lead: lead == null ? round : lead, apart, clear: PIPE_CLEAR });
   if (!brace) return;
-  // the card's own edge colour, read off the card, as the box's lines are. it is
+  // the card's own edge colour, read off the card, as the box's line is. it is
   // drawn again only when it has moved: each key typed at the second step places it
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
   const drawn = '<g>' + brace.segments.map(([x1, y1, x2, y2]) => '<path d="M' + x1.toFixed(2) + ' ' +
     y1.toFixed(2) + 'L' + x2.toFixed(2) + ' ' + y2.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' +
-    PIPE_STROKE + '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+    PIPE_STROKE + '" stroke-linecap="butt" stroke-dasharray="' + BRACE.dash + ' ' + BRACE.space + '"/>').join("") + '</g>';
   if (drawn !== PIPE.drawn){ PIPE.drawn = drawn; PIPE.line.innerHTML = drawn; }
   PIPE.line.classList.add("on");
 }

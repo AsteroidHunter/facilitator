@@ -680,7 +680,7 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.ok(!/filter/.test(rule), "the svg's own layer wears the filter: " + rule);
   assert.match(html, /\n  body\.focus #mbline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.match(html, /\n  body\.lowered #mbline\.on > g\{filter:none\}/);
-  assert.match(linesCode(), /MB\.line\.innerHTML = '<g>' \+ two\.ys\.map\([\s\S]*?\.join\(""\) \+ '<\/g>';/);
+  assert.match(linesCode(), /MB\.line\.innerHTML = '<g><path d="M' \+ [^;]*stroke-linecap="butt"\/><\/g>';/);
   assert.match(html, /\n  body\.focus:is\(\.home, \.editmode\) #mbline\.on\{display:none\}/);
   const lines = linesCode();
   assert.match(lines, /const ink = getComputedStyle\(document\.querySelector\("main"\)\)\.borderTopColor/);
@@ -729,18 +729,18 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.equal(ctx.magicHeight("c:3", 393), 0);
 });
 
-// the two lines and their dashes, run outside the page on stand-ins
+// the one line, run outside the page on stand-ins
 const linesCode = () => {
   const html = read("index.html");
-  return html.slice(html.indexOf("const TWO = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
+  return html.slice(html.indexOf("const LINE = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
 };
 // the card and the box as the connector mock has them (m1237,
 // mock-box-connector-20261013.html), in stage pixels: the card at its saved
 // place and size, the box's left edge at 1055.38 and its top at 89.86, 488 high
 const PICK = { card: { left: 466.56, top: 51.84, width: 506.88, height: 760.32 }, box: { left: 1055.38, top: 89.86, width: 344.47, height: 488 } };
-// the lines' levels are fixed distances in the box, so the stand-in needs no
-// element to read: only the svg the lines are drawn into
-const dashed = (scale = 1) => {
+// the line's level is read off the box's own rectangle, so the stand-in needs
+// no element to read: only the svg the line is drawn into
+const lined = (scale = 1) => {
   const svg = () => { const s = { innerHTML: "", ons: 0, classList: { add() { s.ons++; } } }; return s; };
   const MB = { line: svg(), el: {} };
   const ctx = vm.createContext({ MB, stageScale: scale, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)" }),
@@ -749,83 +749,84 @@ const dashed = (scale = 1) => {
   return { ctx, MB };
 };
 // every path drawn: [start x, start y, end x, end y]
-const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.3333333333333333" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
+const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.3333333333333333" stroke-linecap="butt"\/>/g;
 const paths = svg => [...svg.innerHTML.matchAll(PATH)].map(m => m.slice(1, 5).map(Number));
 
-test("the lines are the pick from the connector mock: on its box, 488 high, two dashed lines 52 px down from the top and 52 px up from the foot, from the card's edge to the box's and no further", () => {
-  const { ctx, MB } = dashed();
+test("the line is the pick from m1497 (view 5): one solid line at exactly the middle of the box's height, from the card's edge to the box's and no further", () => {
+  const { ctx, MB } = lined();
   const near = (a, b, d = .01) => Math.abs(a - b) <= d;
   const { card, box } = PICK;
-  const two = ctx.magicTwo(card, box);
-  assert.equal(two.ys.length, 2);
-  assert.ok(near(two.ys[0], box.top + 52, 1e-9) && near(two.ys[1], box.top + box.height - 52, 1e-9), [...two.ys].join());
-  // each starts exactly at the card's right edge and stops at the box's left
+  const mid = ctx.magicMiddle(card, box);
+  assert.equal(mid.y, box.top + box.height / 2);
+  // it starts exactly at the card's right edge and stops at the box's left
   // edge: nothing of it is under either, which shows through whichever is faded
-  assert.equal(two.from, card.left + card.width);
-  assert.equal(two.to, box.left);
+  assert.equal(mid.from, card.left + card.width);
+  assert.equal(mid.to, box.left);
   ctx.magicLine(card, box);
   assert.equal(MB.line.ons, 1);
-  // two horizontal paths, dashes 6 with gaps of 4, 4/3 wide (two thirds of the
-  // 2 the mock drew), flat ends, in the
-  // card's edge colour, and nothing else in the group
+  // one level path, solid, 4/3 wide (two thirds of the 2 the connector mock
+  // drew), flat ends, in the card's edge colour, and nothing else in the group
+  assert.match(MB.line.innerHTML, /^<g><path [^>]*\/><\/g>$/);
   const got = paths(MB.line);
-  assert.equal(got.length, 2, MB.line.innerHTML);
-  assert.match(MB.line.innerHTML, /^<g><path [^>]*\/><path [^>]*\/><\/g>$/);
-  got.forEach(([x1, y1, x2, y2], i) => {
-    assert.ok(near(y1, two.ys[i]) && near(y2, two.ys[i]), "a line is not level at its place: " + [y1, y2]);
-    // each path starts at the box's edge, so its dashes are counted from it
-    // and a whole dash ends exactly there
-    assert.ok(near(x1, box.left) && near(x2, card.left + card.width), "a line runs elsewhere: " + [x1, x2]);
-  });
-  // the same box, the same lines, however often they are drawn
+  assert.equal(got.length, 1, MB.line.innerHTML);
+  const [[x1, y1, x2, y2]] = got;
+  assert.ok(near(y1, mid.y) && near(y2, mid.y), "the line is not level at the box's middle: " + [y1, y2]);
+  assert.ok(near(x1, card.left + card.width) && near(x2, box.left), "the line runs elsewhere: " + [x1, x2]);
+  assert.ok(!/dasharray/.test(MB.line.innerHTML), "the line is dashed");
+  // the same box, the same line, however often it is drawn
   const first = MB.line.innerHTML;
   ctx.magicLine(card, box);
   assert.equal(MB.line.innerHTML, first);
+  // a box left of the card, in the new layout: the same line turned over, from
+  // the card's left edge to the box's right edge, at the box's middle
+  const left = { ...box, left: card.left - 52 - box.width };
+  const turned = lined();
+  turned.ctx.magicLineLeft(card, left);
+  const [[lx1, ly1, lx2, ly2]] = paths(turned.MB.line);
+  assert.ok(near(lx1, card.left) && near(lx2, left.left + left.width), "the left line runs elsewhere: " + [lx1, lx2]);
+  assert.ok(near(ly1, mid.y) && near(ly2, mid.y));
+  assert.equal(paths(turned.MB.line).length, 1, turned.MB.line.innerHTML);
 });
 
-test("the lines sit 52/488 of the box's height from its top and its foot, so they look the same on a box of any size and never meet", () => {
-  assert.equal(vm.runInContext("JSON.stringify(TWO)", dashed().ctx),
-    JSON.stringify({ gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 }));
-  const near = (a, b) => Math.abs(a - b) < 1e-9;
+test("the line sits at the middle of the box's height on a box of any size, at any scale, and that middle is always beside the card", () => {
+  assert.equal(vm.runInContext("JSON.stringify(LINE)", lined().ctx), JSON.stringify({ gap: 8, width: 4 / 3 }));
   const { card, box } = PICK;
-  const ys = (b, scale = 1) => [...dashed(scale).ctx.magicTwo(card, b).ys];
+  const y = (b, scale = 1) => lined(scale).ctx.magicMiddle(card, b).y;
   // the rectangles are in the stage's own pixels: another scale reads the same
-  assert.deepEqual(ys(box, .5), ys(box));
-  assert.deepEqual(ys(box, 2), ys(box));
-  // a share of the box, not a fixed distance: about 10.66% from each end,
-  // mirrored, on a short box, a medium one and a tall one alike
+  assert.equal(y(box, .5), y(box));
+  assert.equal(y(box, 2), y(box));
   for (const height of [40, 90, 110, 200, 488, 600, 900]) {
-    const [top, foot] = ys({ ...box, height });
-    const n = height * 52 / 488;
-    assert.ok(near(top - box.top, n) && near(box.top + height - foot, n), `a box ${height} high: ${[top, foot]}`);
-    assert.ok(near((top - box.top) / height, 52 / 488), "the share moved with the height");
-    // the two never meet: the gap between them is the rest of the box
-    assert.ok(foot - top > height * .78, `a box ${height} high has its lines too close: ${foot - top}`);
+    const at = y({ ...box, height });
+    assert.ok(close(at - box.top, height / 2, 1e-9), `a box ${height} high: ${at}`);
+    const { ctx, MB } = lined();
+    ctx.magicLine(card, { ...box, height });
+    assert.equal(paths(MB.line).length, 1, MB.line.innerHTML);
   }
-  // the short box of the report, about 110 high: about 11.7 px from each end,
-  // 86.6 px apart, where the fixed 52 px had them 6 px apart
-  const [top, foot] = ys({ ...box, height: 110 });
-  assert.ok(Math.abs(top - box.top - 11.72) < .01 && Math.abs(foot - top - 86.56) < .01, [top, foot].join());
-  // every box draws both lines, a short one too
-  const { ctx, MB } = dashed();
-  ctx.magicLine(card, { ...box, height: 90 });
-  assert.equal(paths(MB.line).length, 2, MB.line.innerHTML);
-  assert.ok(!/box\.height \/ 2|2 \* TWO/.test(linesCode()), "the one line at the middle is still there");
+  // the box stands within the card's height wherever MagicBox.place stands it,
+  // words or a picture of any height, so a level line at its middle always
+  // starts on the card's edge
+  for (const w of [1100, 1280, 1512, 1800, 2400])
+    for (const want of [undefined, { height: 60 }, { height: 300 }, { height: 5000 }, { width: 2000, height: 400 }, { width: 300, height: 1200 }]) {
+      const at = place(CARD, fitAt(w), want);
+      if (!at.shown) continue;
+      const m = MIDDLE(at);
+      assert.ok(m > CARD.top && m < CARD.top + CARD.height, `a window ${w} wide: the box's middle ${m} off the card`);
+    }
 });
 
-test("with no room for them no line is drawn: a gap narrower than 8 px", () => {
-  const { ctx, MB } = dashed();
+test("with no room for it no line is drawn: a gap narrower than 8 px", () => {
+  const { ctx, MB } = lined();
   const { card, box } = PICK;
   const edge = card.left + card.width;
-  assert.equal(ctx.magicTwo(card, { ...box, left: edge }), null, "no gap");
-  assert.equal(ctx.magicTwo(card, { ...box, left: edge + 7.9 }), null);
-  assert.ok(ctx.magicTwo(card, { ...box, left: edge + 8 }));
+  assert.equal(ctx.magicMiddle(card, { ...box, left: edge }), null, "no gap");
+  assert.equal(ctx.magicMiddle(card, { ...box, left: edge + 7.9 }), null);
+  assert.ok(ctx.magicMiddle(card, { ...box, left: edge + 8 }));
   ctx.magicLine(card, { ...box, left: edge });
   assert.equal(MB.line.innerHTML, "", "a line was drawn with no gap");
   assert.equal(MB.line.ons, 0);
 });
 
-test("every box draws these same lines: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
+test("every box draws this same line: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
   const html = read("index.html"), server = read("server.py");
   const code = linesCode();
   assert.ok(!/Math\.random/.test(code), "the page picks the line itself");
@@ -840,19 +841,23 @@ test("every box draws these same lines: nothing is picked, kept or read from the
   assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now,\s*\*\*\(\{"widget": widget, "wrev": wrev\} if widget else \{\}\)\}/);
 });
 
-test("the lines are plain dashes: no barbell, tabs, dots, brush, dabs or beads", () => {
-  const html = read("index.html");
+test("the line is plain and single: no second line, dashes, barbell, tabs, dots, brush, dabs or beads", () => {
+  const html = read("index.html"), onboarding = read("onboarding.html");
   for (const gone of ["magicDrone", "DRONE", "Drone", "magicOne", "const ONE = {", "cardTab:", "boxTab:", "rimInk", "barbell"])
     assert.ok(!html.includes(gone), gone + " is still in the page");
-  assert.ok(!/\.083\b/.test(linesCode()), "the barbell's 8.3% is in the lines' code");
-  const { ctx, MB } = dashed();
+  // the two dashed lines (m1237) are gone from the board and its onboarding copy
+  for (const page of [html, onboarding])
+    for (const gone of ["magicTwo", "const TWO = {", "TWO.", "two dashed lines"])
+      assert.ok(!page.includes(gone), gone + " is still in a page");
+  assert.ok(!/\.083\b|share|dash|\.ys\b/.test(linesCode()), "the old lines' numbers are in the line's code");
+  const { ctx, MB } = lined();
   ctx.magicLine(PICK.card, PICK.box);
-  // two straight paths of two points each, nothing else
+  // one straight path of two points, nothing else
   const parts = MB.line.innerHTML.match(/<(path|rect|circle|ellipse)\b/g);
-  assert.deepEqual(parts, ["<path", "<path"], MB.line.innerHTML);
+  assert.deepEqual(parts, ["<path"], MB.line.innerHTML);
   for (const [, d] of MB.line.innerHTML.matchAll(/<path d="([^"]*)"/g))
-    assert.ok(!/[aAcCqQ]/.test(d), "a line's path is not straight: " + d);
-  assert.ok(!/stroke-linecap="round"|stroke-dasharray="0 /.test(MB.line.innerHTML), "the lines are dotted");
+    assert.ok(!/[aAcCqQ]/.test(d), "the line's path is not straight: " + d);
+  assert.ok(!/stroke-linecap="round"|stroke-dasharray/.test(MB.line.innerHTML), "the line is dashed or dotted");
 });
 
 test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {

@@ -534,8 +534,9 @@ test("the answer's fade ends on the top of the row's line on a board drawn small
 
 // ---- the brace ------------------------------------------------------------------------
 const brace = vm.createContext({});
-vm.runInContext(cut("const TWO = {", "\n") + "\n" + cut("const PIPE_STROKE = ", "\n") + "\n" + fn("pipeBrace"), brace);
-const TWO = vm.runInContext("TWO", brace), STROKE = vm.runInContext("PIPE_STROKE", brace);
+vm.runInContext(cut("const LINE = {", "\n") + "\n" + cut("const PIPE_STROKE = ", "\n") + "\n" + cut("const BRACE = {", "\n") +
+  "\n" + fn("pipeBrace"), brace);
+const LINE = vm.runInContext("LINE", brace), BRACE = vm.runInContext("BRACE", brace), STROKE = vm.runInContext("PIPE_STROKE", brace);
 
 test("the brace is a { to a response on the card's right and a } to one on its left: six square lines in two sets, touching neither", () => {
   const card = { left: 466, top: 52, width: 507, height: 760 };
@@ -578,7 +579,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
     assert.ok(close(tall.top, 90 + LEAD), "its top arm level with the top of the response's first line");
     assert.ok(close(tall.foot, 90 + 684 - 14), "its foot arm in by the corner at the foot");
     assert.ok(close(tall.point - tall.top, short.point - short.top), "the upper set keeps its height");
-    assert.ok(close(tall.point - tall.top, most.height * TWO.share), "where the box's first line stands");
+    assert.ok(close(tall.point - tall.top, most.height * BRACE.share), "where the box's upper line stood");
     assert.ok((tall.foot - tall.point) - (short.foot - short.point) > 300, "the lower set stretches with the response");
     assert.deepEqual(segs(tall).slice(0, 3), segs(short).slice(0, 3), "and only the lower set");
     assert.notDeepEqual(segs(tall).slice(3), segs(short).slice(3));
@@ -592,17 +593,20 @@ test("the brace is a { to a response on the card's right and a } to one on its l
   assert.ok(close(brace.pipeBrace(card, { left: 1021, top: 90, width: 400, height: 684 }, "right", most, { round: 14 }).top, 104));
   // no room either side of the spine for a clear end and a dash, no brace
   assert.equal(brace.pipeBrace(card, { left: 976, top: 90, width: 400, height: 300 }, "right", most, opts), null);
-  const least = 2 * (CLEAR + STROKE / 2 + TWO.dash);
+  const least = 2 * (CLEAR + STROKE / 2 + BRACE.dash);
   assert.equal(brace.pipeBrace(card, { left: 973 + least - 1, top: 90, width: 400, height: 300 }, "right", most, opts), null);
   assert.ok(brace.pipeBrace(card, { left: 973 + least + 1, top: 90, width: 400, height: 300 }, "right", most, opts));
-  // it is drawn as the box's lines are: the card's edge colour and the box's dashes, at half
-  // the box's width, from the response's own first line and line of words, clear of both boxes
+  // it is drawn in the card's edge colour as the box's line is, dashed 6 long with gaps of 4 as the
+  // box's two lines were, at half the box's line's width, from the response's own first line and
+  // line of words, clear of both boxes
   const draw = fn("pipeLine");
   assert.match(draw, /borderTopColor/);
-  assert.match(draw, /stroke-dasharray="' \+ TWO\.dash \+ ' ' \+ TWO\.space/);
+  assert.match(draw, /stroke-dasharray="' \+ BRACE\.dash \+ ' ' \+ BRACE\.space/);
+  assert.equal(JSON.stringify(BRACE), JSON.stringify({ share: 52 / 488, dash: 6, space: 4 }), "the brace's own numbers moved");
   assert.match(draw, /stroke-width="' \+\s*PIPE_STROKE \+/);
-  assert.equal(STROKE, TWO.width / 2, "half the box's lines");
-  assert.match(fn("magicLine"), /stroke-width="' \+ TWO\.width \+/, "the box's own lines keep their width");
+  assert.equal(STROKE, LINE.width / 2, "half the box's line");
+  assert.equal(STROKE, 2 / 3);
+  assert.match(fn("magicLine"), /stroke-width="' \+ LINE\.width \+/, "the box's own line keeps its width");
   assert.ok(!/accent|purple|#[0-9a-f]{3,6}/i.test(draw), "no colour of its own");
   // its top arm at the top of the response's first line, as the place reads it (pipeLevel),
   // with the words' scroll taken back, and in by the corner with no words
@@ -1208,7 +1212,7 @@ test("it is a second magic box on the box's own rules, always whole, its shadow 
   assert.match(fn("magicRiseSet"), /if \(box\.ground\) box\.ground\.style\.opacity = p\.toFixed\(4\);/);
   assert.match(fn("pipePlace"), /Object\.assign\(PIPE\.el\.style, rect, \{ visibility: "" \}\);[\s\S]*Object\.assign\(PIPE\.ground\.style, rect\); PIPE\.ground\.classList\.add\("on"\);/);
   assert.match(fn("pipeOff"), /PIPE\.ground\.classList\.remove\("on"\)/);
-  // the brace wears the box's lines' shadow and sits beneath the card
+  // the brace wears the box's line's shadow and sits beneath the card
   assert.match(style, /\n  body\.focus #pipeline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.ok(HTML.indexOf('<svg id="pipeline"') < HTML.indexOf("<main>"));
   // what it dims, the ticket list and the clock piped left and the card's response,
