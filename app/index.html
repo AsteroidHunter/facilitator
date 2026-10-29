@@ -4617,6 +4617,114 @@ for (const type of ["click", "pointerdown", "keydown", "submit"]){
 }
 
 
+// ---- the page note -------------------------------------------------------------
+// when the page's own Chrome process ends, the window goes white and the page
+// hears nothing: no pagehide, and what the reporter holds for page hide goes with
+// it. so the page keeps one small note in this window's sessionStorage, which
+// belongs to the tab rather than to the process and so outlives it. it is written
+// when the page starts and once a minute after: when the page started, the card
+// open, whether the page was on screen, its JS heap in MB at the last five writes
+// and the most it has been, how late its own timer ran, when the last key was
+// pressed, where the last error was thrown and the page's version. a normal close
+// (pagehide) takes the note away, and a page back from the back/forward cache
+// writes it again. a page that starts and finds a note still there follows a page
+// that ended without closing, and sends what the note held to the board's log at
+// once, as one line. a key press costs one time in memory: what was typed, card
+// text and messages are never read
+const PAGE_NOTE_KEY = "facilitator-page-note", PAGE_NOTE_EVERY = 60000, PAGE_NOTE_HEAPS = 5;
+const pageNoteStarted = Date.now();
+const pageNoteVersion = String(document.getElementById("npversion")?.textContent || "")
+  .replace(/[^A-Za-z0-9.-]/g, "").slice(0, 20);
+const pageNoteHeaps = [];
+let pageNoteTimer = 0, pageNoteKey = 0, pageNotePeak = 0;
+document.addEventListener("keydown", () => { pageNoteKey = Date.now(); }, { capture: true, passive: true });
+// the JS heap in MB. Chrome alone has it; -1 elsewhere (the Tauri app's WebKit)
+function pageNoteHeap(){
+  try { return performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; }
+  catch (_) { return -1; }
+}
+function pageNoteWrite(){
+  try {
+    const heap = pageNoteHeap();
+    if (heap >= 0){
+      pageNoteHeaps.push(heap);
+      if (pageNoteHeaps.length > PAGE_NOTE_HEAPS) pageNoteHeaps.shift();
+      if (heap > pageNotePeak) pageNotePeak = heap;
+    }
+    const who = typeof reportWho === "function" ? reportWho() : { window: "", doing: "" };
+    const pulse = typeof reportPulse === "function" ? reportPulse() : { late: 0, lateMax: 0, error: null };
+    const note = { win: who.window, start: pageNoteStarted, at: Date.now(),
+      box: typeof selectedId === "string" ? selectedId : "", doing: who.doing, shown: !document.hidden,
+      heaps: pageNoteHeaps, peak: pageNotePeak, late: pulse.late, lateMax: pulse.lateMax,
+      version: pageNoteVersion };
+    if (pageNoteKey) note.key = pageNoteKey;
+    if (pulse.error) note.err = { file: pulse.error.file, line: pulse.error.line, at: pulse.error.at };
+    sessionStorage.setItem(PAGE_NOTE_KEY, JSON.stringify(note));
+  } catch (_) {}
+}
+function pageNoteStart(){
+  if (pageNoteTimer) return;
+  pageNoteWrite();
+  pageNoteTimer = setInterval(pageNoteWrite, PAGE_NOTE_EVERY);
+}
+function pageNoteStop(){
+  clearInterval(pageNoteTimer);
+  pageNoteTimer = 0;
+  try { sessionStorage.removeItem(PAGE_NOTE_KEY); } catch (_) {}
+}
+// a stretch of time in words: "5 h 58 min", "3 min 20 s", "52 s"
+function pageNoteSpan(ms){
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s >= 3600) return Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " min";
+  if (s >= 60) return Math.floor(s / 60) + " min " + (s % 60) + " s";
+  return s + " s";
+}
+function pageNoteFind(){
+  let found = null;
+  try { found = JSON.parse(sessionStorage.getItem(PAGE_NOTE_KEY) || "null"); } catch (_) {}
+  // this load's own note is no news
+  if (found && typeof reportWho === "function" && found.win === reportWho().window) return;
+  try { sessionStorage.removeItem(PAGE_NOTE_KEY); } catch (_) { return; }
+  if (!found || typeof found.at !== "number" || typeof found.start !== "number") return;
+  try {
+    const whole = n => (typeof n === "number" && isFinite(n) ? Math.round(n) : null);
+    const said = (n, unit) => (whole(n) === null ? "unknown" : whole(n) + " " + unit);
+    const before = at => (whole(at) === null ? "" : " " + pageNoteSpan(found.at - at) + " before the last note");
+    const time = at => new Date(at).toISOString().replace(/\.\d+Z$/, "Z");
+    const ago = Math.max(0, Date.now() - found.at);
+    const box = String(found.box || "").slice(0, 64);
+    const heaps = (Array.isArray(found.heaps) ? found.heaps : []).map(whole).filter(n => n !== null);
+    const nav = String(performance.getEntriesByType?.("navigation")?.[0]?.type || "unknown").replace(/_/g, " ");
+    const err = found.err && typeof found.err === "object" ? found.err : null;
+    const parts = [
+      "the page stopped without closing: window " + found.win + " (" + (found.version || "unknown version") + "), open "
+        + pageNoteSpan(found.at - found.start) + (box ? ", card " + box : "")
+        + ", " + (found.shown ? "on screen" : "hidden"),
+      "last note " + time(found.at) + ", " + pageNoteSpan(ago) + " before this load",
+      heaps.length ? "JS heap MB at the last " + (heaps.length > 1 ? heaps.length + " notes " : "note ")
+        + heaps.join(", ") + ", at most " + said(found.peak, "MB") : "JS heap not readable",
+      "timer " + said(found.late, "ms") + " late, " + said(found.lateMax, "ms") + " at worst in the last minute",
+      whole(found.key) ? "last key" + before(found.key) : "no key pressed",
+      "this load: " + nav + (document.wasDiscarded ? ", discarded by Chrome" : ", not discarded"),
+      err ? "last error at " + (String(err.file || "").slice(0, 40) || "unknown") + ":" + (whole(err.line) || 0) + (before(err.at) && "," + before(err.at))
+        : "no error",
+    ];
+    // only the plain characters the board's log keeps; any other drops the line's words
+    const message = parts.join("; ").replace(/[^A-Za-z0-9 ,.:;()\/-]/g, "").slice(0, 500);
+    // an error, so it reaches the board's log at every log level; late is the
+    // time from the last note to this page's start, as the phone's note has it
+    const report = { kind: "error", message, file: "", line: 0, box, late: ago,
+      doing: String(found.doing || "idle").slice(0, 40), count: 1 };
+    // at once, not at the next hide: this page may end the same way
+    if (typeof reportNotice === "function") reportNotice(report);
+    else if (typeof reportProblem === "function") reportProblem("error", new Error(message), report);
+  } catch (_) {}
+}
+pageNoteFind();
+pageNoteStart();
+window.addEventListener("pagehide", pageNoteStop);
+window.addEventListener("pageshow", e => { if (e.persisted) pageNoteStart(); });
+
 // ---- the lane's worktrees -------------------------------------------------
 // the card's top bar names a worktree, and the names come from git by way of
 // /worktrees rather than from anything typed here. one entry per lane, held for
