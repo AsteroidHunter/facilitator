@@ -113,7 +113,9 @@
       board's root handler and leaves unrelated Serve configuration alone.
       The server keeps listening on 127.0.0.1 only; Tailscale does the
       proxying to a password-gated listener. A saved phone session lasts until
-      sign-out. Set or reset the app password with `facilitator password set`.
+      sign-out. It also ends by itself after 30 days without the app being
+      opened, and when the app password is changed. Set or reset the app
+      password with `facilitator password set`.
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off. run and
       stop make the same change themselves once a password is set, so this
