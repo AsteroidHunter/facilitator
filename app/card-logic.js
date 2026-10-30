@@ -6632,12 +6632,43 @@ function cardsMoving(){
 // page (settle). a framed page is left out, since a copy would load and run
 // it a second time, and a player is told not to fetch or play anything. the
 // copy takes no click, no key and no focus. noIds takes every id off it, for
-// a copy that stands somewhere the page's own ids could find it
-function stillCopy(el, { noIds = false } = {}){
-  const copy = el.cloneNode(true);
+// a copy that stands somewhere the page's own ids could find it.
+// leave names elements inside it that are not drawn, which the copy leaves
+// out with all they hold. the board passes its hidden cards: on a board of a
+// thousand cards they are nearly every element of the stage, and copying them
+// and reading each one's scroll was most of a switch's time. only the boxes on
+// the way down to a left-out element are copied one level at a time; every
+// other part is copied whole in one call, as before
+function stillCopy(el, { noIds = false, leave = null } = {}){
+  const out = new Set(leave || []), open = new Set();
+  for (const n of out){
+    const way = [];
+    let p = n.parentNode;
+    while (p && p !== el && !open.has(p)){ way.push(p); p = p.parentNode; }
+    if (!p) continue;   // not inside el: nothing of it is in the copy anyway
+    open.add(el);
+    for (const w of way) open.add(w);
+  }
+  // live and dup are the copied elements and their copies, in the same order
+  const live = [], dup = [], scrolls = [];
+  const copyOf = node => {
+    if (!open.has(node)){
+      const b = node.cloneNode(true);
+      if (node.nodeType === 1){
+        live.push(node); dup.push(b);
+        for (const x of node.querySelectorAll("*")) live.push(x);
+        for (const x of b.querySelectorAll("*")) dup.push(x);
+      }
+      return b;
+    }
+    const b = node.cloneNode(false);
+    live.push(node); dup.push(b);
+    for (let c = node.firstChild; c; c = c.nextSibling) if (!out.has(c)) b.appendChild(copyOf(c));
+    return b;
+  };
+  const copy = copyOf(el);
   copy.inert = true;
   copy.setAttribute("aria-hidden", "true");
-  const live = [el, ...el.querySelectorAll("*")], dup = [copy, ...copy.querySelectorAll("*")], scrolls = [];
   for (let i = 0; i < live.length; i++){
     const a = live[i], b = dup[i];
     if (a.scrollTop || a.scrollLeft) scrolls.push([b, a.scrollTop, a.scrollLeft]);

@@ -4796,7 +4796,12 @@ function boardFadeTake(){
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
   const body = document.body, stage = document.getElementById("stage");
   if (!stage || body.classList.contains("pageblank") || !body.classList.contains("layout-ready")) return null;
-  const still = stillCopy(stage);
+  // the copy holds only what is drawn. on the board every card but the one on
+  // show (.sel) is display:none, so the others are left out of it: they are
+  // nearly all of the stage, and copying them made a switch late
+  const hidden = [];
+  for (const k of Object.keys(els)) if (!els[k].box.classList.contains("sel")) hidden.push(els[k].box);
+  const still = stillCopy(stage, { leave: hidden });
   still.copy.classList.add("boardghost");
   return { ...still, owner: activeOwner };
 }
