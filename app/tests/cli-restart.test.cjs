@@ -1065,6 +1065,22 @@ test("a window that fails to open is said in one line, never reported as opened"
   ]);
 });
 
+test("a window that fails to open names the launch link, which opens the board, not the plain address", async () => {
+  // the plain address shows a locked board only its lock page; the link with
+  // the board's launch code lets the window in, once, within its minute
+  const run = await restart({
+    chrome: [], openApp: "REAL", openFails: "Unable to find application named 'Google Chrome'", launchCode: "CODE7",
+  });
+  assert.equal(run.ok, true, run.stderr);
+  assert.deepEqual(run.said, [
+    "Board restarted.",
+    `could not open Chrome (Unable to find application named 'Google Chrome'); open http://127.0.0.1:${port}?launch=CODE7 yourself within a minute`,
+  ]);
+  const opened = run.events.filter(e => e[0] === "run" && e[1][0] === "open");
+  assert.deepEqual(opened.map(e => e[1].at(-1)), [`--app=http://127.0.0.1:${port}?launch=CODE7`],
+    "the window was not opened on the same launch link");
+});
+
 test("a browser that could not be asked is an unknown: no window and nothing said about it", async () => {
   const run = await restart({ chrome: null, keyKept: true });
   assert.equal(run.ok, true, run.stderr);

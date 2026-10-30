@@ -835,14 +835,18 @@ def open_app(cfg, dry):
         kind = "a chromeless full-screen app window" if full else "a chromeless app window"
         print(f"window: would open {url} as {kind}")
         return
-    command = ["open", "-na", "Google Chrome", "--args", f"--app={launch_url(cfg, url)}"]
+    target = launch_url(cfg, url)
+    command = ["open", "-na", "Google Chrome", "--args", f"--app={target}"]
     if full:
         command.append("--start-fullscreen")
     opened = subprocess.run(command, capture_output=True, text=True, check=False)
     if opened.returncode != 0:
         said = (opened.stderr or "").strip().splitlines()
         detail = f" ({said[0]})" if said else ""
-        print(f"could not open Chrome{detail}; open {url} yourself")
+        # the plain address shows a locked board only its lock page; the
+        # launch link opens it, once, within the minute its code lasts
+        print(f"could not open Chrome{detail}; open {target} yourself"
+              + (" within a minute" if target != url else ""))
 
 
 def lane_covered(st, owner):
