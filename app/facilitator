@@ -136,13 +136,16 @@
   facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, app/tests/node_modules and the
       generated config files, owned shell command, owned agent-skill links, and
-      the Claude Code status line entry install added. Keeps the
-      board's data in data/ (state.json, transcript.jsonl, settings.json, logs,
-      bridge credentials, vapid-key.pem and the backups).
-      After its banner it asks whether to keep the card
-      attachments; Enter, an unclear answer or no terminal keeps them, and the
-      two flags answer without asking.
-      Never removes this folder or stops a running server.
+      the Claude Code status line entry install added. After its banner it
+      asks whether to keep the board's data in data/ (state.json,
+      transcript.jsonl, settings.json, profile.json, run.config.json,
+      attachments, magic boxes, logs, the phone sign-in, vapid-key.pem and
+      the backups). Only a no and then a yes to "Are you sure?" deletes
+      everything in data/ but the board's own Python; Enter, any other
+      answer or no terminal keeps it all. --keep-attachments keeps it all
+      without asking; --remove-attachments answers the first question with
+      no, so only "Are you sure?" is asked, and with no terminal it keeps
+      it all. Never removes this folder or stops a running server.
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
       phone immediately. Passwords are never accepted on the command line.
@@ -3002,8 +3005,9 @@ def follow_bridge(requested, port):
 #
 # install makes a fresh checkout runnable with one command and is safe to run
 # again: every step reports either what it did or that it was already done.
-# uninstall takes away exactly what install made, always keeping the board's
-# data. Neither ever removes this folder, and uninstall never
+# uninstall takes away exactly what install made, and keeps the board's data
+# unless the person says no to keeping it and then yes to "Are you sure?".
+# Neither ever removes this folder, and uninstall never
 # stops a running server: it refuses while one is up and says so.
 MIN_PYTHON = (3, 9)     # the floor this command runs on: the python3 macOS ships
 APP_PYTHON = "3.14"     # the one Python .venv is built on, which the board is tested on;
@@ -3036,16 +3040,23 @@ UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-
 
 Remove what install made: data/.venv, app/tests/node_modules, generated
 config, owned command and agent-skill links, and the Claude Code status line
-entry install added. Keeps the board's data in data/ and the bridge
-credentials. Never removes this folder or stops a running server.
-Card attachments are asked about after the banner and kept unless the
-answer is a clear no; with no terminal they are kept.
---keep-attachments and --remove-attachments answer without asking."""
-# card attachments, worked out exactly as server.py works them out: new ones
-# save in data/uploads, and data/uploads-old serves the ones saved in the repo
-# before attachments left it
-ATTACHMENT_DIRS = (DATA / "uploads", DATA / "uploads-old")
-ATTACHMENT_QUESTION = "Keep your card attachments (pictures and files you attached to cards)? [Y/n] "
+entry install added. Never removes this folder or stops a running server.
+
+After the banner it asks whether to keep the board's data in data/: cards
+and their history, attachments, settings, profile, run config, magic boxes,
+logs, the phone sign-in, the push key and the backups. Only a no and then a
+yes to "Are you sure?" deletes everything in data/ but the board's own
+Python. Enter, any other answer or no terminal keeps it all.
+
+  --keep-attachments     keep it all without asking
+  --remove-attachments   answer the first question with no, so only "Are you
+                         sure?" is asked; with no terminal it keeps it all"""
+# the board's data is everything in data/. What install and update keep there
+# for themselves, these and their records named .facilitator-*, uninstall
+# deals with by its own rules, so they alone are no reason to ask
+INSTALL_DATA_NAMES = (".venv", "run.config.json", "seed.json")
+DATA_QUESTION = "Keep your board's data (cards, attachments, settings and logs)? [Y/n] "
+SURE_QUESTION = "Are you sure? Your cards, attachments, settings and logs will be deleted for good. [y/N] "
 BANNER_GLYPHS = {
     "F": ["█████", "█    ", "████ ", "█    ", "█    "],
     "A": ["█████", "█   █", "█████", "█   █", "█   █"],
@@ -3521,59 +3532,80 @@ def banner(role):
     print(" " * (len(rows[0]) - len(role)) + role)
 
 
-def attachment_dirs():
-    """The attachment folders that are there, each once."""
-    found, seen = [], set()
-    for path in ATTACHMENT_DIRS:
-        if (path.exists() or path.is_symlink()) and os.path.realpath(path) not in seen:
-            seen.add(os.path.realpath(path))
-            found.append(path)
-    return found
-
-
-def keep_attachments(answer):
-    """True unless the owner clearly says no. A flag answers without a prompt;
-    Enter, anything unclear or no terminal to ask on keeps them."""
-    if answer is not None:
-        return answer
-    print()
-    if not sys.stdin.isatty():
-        skipped("Keeping your card attachments: there is no terminal to ask on.")
-        print("Pass --remove-attachments to remove them.")
-        return True
+def board_data_found():
+    """True when data/ holds anything the board saved: anything but what
+    install and update keep there for themselves."""
     try:
-        said = input(ATTACHMENT_QUESTION)
+        names = os.listdir(DATA)
+    except OSError:
+        return False
+    return any(name not in INSTALL_DATA_NAMES and not name.startswith(".facilitator-")
+               for name in names)
+
+
+def data_answer(question):
+    """What the person typed at one question, trimmed and in lower case; the
+    end of input is no answer, and Ctrl-C stops before anything is removed."""
+    try:
+        return input(question).strip().lower()
     except EOFError:
         print("")
-        return True
+        return ""
     except KeyboardInterrupt:
         print("")
-        sys.exit(problem("Stopped at the attachments question.", "Nothing was removed.", blank=True))
-    return said.strip().lower() not in ("n", "no")
+        sys.exit(problem("Stopped at the question about your board's data.", "Nothing was removed.",
+                         blank=True))
 
 
-def remove_attachments(path):
-    """Remove one attachment folder and nothing above it. A link is left alone
-    rather than followed, and rmtree unlinks any link inside without following
-    it, so nothing outside the folder goes."""
-    if path.is_symlink():
-        skipped(f"Kept card attachments link {path}.")
+def keep_board_data(answer):
+    """True unless the person says no to keeping the board's data and then a
+    clear yes to "Are you sure?". --keep-attachments (answer True) keeps it
+    without asking, and --remove-attachments (answer False) answers only the
+    first question. Enter, anything else or no terminal to ask on keeps it."""
+    if answer:
+        return True
+    print()
+    if not sys.stdin.isatty():
+        skipped("Keeping your board's data: there is no terminal to ask on.")
+        print("Run uninstall in a terminal to delete it.")
+        return True
+    if answer is None and data_answer(DATA_QUESTION) not in ("n", "no"):
+        return True
+    if data_answer(SURE_QUESTION) in ("y", "yes"):
+        return False
+    skipped("Keeping your board's data.")
+    return True
+
+
+def remove_board_data():
+    """Delete everything in data/ but the board's own Python, which the rest
+    of uninstall has already dealt with, then data/ itself when that leaves
+    it empty. A link in data/ is left alone rather than followed, and rmtree
+    unlinks any link deeper in without following it, so nothing outside
+    data/ goes."""
+    links = []
+    for path in sorted(DATA.iterdir()):
+        if path.name == ".venv":
+            continue
+        if path.is_symlink():
+            links.append(path)
+        else:
+            remove_path(path)
+    try:
+        DATA.rmdir()
+    except OSError:
+        pass  # the .venv uninstall kept, or a link, is still there
+    ok(f"Removed your board's data in {DATA}.")
+    for path in links:
+        skipped(f"Kept link {path}.")
         print("A link is not followed. Remove it by hand.")
-    elif not path.is_dir():
-        skipped(f"Kept {path}: it is not a folder.")
-    else:
-        try:
-            shutil.rmtree(path)
-        except OSError as error:
-            sys.exit(problem(f"Could not remove {path}: {error.strerror or 'error'}.",
-                             "Fix that, then run uninstall again."))
-        ok(f"Removed card attachments folder {path}.")
 
 
 def cmd_uninstall(args):
-    """Take away exactly what install made, always keeping the board's data.
-    Right after the banner, asks whether to keep the card attachments.
-    Refuses while the server is up, and never removes this folder."""
+    """Take away exactly what install made. Right after the banner, asks
+    whether to keep the board's data, and deletes it only after a no and
+    then a yes to "Are you sure?". Refuses while the server is up, and never
+    removes this folder."""
     words = args[1:]
     if any(w in ("-h", "--help") for w in words):
         print(UNINSTALL_HELP)
@@ -3600,18 +3632,15 @@ def cmd_uninstall(args):
                          "Stop that server first, then run uninstall again."))
 
     owned = read_install_record()
-    attachments = attachment_dirs()
-    section("Card attachments")
-    print("Uninstall asks about your card attachments first, apart from the")
-    print("rest of the board's data. Only a clear no removes them.")
-    print()
-    if attachments:
-        print("Your card attachments are in:")
-        for path in attachments:
-            print(f"  {path}")
-        keep = keep_attachments(answer)
+    section("Your board's data")
+    if board_data_found():
+        print("Your cards and their history, attachments, settings, logs, phone")
+        print("sign-in and backups are in:")
+        print(f"  {DATA}")
+        print('Only a no and then a yes to "Are you sure?" deletes them.')
+        keep = keep_board_data(answer)
     else:
-        print("No card attachments found.")
+        print("No board data found.")
         keep = True
 
     print()
@@ -3628,6 +3657,8 @@ def cmd_uninstall(args):
     for label in INSTALL_ARTIFACTS:
         path = artifact_path(label)
         marker = owned.get(label)
+        if not keep and label != ".venv" and path.parent == DATA:
+            continue  # goes below with the rest of the board's data
         if marker is None:
             if path.exists():
                 skipped(f"Kept {label}: it is not recorded as installer-owned.")
@@ -3639,8 +3670,7 @@ def cmd_uninstall(args):
         INSTALL_RECORD.unlink()
 
     if not keep:
-        for path in attachments:
-            remove_attachments(path)
+        remove_board_data()
 
     note = bridge_note(port)
     if note:
