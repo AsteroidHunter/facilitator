@@ -228,53 +228,53 @@
     "addEventListener('keyup', e => say('up', e), true);" +
     "addEventListener('blur', e => { if (e.target === window) say('up', { key: '' }); }, true);" +
     "})();";
-  // a page kept loaded out of sight (magicView's keep) makes no sound. The
-  // board says the word, a space and "hush" as it hides the page, and "sound"
-  // as it shows it again. Hushed, the page's sound stops where it is: its Web
-  // Audio contexts are suspended, its audio and video paused and its speech
-  // cut off. A sound it starts meanwhile, from a timer, waits: a context that
-  // comes to run, a clip it plays and words it says. Shown again, what was
-  // stopped or waiting goes on as the page left it. A context is known as it
-  // is made, and a clip by its play() or its play event, in the document and
-  // in any shadow root. It stands ahead of the agent's own script, so every
-  // one the page makes is known. A frame the page makes of its own is out of
-  // its reach, and a page with one is not kept (magicView's keep). Anything in
-  // it that fails stops it alone, never the words after it in the same script
+  // a page kept loaded out of sight (magicView's keep) makes no sound, and
+  // otherwise runs on as if it were shown. The board says the word, a space
+  // and "hush" as it hides the page, and "sound" as it shows it again. Hushed,
+  // the page is muted and nothing more: its Web Audio reaches the speakers
+  // through a gain of its own, which goes to nothing, and its audio and video
+  // are muted, so a sound it starts meanwhile, from a timer, plays unheard when
+  // it would have played and is over, and its clocks and timers keep their
+  // time. Shown again it is heard as it is then: a sound still going is heard
+  // from where it has got to, and nothing it made while hidden comes late.
+  // Speech, which cannot be muted, is cut off, and words it says meanwhile are
+  // never said. A context is reached at its own output, which every sound of it
+  // is joined to, and a clip by its play() or its play event, in the document
+  // and in any shadow root; the page reads its own muted, never the hush's. It
+  // stands ahead of the agent's own script, so every one the page makes is
+  // known. A frame the page makes of its own is out of its reach, and a page
+  // with one is not kept (magicView's keep). Anything in it that fails stops it
+  // alone, never the words after it in the same script
   const PAGE_HUSH = "(() => { try {" +
-    "let hushed = false; const back = new Set(), waits = [], talk = [], ctxs = new Map(), clips = new Set(), made = new Map();" +
-    "const MP = HTMLMediaElement.prototype, real = { play: MP.play, pause: MP.pause };" +
-    "const later = () => new Promise(r => waits.push(r));" +
-    "const stop = c => { try { ctxs.get(c).suspend.call(c).catch(() => {}); } catch (_) {} back.add(c); };" +
-    "const own = (c, raw) => { if (ctxs.has(c)) return; ctxs.set(c, raw);" +
-    "c.addEventListener('statechange', () => { if (hushed && c.state === 'running') stop(c); }); };" +
-    "for (const name of ['AudioContext', 'webkitAudioContext']) { const AC = window[name]; if (typeof AC !== 'function') continue;" +
-    "if (!made.has(AC)) { const A = AC.prototype, raw = { suspend: A.suspend, resume: A.resume, close: A.close };" +
-    "made.set(AC, new Proxy(AC, { construct(t, a, n) { const c = Reflect.construct(t, a, n); own(c, raw); if (hushed) stop(c); return c; } }));" +
-    "Object.defineProperty(A, 'constructor', { value: made.get(AC) });" +
-    "Object.defineProperty(A, 'resume', { value: function resume() { if (!hushed) return raw.resume.call(this); own(this, raw); back.add(this); return later(); } });" +
-    "Object.defineProperty(A, 'suspend', { value: function suspend() { back.delete(this); return raw.suspend.call(this); } });" +
-    "Object.defineProperty(A, 'close', { value: function close() { back.delete(this); return raw.close.call(this); } }); }" +
-    "Object.defineProperty(window, name, { value: made.get(AC) }); }" +
-    "const heard = m => { if (!(m instanceof HTMLMediaElement)) return; if (!clips.has(m)) { clips.add(m); m.addEventListener('play', () => heard(m)); }" +
-    "if (hushed && !m.paused) { back.add(m); real.pause.call(m); } };" +
-    "const caught = e => heard(e.target);" +
+    "let hushed = false; const outs = new Map(), clips = new Set(), quiet = new Map();" +
+    "const put = (o, k, v) => Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true });" +
+    "const AN = window.AudioNode && AudioNode.prototype, AD = window.AudioDestinationNode, BA = window.BaseAudioContext || window.AudioContext || window.webkitAudioContext," +
+    " OA = window.OfflineAudioContext || window.webkitOfflineAudioContext;" +
+    "const level = (g, v) => { try { const p = g.gain, t = g.context.currentTime; p.cancelScheduledValues(t); p.setTargetAtTime(v, t, 0.01); } catch (_) { try { g.gain.value = v; } catch (_) {} } };" +
+    "if (AN && AD && BA) { const join = AN.connect, part = AN.disconnect, gain = BA.prototype.createGain;" +
+    "const out = t => { if (!(t instanceof AD) || (OA && t.context instanceof OA)) return null; let g = outs.get(t);" +
+    "if (!g) { try { g = gain.call(t.context); g.gain.value = hushed ? 0 : 1; join.call(g, t); outs.set(t, g); } catch (_) { return null; } } return g; };" +
+    "put(AN, 'connect', function connect(t) { const g = out(t); if (!g) return join.apply(this, arguments); const a = [...arguments]; a[0] = g; join.apply(this, a); return t; });" +
+    "put(AN, 'disconnect', function disconnect(t) { const g = outs.get(t); if (!g) return part.apply(this, arguments); const a = [...arguments]; a[0] = g; return part.apply(this, a); }); }" +
+    "const MP = window.HTMLMediaElement && HTMLMediaElement.prototype, M = MP && Object.getOwnPropertyDescriptor(MP, 'muted');" +
+    "const mute = m => { if (quiet.has(m)) return; quiet.set(m, M.get.call(m)); M.set.call(m, true); };" +
+    "const drop = () => { for (const m of clips) if (m.paused && !m.isConnected) clips.delete(m); };" +
+    "const heard = m => { if (!M || !M.get || !M.set || !(m instanceof HTMLMediaElement)) return; if (clips.size > 50) drop(); clips.add(m); if (hushed) mute(m); };" +
+    "if (M && M.get && M.set) { const caught = e => heard(e.target);" +
     "addEventListener('play', caught, true);" +
     "const AS = Element.prototype.attachShadow;" +
-    "if (AS) Object.defineProperty(Element.prototype, 'attachShadow', { value: function attachShadow(o) { const r = AS.call(this, o); r.addEventListener('play', caught, true); return r; } });" +
-    "Object.defineProperty(MP, 'play', { value: function play() { heard(this); if (!hushed) return real.play.call(this); back.add(this); return later(); } });" +
-    "Object.defineProperty(MP, 'pause', { value: function pause() { back.delete(this); return real.pause.call(this); } });" +
-    "const SP = window.SpeechSynthesis && SpeechSynthesis.prototype, say = SP && SP.speak, hush = SP && SP.cancel;" +
-    "if (SP) { Object.defineProperty(SP, 'speak', { value: function speak(u) { if (!hushed) return say.call(this, u); talk.push([this, u]); } });" +
-    "Object.defineProperty(SP, 'cancel', { value: function cancel() { talk.length = 0; return hush.call(this); } }); }" +
+    "if (AS) put(Element.prototype, 'attachShadow', function attachShadow(o) { const r = AS.call(this, o); r.addEventListener('play', caught, true); return r; });" +
+    "const PL = MP.play; put(MP, 'play', function play() { heard(this); return PL.call(this); });" +
+    "Object.defineProperty(MP, 'muted', { enumerable: true, configurable: true, get() { return quiet.has(this) ? quiet.get(this) : M.get.call(this); }," +
+    " set(v) { if (hushed) heard(this); if (quiet.has(this)) quiet.set(this, !!v); else M.set.call(this, v); } }); }" +
+    "const SP = window.SpeechSynthesis && SpeechSynthesis.prototype, say = SP && SP.speak, cut = SP && SP.cancel;" +
+    "if (SP) put(SP, 'speak', function speak(u) { if (!hushed) return say.call(this, u); });" +
     "addEventListener('message', e => { if (e.source !== parent || (e.data !== W + ' hush' && e.data !== W + ' sound')) return;" +
     "const on = e.data === W + ' hush'; if (on === hushed) return; hushed = on;" +
-    "if (on) { for (const c of ctxs.keys()) if (c.state === 'running') stop(c);" +
-    "for (const m of new Set([...clips, ...document.querySelectorAll('audio, video')])) heard(m);" +
-    "if (SP && (speechSynthesis.speaking || speechSynthesis.pending)) hush.call(speechSynthesis); return; }" +
-    "const go = [...back]; back.clear();" +
-    "for (const x of go) { try { const p = ctxs.has(x) ? ctxs.get(x).resume.call(x) : real.play.call(x); if (p && p.catch) p.catch(() => {}); } catch (_) {} }" +
-    "for (const [s, u] of talk.splice(0)) say.call(s, u);" +
-    "for (const r of waits.splice(0)) r(); });" +
+    "for (const [d, g] of outs) { if (d.context.state === 'closed') outs.delete(d); else level(g, on ? 0 : 1); }" +
+    "if (!on) { for (const [m, v] of quiet) { try { M.set.call(m, v); } catch (_) {} } quiet.clear(); return; }" +
+    "drop(); for (const m of new Set([...clips, ...document.querySelectorAll('audio, video')])) heard(m);" +
+    "if (SP && (speechSynthesis.speaking || speechSynthesis.pending)) cut.call(speechSynthesis); });" +
     "} catch (_) {} })();";
   // the Mac's box shows no scrollbar inside a page, the board's rule for every
   // scroller (card-tokens.css) restated for the frame, which the board's sheet

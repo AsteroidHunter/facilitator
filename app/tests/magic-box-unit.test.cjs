@@ -1574,99 +1574,148 @@ test("a kept page is told to go quiet as it is hidden and to carry on as it is s
 });
 
 // the page's hush (MagicBox.PAGE_HUSH) run in a realm of stand-ins, as it
-// stands in a page ahead of the agent's script: Web Audio contexts whose start,
-// suspend and resume are queued and carried out in order (tick), firing
-// statechange as a browser's do; clips that play and pause, firing play on
-// themselves and, in the document, on the window; and speech. The board's
-// words come from the page's parent
+// stands in a page ahead of the agent's script: Web Audio nodes joined in a
+// graph that ends at each context's own output, gains whose level is the last
+// one set, and a clock every context shares (now); clips that play and pause,
+// with their muted on their kind as a browser's, firing play, in the document,
+// on the window; and speech. The board's words come from the page's parent.
+// loud(node): how loud a sound from that node reaches the speakers, the gains
+// on its way multiplied, the loudest way if it goes more than one
 function hushRealm() {
-  const queue = [], win = { play: [], message: [] }, parent = {};
-  class Ctx {
-    constructor() { this.state = "suspended"; this.ls = []; this.q("running"); }
-    q(state) { queue.push(() => { if (this.state === "closed" || this.state === state) return; this.state = state; for (const f of this.ls) f(); }); }
-    addEventListener(t, f) { if (t === "statechange") this.ls.push(f); }
-    suspend() { this.q("suspended"); return Promise.resolve(); }
-    resume() { this.q("running"); return Promise.resolve(); }
-    close() { this.q("closed"); return Promise.resolve(); }
+  const win = { play: [], message: [] }, parent = {}, clock = { now: 0 };
+  class AudioNode {
+    constructor(context) { this.context = context; this.to = new Set(); }
+    connect(t) { if (t.context !== this.context) throw new Error("another context's node"); this.to.add(t); return t; }
+    disconnect(t) { if (t === undefined) return this.to.clear(); if (!this.to.delete(t)) throw new Error("not joined to it"); }
   }
-  class Media {
-    constructor(inDoc) { this.paused = true; this.inDoc = !!inDoc; this.ls = []; }
-    addEventListener(t, f) { if (t === "play") this.ls.push(f); }
-    play() { if (this.paused) { this.paused = false; this.fire(); } return Promise.resolve(); }
+  class AudioDestinationNode extends AudioNode {}
+  class Param {
+    constructor(v) { this.value = v; this.set = []; }
+    cancelScheduledValues() {}
+    setTargetAtTime(v, t) { this.set.push([v, t]); }
+    get level() { return this.set.length ? this.set[this.set.length - 1][0] : this.value; }
+  }
+  class GainNode extends AudioNode { constructor(c) { super(c); this.gain = new Param(1); } }
+  class BaseAudioContext {
+    constructor() { this.state = "running"; this.destination = new AudioDestinationNode(this); this.resumes = 0; }
+    get currentTime() { return clock.now; }
+    createGain() { return new GainNode(this); }
+    createOscillator() { return new AudioNode(this); }
+    suspend() { this.state = "suspended"; return Promise.resolve(); }
+    resume() { this.resumes++; this.state = "running"; return Promise.resolve(); }
+    close() { this.state = "closed"; return Promise.resolve(); }
+  }
+  class AudioContext extends BaseAudioContext {}
+  class OfflineAudioContext extends BaseAudioContext {}
+  class HTMLMediaElement {
+    constructor(inDoc) { this.paused = true; this.isConnected = !!inDoc; this.real = false; this.plays = 0; }
+    get muted() { return this.real; }
+    set muted(v) { this.real = !!v; }
+    play() { this.plays++; if (this.paused) { this.paused = false; this.fire(); } return Promise.resolve(); }
     pause() { this.paused = true; }
     // a play event, from play() or the browser's own autoplay
-    fire() { for (const f of this.ls) f(); if (this.inDoc) for (const f of win.play) f({ target: this }); }
+    fire() { if (this.isConnected) for (const f of win.play) f({ target: this }); }
   }
-  class Synth {
+  class SpeechSynthesis {
     constructor() { this.speaking = false; this.pending = false; this.heard = []; this.cancels = 0; }
     speak(u) { this.heard.push(u); this.speaking = true; }
     cancel() { this.speaking = false; this.cancels++; }
   }
   const media = [];
-  // Safari's older name, here a kind of the same context
-  const realm = { AudioContext: Ctx, webkitAudioContext: class extends Ctx {}, HTMLMediaElement: Media, Element: class {}, SpeechSynthesis: Synth, speechSynthesis: new Synth(), parent,
-    document: { querySelectorAll: () => media.filter(x => x.inDoc) },
+  const realm = { AudioNode, AudioDestinationNode, GainNode, BaseAudioContext, AudioContext, webkitAudioContext: AudioContext, OfflineAudioContext,
+    HTMLMediaElement, Element: class {}, SpeechSynthesis, speechSynthesis: new SpeechSynthesis(), parent,
+    document: { querySelectorAll: () => media.filter(x => x.isConnected) },
     addEventListener: (t, f) => { if (win[t]) win[t].push(f); } };
   realm.window = realm;
   const ctx = vm.createContext(realm);
   vm.runInContext("(() => { const W = \"w\"; " + api().PAGE_HUSH + " })()", ctx);
-  return { ctx, Media, media, synth: realm.speechSynthesis,
-    clip: inDoc => { const c = new Media(inDoc); media.push(c); return c; },
-    tick: () => { while (queue.length) queue.shift()(); },
+  const loud = node => {
+    if (node instanceof AudioDestinationNode) return 1;
+    const by = node instanceof GainNode ? node.gain.level : 1;
+    return Math.max(0, ...[...node.to].map(t => by * loud(t)));
+  };
+  return { ctx, clock, loud, synth: realm.speechSynthesis,
+    clip: inDoc => { const c = new HTMLMediaElement(inDoc); media.push(c); return c; },
     tell: (data, source = parent) => { for (const f of win.message) f({ source, data }); } };
 }
 
-test("a hushed page makes no sound: what plays stops, what starts waits, and both go on as it is shown", async () => {
-  const r = hushRealm(), { ctx } = r;
-  // what the page has going as the person leaves its card
-  const a = new ctx.AudioContext(), quiet = new ctx.AudioContext(), old = new ctx.webkitAudioContext();
-  r.tick();
-  quiet.suspend();
-  r.tick();
-  const c1 = r.clip(true), c2 = r.clip(false), c3 = r.clip(true);
+test("a hushed page is muted and runs on: nothing it starts while hidden comes late, and what still sounds is heard as it is shown", async () => {
+  const r = hushRealm(), { ctx, loud } = r;
+  // what the page has going as the person leaves its card: a tone through a
+  // gain of its own, two clips, and words
+  const a = new ctx.AudioContext(), tone = a.createOscillator(), soft = a.createGain();
+  soft.gain.value = 0.5;
+  assert.equal(tone.connect(soft).connect(a.destination), a.destination, "joined as before, the context's own output given back");
+  assert.equal(loud(tone), 0.5);
+  const c1 = r.clip(true), c2 = r.clip(false);
   c1.play(); c2.play();
   r.synth.speak("words under way");
-  assert.deepEqual([a.state, quiet.state, old.state, c1.paused, c2.paused], ["running", "suspended", "running", false, false]);
-  assert.ok(a instanceof ctx.AudioContext && a.constructor === ctx.AudioContext, "the page's own contexts are AudioContexts as before");
-  // hushed: every sound stops where it is
+  // hushed: nothing is heard, and nothing is stopped
   r.tell("w hush");
-  r.tick();
-  assert.deepEqual([a.state, quiet.state, old.state, c1.paused, c2.paused, c3.paused], ["suspended", "suspended", "suspended", true, true, true]);
+  assert.equal(loud(tone), 0, "the tone is not heard");
+  assert.equal(a.state, "running", "and its context, its clock with it, runs on");
+  assert.deepEqual([c1.paused, c2.paused, c1.real, c2.real], [false, false, true, true], "the clips play on, muted");
+  assert.deepEqual([c1.muted, c2.muted], [false, false], "the page reads its own muted");
   assert.equal(r.synth.cancels, 1, "speech under way cut off");
-  // and a sound a timer starts meanwhile waits: a new context, a resume, a
-  // play, a clip the browser starts by itself, and words
-  const d = new ctx.AudioContext();
-  r.tick();
-  let resumed = false, played = false;
-  a.resume().then(() => { resumed = true; });
-  r.tick();
-  const c4 = r.clip(false);
-  c4.play().then(() => { played = true; });
-  c3.paused = false; c3.fire();   // autoplay, with no play() of the page's
+  // a timer of the page's meanwhile: a beep on the running context, a new
+  // context, a resume, a clip it plays, one the browser starts by itself, and words
+  r.clock.now = 4;
+  const beep = a.createOscillator();
+  beep.connect(a.destination);
+  const d = new ctx.AudioContext(), dTone = d.createOscillator();
+  dTone.connect(d.destination);
+  await a.resume();
+  const c3 = r.clip(false), c4 = r.clip(true);
+  await c3.play();
+  c4.paused = false; c4.fire();
   r.synth.speak("said while hidden");
-  await null;
-  assert.deepEqual([d.state, a.state, c4.paused, c3.paused, resumed, played], ["suspended", "suspended", true, true, false, false]);
-  assert.deepEqual(r.synth.heard, ["words under way"]);
-  // the page pausing a clip meanwhile keeps it paused
-  c1.pause();
+  assert.deepEqual([loud(beep), loud(dTone), a.currentTime, d.state, a.resumes], [0, 0, 4, "running", 1], "each runs at once, unheard, on the page's own clock");
+  assert.deepEqual([c3.paused, c3.real, c3.plays, c4.real], [false, true, 1, true], "a clip played meanwhile plays at once, muted");
+  assert.deepEqual(r.synth.heard, ["words under way"], "words said meanwhile are not said");
+  // the page muting a clip meanwhile is kept as its own
+  c1.muted = true;
+  assert.deepEqual([c1.muted, c1.real], [true, true]);
   // words not from its parent, or with another word, change nothing
   r.tell("w sound", {});
   r.tell("x sound");
-  r.tick();
-  assert.equal(a.state, "suspended");
-  // shown again: everything stopped or waiting goes on, as the page left it
+  assert.equal(loud(tone), 0);
+  // shown again: heard as it is now, and nothing held back is played
+  r.clock.now = 6;
   r.tell("w sound");
-  r.tick();
-  await null; await null;
-  assert.deepEqual([a.state, d.state, old.state, quiet.state], ["running", "running", "running", "suspended"]);
-  assert.deepEqual([c1.paused, c2.paused, c3.paused, c4.paused], [true, false, false, false]);
-  assert.deepEqual(r.synth.heard, ["words under way", "said while hidden"]);
-  assert.deepEqual([resumed, played], [true, true]);
-  // and a page shown plays at once, as any page does
+  assert.deepEqual([loud(tone), loud(beep), loud(dTone)], [0.5, 1, 1], "what is still sounding is heard");
+  assert.deepEqual([c1.real, c2.real, c3.real, c4.real], [true, false, false, false], "each clip as the page has it");
+  assert.deepEqual([c1.plays, c2.plays, c3.plays, a.resumes], [1, 1, 1, 1], "nothing was played or resumed for the page");
+  assert.deepEqual(r.synth.heard, ["words under way"], "and the words said meanwhile never are");
+  r.synth.speak("said when shown");
+  assert.deepEqual(r.synth.heard, ["words under way", "said when shown"]);
+  // a page shown plays at once, as any page does
   const c5 = r.clip(true);
   c5.play();
-  assert.equal(c5.paused, false);
+  assert.deepEqual([c5.paused, c5.real], [false, false]);
 });
+
+test("a hushed page's own output takes its sounds off it and back as it would, and an offline context is its own", () => {
+  const r = hushRealm(), { ctx, loud } = r;
+  const a = new ctx.AudioContext(), tone = a.createOscillator();
+  tone.connect(a.destination);
+  r.tell("w hush");
+  tone.disconnect(a.destination);
+  tone.connect(a.destination);
+  assert.equal(loud(tone), 0);
+  r.tell("w sound");
+  assert.equal(loud(tone), 1);
+  tone.disconnect();
+  assert.equal(loud(tone), 0, "taken off everything");
+  assert.throws(() => tone.disconnect(a.destination), /not joined/, "taken off its output when it is not on it");
+  assert.throws(() => tone.connect(new ctx.AudioContext().destination), /another context/);
+  // a page rendering sound to a file, never to the speakers, renders it as it is
+  const off = new ctx.OfflineAudioContext(), drawn = off.createOscillator();
+  drawn.connect(off.destination);
+  assert.ok(drawn.to.has(off.destination));
+  r.tell("w hush");
+  assert.equal(loud(drawn), 1);
+});
+
 
 test("every page the board makes carries the hush, the Mac's, the phone's and a widget's", () => {
   const { pageDoc, PAGE_HUSH } = api();
