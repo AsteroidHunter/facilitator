@@ -6935,11 +6935,16 @@ function snapCard(){
       const markRoom = parseFloat(getComputedStyle(answ).marginBottom) || 0;
       const top0 = firstLine ? inkTop(firstLine) - (answ.getBoundingClientRect().bottom + markRoom) : 0;
       const bottom0 = lastLine ? pendingTop - inkBottom(lastLine) : top0;
-      // When the answer is short, the large body region below its only line is
-      // content room rather than a boundary gap; it cannot be made equal by moving
-      // the line. In that case keep the line at the smallest top gap and put the
-      // snap remainder below it.
-      const balanced = bottom0 > line * 2 ? 0 : (bottom0 - top0) / 2;
+      // When the answer ends above the foot measured here (pendingTop, the
+      // bar's top edge), the white below its last line is room it did not need
+      // rather than a boundary gap; it cannot be made equal by moving the line.
+      // In that case keep the line at the smallest top gap and put the snap
+      // remainder below it. Only an answer that runs on past that edge is framed
+      // by it. Telling the two apart by distance alone (two lines) missed an
+      // answer that ended a line or two above the bar, and pushed it up to a
+      // line further down off the panel than every other card's.
+      const ends = !lines.some(q => q.height > 2 && inkBottom(q) > pendingTop);
+      const balanced = (ends || bottom0 > line * 2) ? 0 : (bottom0 - top0) / 2;
       const upper = Math.max(0, Math.min(s, balanced));
       const lower = s - upper;
       r.style.marginTop = upper.toFixed(2) + "px";
