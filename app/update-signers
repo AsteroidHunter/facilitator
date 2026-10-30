@@ -9,4 +9,4 @@
 #
 # Main must never be pushed with no key here: every update after it would stop
 # with "No release signing key is listed yet".
-release namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL2ex9mFL4rbxjxhw/wUWP2X3PYEb/09i54bqya3kmMA facilitator-release
+release namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFcvLKk55CIsAg+SvehW8YM9eThGv+/NtEfoF8/E6c4 facilitator-release
