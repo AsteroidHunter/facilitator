@@ -279,7 +279,7 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   // every fit and every reading of the board place it again
   assert.ok(!/magicOff|magicClose|MB\.el\.classList\.remove/.test(fn), "hiding it puts it away");
   assert.match(html, /magicSync\(\);      \/\/ and the card's magic box follows the card/);
-  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n(?:    \/\/[^\n]*\n)*    MB\.view\.widgetSync\(b\.magic\);\n  \}\n\}/);
+  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n  \}\n(?:  \/\/[^\n]*\n)*  MB\.view\.widgetSync\(b\.magic\);\n\}/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
   // what it shows asks for, in the shared view (card-logic.js): a picture as
   // many of the page's pixels as it has pixels on screen, its size read once off
@@ -1152,8 +1152,12 @@ test("clicking or focusing into the box holds it, and a page in it never takes t
   classes.delete("on");
   fire("pointerdown", { target: cover }); assert.equal(held(), false);
   fire("pointerover", { target: cover }); assert.equal(MB.over, false);
-  // every frame comes with its cover, which is gone while the pointer is over the box
-  assert.equal((read("card-logic.js").match(/view\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 2);
+  // every frame comes with its cover, which is gone while the pointer is over the box:
+  // a site's, and each agent's page, shown or kept (magicView's keep)
+  const logic = read("card-logic.js");
+  assert.equal((logic.match(/view\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 1);
+  assert.equal((logic.match(/const run = \{ frame, cover: h\("div", "mbcover"\),/g) || []).length, 1);
+  assert.equal((logic.match(/view\.body\.append\(run\.frame, run\.cover\);/g) || []).length, 2);
   assert.match(boxSheet(), /\.magicbox \.mbcover\{position:absolute; inset:0\}/);
   assert.match(boxSheet(), /\.magicbox\.over \.mbcover\{display:none\}/);
 });
@@ -1257,7 +1261,7 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
 test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
   const view = read("card-logic.js");
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(view, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall, !!view\.widget\)\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall, !!widget\)\)/);
   assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
   assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
@@ -1369,6 +1373,117 @@ test("the board counts the page's loads as its holder says them, and puts back a
   assert.equal(view.page, null);
 });
 
+// the shared view with hooks.keep, against stand-ins for the page: a body that
+// holds its children in order, and frames and covers that can be hidden and
+// taken out. made: the frames made, in order; posted: what each frame was told
+function keptView(hooks) {
+  const timers = [], made = [], posted = [];
+  let onMessage = null;
+  const body = { style: { setProperty() {}, removeProperty() {} }, dataset: {}, childNodes: [],
+    set textContent(v) { this.childNodes = []; }, append(...n) { for (const x of n) { x.parent = this; this.childNodes.push(x); } },
+    appendChild(n) { this.append(n); }, addEventListener() {}, querySelector() { return null; },
+    classList: { remove() {}, add() {} } };
+  const node = (tag, cls) => {
+    const n = { tag, className: cls, style: {}, listens: [], setAttribute() {}, addEventListener() {}, clientWidth: 398,
+      get isConnected() { return body.childNodes.includes(n); },
+      remove() { body.childNodes = body.childNodes.filter(x => x !== n); } };
+    if (tag === "iframe") { n.contentWindow = { id: made.length, postMessage: m => posted.push([n, m]) }; made.push(n); }
+    return n;
+  };
+  const ctx = vm.createContext({ MagicBox: api(), getComputedStyle: () => ({ getPropertyValue: () => "0" }),
+    setTimeout: f => timers.push(f), Date, navigator: {}, fetch: () => new Promise(() => {}),
+    addEventListener: (type, f) => { if (type === "message") onMessage = f; }, h: node });
+  vm.runInContext(read("card-logic.js").match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", ctx);
+  const view = ctx.magicView({ querySelector: s => s === ".mbbody" ? body : null, lastElementChild: null }, { placed() {}, ...hooks });
+  // a page loading and saying its word, as its holder and the page tell the board
+  const load = run => { onMessage({ source: run.frame.contentWindow, data: true }); onMessage({ source: run.frame.contentWindow, data: run.word }); };
+  const shown = () => body.childNodes.filter(n => n.tag === "iframe" && n.style.display !== "none");
+  return { view, body, made, posted, timers, load, shown, send: (run, data) => onMessage({ source: run.frame.contentWindow, data }) };
+}
+
+test("an agent's page left is kept loaded and hidden, and its card shows it again with no new frame", () => {
+  const k = keptView({ keep: 2, sized: true, heard: () => { throw new Error("a kept page's height was taken"); } });
+  const a = { box: "m1", rev: 3, kind: "html", html: "<p>a</p>" };
+  k.view.draw(a);
+  const first = k.view.page;
+  k.load(first);
+  // words on the next card: the page stays in the body, hidden, out of every
+  // .mbframe and .mbcover rule, and is not the box's page
+  k.view.draw({ box: "m2", rev: 1, kind: "text", text: "words" });
+  assert.equal(k.view.page, null);
+  assert.ok(k.body.childNodes.includes(first.frame) && k.body.childNodes.includes(first.cover));
+  assert.deepEqual([first.frame.className, first.frame.style.display, first.cover.className], ["mbkept", "none", "mbkept"]);
+  assert.deepEqual(Array.from(k.view.kept(), r => [r.key, r.said]), [["m1:3", true]]);
+  // hidden, it has no keys and no height the box could take
+  k.send(first, first.word + " 480");
+  k.send(first, first.word + " back");
+  // back on its card: the same page, shown, and no frame made for it
+  k.view.draw(a);
+  assert.equal(k.view.page, first);
+  assert.equal(k.made.length, 1);
+  assert.deepEqual([first.frame.className, first.frame.style.display, first.cover.className], ["mbframe", "", "mbcover"]);
+  assert.deepEqual(k.shown(), [first.frame]);
+  assert.equal(k.view.kept().length, 0);
+});
+
+test("pages are made ahead hidden, kept up to hooks.keep, and let go with their box", () => {
+  const k = keptView({ keep: 2 });
+  const box = (id, rev) => ({ box: id, rev, kind: "html", html: "<p>" + id + "</p>" });
+  assert.equal(k.view.prepare(box("m1", 1)), true);
+  assert.equal(k.view.prepare(box("m1", 1)), false, "made twice");
+  assert.equal(k.view.prepare({ box: "m9", rev: 1, kind: "markdown", text: "x" }), false, "only an agent's page");
+  assert.equal(k.view.prepare(box("m2", 1)), true);
+  assert.deepEqual(k.shown(), [], "a page made ahead is never shown");
+  // full: a page wanted keeps its place, one that is not makes room
+  assert.equal(k.view.prepare(box("m3", 1), new Set(["m1:1", "m2:1"])), false);
+  assert.equal(k.view.prepare(box("m3", 1), new Set(["m2:1", "m3:1"])), true);
+  assert.deepEqual(Array.from(k.view.kept(), r => r.key), ["m2:1", "m3:1"]);
+  // showing one made ahead makes no frame
+  k.view.draw(box("m3", 1));
+  assert.equal(k.made.length, 3);
+  assert.deepEqual(k.shown(), [k.view.page.frame]);
+  // the card's box filled again: the next revision is made afresh and the last let go
+  k.view.draw(box("m2", 2));
+  assert.equal(k.made.length, 4);
+  assert.deepEqual(Array.from(k.view.kept(), r => r.key), ["m3:1"]);
+  // a box closed or its card done: let go
+  k.view.keepOnly(new Set(["m2:2"]));
+  assert.equal(k.view.kept().length, 0);
+  assert.deepEqual(k.body.childNodes.filter(n => n.tag === "iframe"), [k.view.page.frame]);
+  // a kept page that loads without its word (sent its frame away) is let go,
+  // where the page shown is put back
+  k.view.prepare(box("m5", 1));
+  const run = k.view.kept()[0];
+  assert.equal(run.key, "m5:1");
+  const frame = k.made[k.made.length - 1];
+  k.send({ frame }, true);
+  k.timers.splice(0).forEach(f => f());
+  assert.equal(k.view.kept().length, 0);
+  assert.ok(!k.body.childNodes.includes(frame));
+});
+
+test("with no keep the view keeps nothing, as before", () => {
+  const k = keptView({});
+  k.view.draw({ box: "m1", rev: 1, kind: "html", html: "<p>a</p>" });
+  k.load(k.view.page);
+  k.view.clear();
+  assert.deepEqual(k.body.childNodes, []);
+  assert.equal(k.view.prepare({ box: "m1", rev: 1, kind: "html", html: "x" }), false);
+});
+
+test("a kept widget page is answered its record and keeps its memory, but sends nothing", () => {
+  const k = keptView({ keep: 2, atBox: () => true });
+  k.view.prepare({ box: "m1", rev: 1, kind: "html", html: "<p>w</p>", widget: "demo" });
+  const frame = k.made[0];
+  const run = { frame };
+  k.send(run, true);
+  // its word, read off the srcdoc the page was given
+  const word = JSON.parse(frame.srcdoc.match(/postMessage\((\\?"magic-[a-z0-9]+\\?")/)[1].replace(/\\"/g, '"'));
+  k.send(run, word);
+  k.send(run, { jsonrpc: "2.0", id: "w1abcdefgh", method: "widget/send", params: { text: "hi", about: "t1" } });
+  assert.deepEqual(k.posted.map(([, m]) => m.error && m.error.code), [-32001], "a kept page sent");
+});
+
 test("the board's own policy holds nothing a sealed page would inherit and be stopped by", () => {
   // a srcdoc frame inherits the policy of the page it stands in. the board's
   // page carries only frame-ancestors, which a srcdoc page has no answer to be
@@ -1456,7 +1571,7 @@ function phoneBoxScript(page, { drawn = true } = {}) {
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
     magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false,
-      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {}, widgetSync() {} }),
+      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {}, widgetSync() {}, keepOnly() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
     menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
     drawerOpen: () => classes.has("open"),

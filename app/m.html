@@ -8394,6 +8394,12 @@ PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
   escape: () => { if (!cardPictureShown) phoneMagicSmall(true); },
   expand: from => { phoneMagicBig(from); return PB.view.big; },
   moving: () => !!PB.move,
+  // an agent's page stays loaded, hidden, once its card is left, for the last
+  // three, so going back to a card has it in the drawer as it was, with no
+  // second load and no second reading of a widget's record over the line
+  // (magicView's keep). none are made ahead here, as the Mac's are: the
+  // phone's frames run on the page's own thread, beside its swipes
+  keep: 3,
   // the owner is at the box, for a widget's message: it is out, in the drawer
   // or expanded over the page, and nothing else on the page has the keys, so
   // keys typed on the card below it never count
@@ -8449,8 +8455,9 @@ function phoneMagicSync(){
   const b = phoneMagicCard();
   if (!b){ phoneMagicOff(); return; }
   if (PB.id !== b.id || PB.rev !== b.magic.rev) phoneMagicLoad(b.id, b.magic.rev);
-  // a widget's page hears what its agent answered since
-  else PB.view.widgetSync(b.magic);
+  // a widget's page hears what its agent answered since, a page kept from its
+  // card's last showing as well
+  PB.view.widgetSync(b.magic);
 }
 // the box gone with everything in it, and the drawer back if it was out for it
 function phoneMagicOff(){
@@ -8532,6 +8539,8 @@ function phoneMagicShows(seen){
 // share the line with the box being looked at
 function phoneMagicAhead(){
   if (!lastState) return;
+  // a kept page goes with its box closed or filled again, or its card done
+  PB.view.keepOnly(new Set(lastState.boxes.filter(x => x.magic && x.magic.open && !x.done).map(x => x.id + ":" + x.magic.rev)));
   const { build, keep } = nearbyCards();
   const open = id => {
     const b = lastState.boxes.find(x => x.id === id);
