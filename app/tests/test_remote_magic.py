@@ -32,6 +32,8 @@ puts on the wire:
   key       each key held is tried by reading the box first, and the body
             goes only with the key the door let through
   proxy     a proxy in the account's settings is never used
+  blocked   a call the operating system or a sandbox blocks is said so,
+            never as a board that cannot be reached
   setup     off a server, or with no lane key yet, it says so
 
     python3 -B -m unittest tests/test_remote_magic.py
@@ -569,6 +571,24 @@ class TheCommand(unittest.TestCase):
         r = self.magic("m1", "text", "words", http_proxy=dead, HTTP_PROXY=dead, https_proxy=dead,
                        HTTPS_PROXY=dead, all_proxy=dead, ALL_PROXY=dead)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_call_the_sandbox_blocks_is_said_as_blocked(self):
+        self.serve()
+        # every connect refused with EPERM, as a sandbox refuses one it does not allow
+        blocked = ("import errno, runpy, socket, sys\n"
+                   "def refuse(self, *args):\n"
+                   "    raise PermissionError(errno.EPERM, 'Operation not permitted')\n"
+                   "socket.socket.connect = refuse\n"
+                   "sys.argv = sys.argv[1:]\n"
+                   "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        r = subprocess.run([sys.executable, "-B", "-c", blocked, str(self.script), "m1", "text", "words"],
+                           cwd=self.home, capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "HOME": str(self.home)})
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertEqual(r.stderr.strip(), "magic: the operating system or a sandbox blocked this call to the board; "
+                         "that does not mean the board is down. Run the command again through the host's "
+                         "permission retry, as the facilitator skill says")
+        self.assertEqual(self.door.seen, [])
 
     def test_off_a_server_or_with_no_key_it_says_so(self):
         r = self.magic("m1", "text", "words")
