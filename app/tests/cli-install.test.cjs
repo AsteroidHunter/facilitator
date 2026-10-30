@@ -10,7 +10,7 @@
 const assert = require("node:assert/strict");
 const { after, test } = require("node:test");
 const { execFile } = require("node:child_process");
-const { copyFile, cp, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
+const { copyFile, cp, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -919,6 +919,27 @@ test("a no and a yes never follow a link out of data/", async () => {
   assert.equal(await readFile(path.join(outside, "file.png"), "utf8"), "img");
   assert.ok((await lstat(path.join(data(dir), "uploads-old"))).isSymbolicLink(), "the linked old folder was removed");
   assert.match(res.out, /✓ Removed your board's data in .*\n⊘ Kept link .*data\/uploads-old\.\nA link is not followed\. Remove it by hand\./);
+  assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
+});
+
+test("a no and a yes keep a data/ that is itself a link, and delete nothing in the folder it points to", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  await fabricateData(dir);
+  // data/ moved out of the checkout and linked back in its place
+  const outside = path.join(dir, "..", "..", "elsewhere-data");
+  await rename(data(dir), outside);
+  await symlink(outside, data(dir));
+
+  const res = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(res.exit, null, res.out);
+  assert.ok(res.out.includes(FIRST + SURE), res.out);
+  assert.ok(keptAll(res.files), "board data went through the link: " + JSON.stringify(res.files));
+  assert.equal(await readFile(path.join(outside, "uploads", "card.png"), "utf8"), "img");
+  assert.equal(await readFile(path.join(outside, "uploads-old", "keep.png"), "utf8"), "img");
+  assert.ok((await lstat(data(dir))).isSymbolicLink(), "the linked data/ was removed");
+  assert.match(res.out, /\n⊘ Kept link .*facilitator\/data\.\nA link is not followed\. Remove it by hand\.\n/);
+  assert.doesNotMatch(res.out, /Removed your board's data/);
   assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
 });
 

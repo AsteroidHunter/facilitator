@@ -3580,9 +3580,13 @@ def keep_board_data(answer):
 def remove_board_data():
     """Delete everything in data/ but the board's own Python, which the rest
     of uninstall has already dealt with, then data/ itself when that leaves
-    it empty. A link in data/ is left alone rather than followed, and rmtree
-    unlinks any link deeper in without following it, so nothing outside
-    data/ goes."""
+    it empty. A link in data/, or data/ itself when it is a link, is left
+    alone rather than followed, and rmtree unlinks any link deeper in without
+    following it, so nothing outside data/ goes."""
+    if DATA.is_symlink():
+        skipped(f"Kept link {DATA}.")
+        print("A link is not followed. Remove it by hand.")
+        return
     links = []
     for path in sorted(DATA.iterdir()):
         if path.name == ".venv":
