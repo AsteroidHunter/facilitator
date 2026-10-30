@@ -3117,13 +3117,15 @@ const OPS_KEY = "pendops";
 // stay in the typing row and the card says why
 const OPS_MAX = 50;
 // how long a send is resent on its own, counted from the press or from the
-// last time the arrow sent it again. well under the two days the board
-// promises to keep a receipt, so every retry still finds its receipt and lands
-// at most once. past this the operation is unsure: nothing more is sent, the
-// words stay on the card, and every reading asks the board for its receipt.
-// OP_TRY_MS and OP_CERTAIN_MS, one try's deadline and how long "unknown" proves
-// the words never landed, are shared with the desktop in card-logic.js
-const OP_GIVE_UP_MS = 12 * 3600 * 1000;
+// last time the arrow sent it again: 15 minutes, so a message never reaches the
+// board long after it was meant. well under the two days the board promises to
+// keep a receipt, so every retry still finds its receipt and lands at most
+// once. past this the operation is unsure: nothing more is sent, the row wears
+// the red mark with its arrow and cross, the words stay on the card, and every
+// reading asks the board for its receipt. OP_TRY_MS and OP_CERTAIN_MS, one
+// try's deadline and how long "unknown" proves the words never landed, are
+// shared with the desktop in card-logic.js
+const OP_GIVE_UP_MS = 15 * 60 * 1000;
 const OP_ASK_MAX = 32;                       // receipts one reading may ask after, the board's own cap
 // pending: being sent and resent. unsure: no more sends, the outcome unknown,
 // kept and asked about. failed: the board refused it or has no receipt inside
@@ -3200,7 +3202,7 @@ function runOps(lane){
       for (;;){
         const op = ops.find(o => o.state === "pending" && laneOf(o) === lane);
         if (!op) return;
-        if (Date.now() - (op.since || op.ts) > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for half a day"); continue; }
+        if (Date.now() - (op.since || op.ts) > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for 15 minutes"); continue; }
         if (await tryOp(op) === "retry"){
           op.waiting = true;
           drawOpState(op);
