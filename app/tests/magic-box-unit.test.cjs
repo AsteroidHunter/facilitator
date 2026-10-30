@@ -305,7 +305,9 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
 test("a page says its own height only when asked, and the phone's page is as it was", () => {
   const box = api();
   const plain = box.pageDoc("<p>x</p>", "w");
-  assert.ok(plain.endsWith('<script>addEventListener("load", () => parent.postMessage("w", "*"))</script><p>x</p>'));
+  // a page of neither kind says its word and goes quiet when hidden, and nothing more
+  assert.ok(plain.endsWith('<script>addEventListener("load", () => parent.postMessage("w", "*"));(() => { const W = "w"; ' +
+    box.PAGE_HUSH + ' })()</script><p>x</p>'));
   assert.ok(!/ResizeObserver/.test(plain));
   const sized = box.pageDoc("<p>x</p>", "w", true);
   assert.match(sized, /parent\.postMessage\(W \+ ' ' \+ h, '\*'\)/);
@@ -1375,9 +1377,12 @@ test("the board counts the page's loads as its holder says them, and puts back a
 
 // the shared view with hooks.keep, against stand-ins for the page: a body that
 // holds its children in order, and frames and covers that can be hidden and
-// taken out. made: the frames made, in order; posted: what each frame was told
+// taken out. made: the frames made, in order; posted: what each frame was told;
+// doc: the board's document, whose activeElement a frame lets go of as it blurs
 function keptView(hooks) {
   const timers = [], made = [], posted = [];
+  const doc = { body: { tag: "body" }, activeElement: null };
+  doc.activeElement = doc.body;
   let onMessage = null;
   const body = { style: { setProperty() {}, removeProperty() {} }, dataset: {}, childNodes: [],
     set textContent(v) { this.childNodes = []; }, append(...n) { for (const x of n) { x.parent = this; this.childNodes.push(x); } },
@@ -1387,10 +1392,14 @@ function keptView(hooks) {
     const n = { tag, className: cls, style: {}, listens: [], setAttribute() {}, addEventListener() {}, clientWidth: 398,
       get isConnected() { return body.childNodes.includes(n); },
       remove() { body.childNodes = body.childNodes.filter(x => x !== n); } };
-    if (tag === "iframe") { n.contentWindow = { id: made.length, postMessage: m => posted.push([n, m]) }; made.push(n); }
+    if (tag === "iframe") {
+      n.contentWindow = { id: made.length, postMessage: m => posted.push([n, m]) };
+      n.blur = () => { n.blurs = (n.blurs || 0) + 1; if (doc.activeElement === n) doc.activeElement = doc.body; };
+      made.push(n);
+    }
     return n;
   };
-  const ctx = vm.createContext({ MagicBox: api(), getComputedStyle: () => ({ getPropertyValue: () => "0" }),
+  const ctx = vm.createContext({ MagicBox: api(), getComputedStyle: () => ({ getPropertyValue: () => "0" }), document: doc,
     setTimeout: f => timers.push(f), Date, navigator: {}, fetch: () => new Promise(() => {}),
     addEventListener: (type, f) => { if (type === "message") onMessage = f; }, h: node });
   vm.runInContext(read("card-logic.js").match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", ctx);
@@ -1398,7 +1407,7 @@ function keptView(hooks) {
   // a page loading and saying its word, as its holder and the page tell the board
   const load = run => { onMessage({ source: run.frame.contentWindow, data: true }); onMessage({ source: run.frame.contentWindow, data: run.word }); };
   const shown = () => body.childNodes.filter(n => n.tag === "iframe" && n.style.display !== "none");
-  return { view, body, made, posted, timers, load, shown, send: (run, data) => onMessage({ source: run.frame.contentWindow, data }) };
+  return { view, body, made, posted, timers, load, shown, doc, send: (run, data) => onMessage({ source: run.frame.contentWindow, data }) };
 }
 
 test("an agent's page left is kept loaded and hidden, and its card shows it again with no new frame", () => {
@@ -1481,7 +1490,190 @@ test("a kept widget page is answered its record and keeps its memory, but sends 
   const word = JSON.parse(frame.srcdoc.match(/postMessage\((\\?"magic-[a-z0-9]+\\?")/)[1].replace(/\\"/g, '"'));
   k.send(run, word);
   k.send(run, { jsonrpc: "2.0", id: "w1abcdefgh", method: "widget/send", params: { text: "hi", about: "t1" } });
-  assert.deepEqual(k.posted.map(([, m]) => m.error && m.error.code), [-32001], "a kept page sent");
+  assert.deepEqual(k.posted.filter(([, m]) => typeof m === "object").map(([, m]) => m.error && m.error.code), [-32001], "a kept page sent");
+});
+
+// a page's word, read off the srcdoc it was given
+const wordOf = frame => JSON.parse(frame.srcdoc.match(/postMessage\((\\?"magic-[a-z0-9]+\\?")/)[1].replace(/\\"/g, '"'));
+
+test("a page hidden while it has the keys lets go of them, whichever way its card goes", () => {
+  const k = keptView({ keep: 2 });
+  const a = { box: "m1", rev: 1, kind: "html", html: "<textarea></textarea>" };
+  // every way the box goes reaches the view as its clear (the box off: closed
+  // by the agent or the cross, the card done, another project, an expanded
+  // box put back first) or as the next card's draw (words, another page)
+  const ways = { "the box off": () => k.view.clear(), "words on the next card": () => k.view.draw({ box: "m2", rev: 1, kind: "text", text: "w" }),
+    "a page on the next card": () => k.view.draw({ box: "m3", rev: 1, kind: "html", html: "<p>b</p>" }) };
+  for (const [way, leave] of Object.entries(ways)) {
+    k.view.draw(a);
+    const run = k.view.page;
+    k.load(run);
+    k.doc.activeElement = run.frame;   // the person typing in it
+    leave();
+    assert.equal(run.frame.style.display, "none", way);
+    assert.equal(k.doc.activeElement, k.doc.body, way + ": the keys are the board's again");
+    assert.ok(k.view.kept().some(r => r.key === "m1:1"), way + ": and the page is still kept");
+  }
+  // a page hidden without the keys leaves them where they are, and a page made
+  // ahead never has them
+  const field = { tag: "textarea" };
+  k.view.draw(a);
+  const run = k.view.page;
+  k.doc.activeElement = field;
+  const blurs = run.frame.blurs;
+  k.view.clear();
+  assert.equal(k.doc.activeElement, field);
+  assert.equal(run.frame.blurs, blurs);
+  k.view.prepare({ box: "m4", rev: 1, kind: "html", html: "<p>c</p>" });
+  assert.equal(k.made[k.made.length - 1].blurs, undefined);
+});
+
+test("every way the box goes on the Mac and the phone passes through the view's clear, where a page is hidden", () => {
+  const html = read("index.html"), m = read("m.html"), logic = read("card-logic.js");
+  // the Mac: the box off (another card or project, the card done) and its sink
+  // (closed by the agent or the cross), which ends in it; expanded, it is put back first
+  assert.match(html, /function magicOff\(keep\)\{\n  if \(!MB\.el\) return;\n  if \(!keep\) magicSmall\(\);[\s\S]*?\n  MB\.view\.clear\(\);\n\}/);
+  assert.match(html, /function magicSink\(\)\{\n  magicSmall\(\);\n  boxSink\(MB, magicOff\);\n\}/);
+  // the phone: the box off, and another card's box drawn, each put back first
+  assert.match(m, /function phoneMagicOff\(\)\{\n  phoneMagicSmall\(\);[\s\S]*?\n  PB\.view\.clear\(\);/);
+  assert.match(m, /if \(PB\.id !== id\)\{ phoneMagicSmall\(\); PB\.view\.clear\(\);/);
+  // the view hides a page in one place, and nothing else takes a frame out of sight
+  assert.equal((logic.match(/"mbkept"/g) || []).length, 1);
+  assert.match(logic, /const hide = \(run, on\) => \{\n    if \(on && document\.activeElement === run\.frame\) run\.frame\.blur\(\);/);
+});
+
+test("a kept page is told to go quiet as it is hidden and to carry on as it is shown; one with frames of its own goes", () => {
+  const k = keptView({ keep: 3 });
+  const said = run => k.posted.filter(([f, m]) => f === run.frame && typeof m === "string").map(([, m]) => m.slice(run.word.length + 1));
+  const a = { box: "m1", rev: 1, kind: "html", html: "<p>a</p>" };
+  k.view.draw(a);
+  const run = k.view.page;
+  k.load(run);
+  assert.deepEqual(said(run), [], "the page shown is never hushed");
+  k.view.clear();
+  assert.deepEqual(said(run), ["hush"]);
+  k.view.draw(a);
+  assert.deepEqual(said(run), ["hush", "sound"]);
+  // a page made ahead is told once it has loaded, the first it can hear it
+  k.view.prepare({ box: "m2", rev: 1, kind: "html", html: "<p>b</p>" });
+  const ahead = { frame: k.made[k.made.length - 1] };
+  ahead.word = wordOf(ahead.frame);
+  const before = said(ahead).length;
+  k.load(ahead);
+  assert.deepEqual(said(ahead).slice(before), ["hush"]);
+  // a page that has made frames of its own, which its hush cannot reach, goes
+  // with its card as every page did before
+  k.view.draw({ box: "m3", rev: 1, kind: "html", html: "<p>c</p>" });
+  const deep = k.view.page;
+  k.load(deep);
+  deep.frame.contentWindow[0] = { length: 1 };
+  k.view.clear();
+  assert.ok(!k.body.childNodes.includes(deep.frame));
+  assert.ok(!k.view.kept().some(r => r.key === "m3:1"));
+  assert.deepEqual(Array.from(k.view.kept(), r => r.key).sort(), ["m1:1", "m2:1"]);
+});
+
+// the page's hush (MagicBox.PAGE_HUSH) run in a realm of stand-ins, as it
+// stands in a page ahead of the agent's script: Web Audio contexts whose start,
+// suspend and resume are queued and carried out in order (tick), firing
+// statechange as a browser's do; clips that play and pause, firing play on
+// themselves and, in the document, on the window; and speech. The board's
+// words come from the page's parent
+function hushRealm() {
+  const queue = [], win = { play: [], message: [] }, parent = {};
+  class Ctx {
+    constructor() { this.state = "suspended"; this.ls = []; this.q("running"); }
+    q(state) { queue.push(() => { if (this.state === "closed" || this.state === state) return; this.state = state; for (const f of this.ls) f(); }); }
+    addEventListener(t, f) { if (t === "statechange") this.ls.push(f); }
+    suspend() { this.q("suspended"); return Promise.resolve(); }
+    resume() { this.q("running"); return Promise.resolve(); }
+    close() { this.q("closed"); return Promise.resolve(); }
+  }
+  class Media {
+    constructor(inDoc) { this.paused = true; this.inDoc = !!inDoc; this.ls = []; }
+    addEventListener(t, f) { if (t === "play") this.ls.push(f); }
+    play() { if (this.paused) { this.paused = false; this.fire(); } return Promise.resolve(); }
+    pause() { this.paused = true; }
+    // a play event, from play() or the browser's own autoplay
+    fire() { for (const f of this.ls) f(); if (this.inDoc) for (const f of win.play) f({ target: this }); }
+  }
+  class Synth {
+    constructor() { this.speaking = false; this.pending = false; this.heard = []; this.cancels = 0; }
+    speak(u) { this.heard.push(u); this.speaking = true; }
+    cancel() { this.speaking = false; this.cancels++; }
+  }
+  const media = [];
+  // Safari's older name, here a kind of the same context
+  const realm = { AudioContext: Ctx, webkitAudioContext: class extends Ctx {}, HTMLMediaElement: Media, Element: class {}, SpeechSynthesis: Synth, speechSynthesis: new Synth(), parent,
+    document: { querySelectorAll: () => media.filter(x => x.inDoc) },
+    addEventListener: (t, f) => { if (win[t]) win[t].push(f); } };
+  realm.window = realm;
+  const ctx = vm.createContext(realm);
+  vm.runInContext("(() => { const W = \"w\"; " + api().PAGE_HUSH + " })()", ctx);
+  return { ctx, Media, media, synth: realm.speechSynthesis,
+    clip: inDoc => { const c = new Media(inDoc); media.push(c); return c; },
+    tick: () => { while (queue.length) queue.shift()(); },
+    tell: (data, source = parent) => { for (const f of win.message) f({ source, data }); } };
+}
+
+test("a hushed page makes no sound: what plays stops, what starts waits, and both go on as it is shown", async () => {
+  const r = hushRealm(), { ctx } = r;
+  // what the page has going as the person leaves its card
+  const a = new ctx.AudioContext(), quiet = new ctx.AudioContext(), old = new ctx.webkitAudioContext();
+  r.tick();
+  quiet.suspend();
+  r.tick();
+  const c1 = r.clip(true), c2 = r.clip(false), c3 = r.clip(true);
+  c1.play(); c2.play();
+  r.synth.speak("words under way");
+  assert.deepEqual([a.state, quiet.state, old.state, c1.paused, c2.paused], ["running", "suspended", "running", false, false]);
+  assert.ok(a instanceof ctx.AudioContext && a.constructor === ctx.AudioContext, "the page's own contexts are AudioContexts as before");
+  // hushed: every sound stops where it is
+  r.tell("w hush");
+  r.tick();
+  assert.deepEqual([a.state, quiet.state, old.state, c1.paused, c2.paused, c3.paused], ["suspended", "suspended", "suspended", true, true, true]);
+  assert.equal(r.synth.cancels, 1, "speech under way cut off");
+  // and a sound a timer starts meanwhile waits: a new context, a resume, a
+  // play, a clip the browser starts by itself, and words
+  const d = new ctx.AudioContext();
+  r.tick();
+  let resumed = false, played = false;
+  a.resume().then(() => { resumed = true; });
+  r.tick();
+  const c4 = r.clip(false);
+  c4.play().then(() => { played = true; });
+  c3.paused = false; c3.fire();   // autoplay, with no play() of the page's
+  r.synth.speak("said while hidden");
+  await null;
+  assert.deepEqual([d.state, a.state, c4.paused, c3.paused, resumed, played], ["suspended", "suspended", true, true, false, false]);
+  assert.deepEqual(r.synth.heard, ["words under way"]);
+  // the page pausing a clip meanwhile keeps it paused
+  c1.pause();
+  // words not from its parent, or with another word, change nothing
+  r.tell("w sound", {});
+  r.tell("x sound");
+  r.tick();
+  assert.equal(a.state, "suspended");
+  // shown again: everything stopped or waiting goes on, as the page left it
+  r.tell("w sound");
+  r.tick();
+  await null; await null;
+  assert.deepEqual([a.state, d.state, old.state, quiet.state], ["running", "running", "running", "suspended"]);
+  assert.deepEqual([c1.paused, c2.paused, c3.paused, c4.paused], [true, false, false, false]);
+  assert.deepEqual(r.synth.heard, ["words under way", "said while hidden"]);
+  assert.deepEqual([resumed, played], [true, true]);
+  // and a page shown plays at once, as any page does
+  const c5 = r.clip(true);
+  c5.play();
+  assert.equal(c5.paused, false);
+});
+
+test("every page the board makes carries the hush, the Mac's, the phone's and a widget's", () => {
+  const { pageDoc, PAGE_HUSH } = api();
+  for (const doc of [pageDoc("<p>x</p>", "w", true), pageDoc("<p>x</p>", "w", false, true), pageDoc("<p>x</p>", "w", false, false, true)]) {
+    const at = doc.indexOf(PAGE_HUSH);
+    assert.ok(at > 0 && at < doc.indexOf("<p>x</p>"), "ahead of the agent's own page");
+  }
 });
 
 test("the board's own policy holds nothing a sealed page would inherit and be stopped by", () => {

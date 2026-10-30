@@ -9528,12 +9528,28 @@ function magicView(el, hooks = {}){
   // again), out of sight and out of every .mbframe and .mbcover rule
   const kept = new Map();
   const keyOf = box => box && box.box != null && box.rev != null ? box.box + ":" + box.rev : null;
+  // a page hidden while it has the keys lets go of them first, so the next
+  // key is the board's, as it was when a page left was taken off the page: a
+  // frame out of sight keeps them otherwise, and every key typed goes into a
+  // page no one can see. hidden, the page is told to go quiet, and shown, to
+  // carry on (MagicBox.pageDoc's hush)
   const hide = (run, on) => {
+    if (on && document.activeElement === run.frame) run.frame.blur();
     for (const [el, cls] of [[run.frame, "mbframe"], [run.cover, "mbcover"]]){
       if (!el.style) continue;
       el.className = on ? "mbkept" : cls;
       el.style.display = on ? "none" : "";
     }
+    hush(run, on);
+  };
+  const hush = (run, on) => {
+    try { run.frame.contentWindow.postMessage(run.word + (on ? " hush" : " sound"), "*"); } catch (_) {}
+  };
+  // a page that has made frames of its own, which its hush does not reach and
+  // a click of the person's in one could have set sounding: the holder's one
+  // frame is the page, and how many the page holds is read across origins
+  const deep = run => {
+    try { const w = run.frame.contentWindow; return !!(w && w[0] && w[0].length > 0); } catch (_) { return false; }
   };
   const drop = run => {
     if (kept.get(run.key) === run) kept.delete(run.key);
@@ -9542,9 +9558,10 @@ function magicView(el, hooks = {}){
   };
   // the page shown, as its card goes: kept, still loading or loaded, with
   // the oldest let go past hooks.keep, and another revision of the same
-  // card's let go at once
+  // card's let go at once. one with frames of its own goes, as every page
+  // went before, since it could not be made quiet
   function keep(run){
-    if (!(hooks.keep > 0) || !run.key){ drop(run); return; }
+    if (!(hooks.keep > 0) || !run.key || deep(run)){ drop(run); return; }
     for (const other of [...kept.values()]) if (other !== run && other.box === run.box) drop(other);
     hide(run, true);
     kept.delete(run.key);
@@ -9745,9 +9762,13 @@ function magicView(el, hooks = {}){
       return;
     }
     if (typeof e.data !== "string") return;
-    // a kept page that has loaded is said to the board, which makes the next
-    // one ahead (hooks.made)
-    if (e.data === run.word){ run.said++; if (run !== view.page && hooks.made) hooks.made(); }
+    // a kept page that has loaded is told to go quiet, which it could not hear
+    // before it had loaded, and is said to the board, which makes the next one
+    // ahead (hooks.made)
+    if (e.data === run.word){
+      run.said++;
+      if (run !== view.page){ hush(run, true); if (hooks.made) hooks.made(); }
+    }
     // a kept page is out of sight: it has no keys, nothing to scroll and no
     // height the box could take, since it is laid out at none
     else if (run !== view.page) return;
