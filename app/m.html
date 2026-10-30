@@ -2750,7 +2750,10 @@ function drawCard(el, b, state){
     // and clear the panel in view. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (!waits && !stale) syncSentPhone(el, b);
+    if (!waits && !stale){
+      syncSentPhone(el, b);
+      el.sentDrawnAt = state.fetchedAt || 0;   // the reading the panel stands on (sentCatchUp)
+    }
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
     // on show the stepper owns that panel, so the poll leaves it alone and
@@ -5982,6 +5985,23 @@ function syncSentPhone(el, b){
   el.sentItems = sentFrom(b);
   drawSent(el, b.id);
 }
+// a send that landed after the reading a card's sent panel was last drawn
+// from. a reading asked before it landed leaves the panel as the send drew it,
+// Delivered (drawCard), and its revision is kept, so the reading after it
+// answers nothing new and draws no card. that answer was asked after the send
+// landed, and says the board's record of the card held here is the board's
+// record now: the panel is drawn from it, so a message read or answered since
+// shows so at once. a card whose new answer waits for a merge is left as it
+// stands, to the pass that draws it (turnAgain)
+function sentCatchUp(asked){
+  for (const [id, el] of Object.entries(els)){
+    if (!(el.sendGuard > (el.sentDrawnAt || 0)) || el.sendGuard > asked) continue;
+    const b = lastState.boxes.find(x => x.id === id);
+    if (!b || el.reply.dataset.raw !== replyFull(b)) continue;
+    syncSentPhone(el, b);
+    el.sentDrawnAt = asked;
+  }
+}
 
 // ---- reading the board -------------------------------------------------------------
 // one reading at a time, each with a deadline, spaced POLL_MS apart while the
@@ -6380,6 +6400,7 @@ async function readBoard(){
           const rendering = tracePhone("begin", "render", { rev: lastRev });
           Object.assign(lastState, data.live || {});
           lastState.fetchedAt = asked;
+          sentCatchUp(asked);
           // the board's own clock comes on every answer, changed or not, and a tap
           // names the moment it happened by it
           if (typeof data.now === "number") lastState.now = data.now;
