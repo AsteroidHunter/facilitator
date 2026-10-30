@@ -45,24 +45,29 @@ Endpoints:
                                seconds, and no route ever answers with one
   POST /window/open         -> the board opens its own window in Chrome, as
                                `facilitator run` asks it to: the body is the
-                               page (empty for http://127.0.0.1:PORT/, and
-                               only this board's own page on loopback is
-                               opened), the window a chromeless app window
-                               on it with a launch code inside, full screen
-                               when run.config.json's app_fullscreen is true.
-                               {opened: true}, or 502 {error, said: the first
-                               line open printed}, and then the code is
-                               cancelled. With the agent key only
+                               page (empty for the board's root), only this
+                               board's own page on loopback, in any spelling,
+                               is taken, and the board opens it as
+                               http://127.0.0.1:PORT/ with only the page's
+                               project kept from its query, the window a
+                               chromeless app window on it with a launch
+                               code inside, full screen when run.config.json's
+                               app_fullscreen is true. {opened: true}, or 502
+                               {error, said: the first line open printed},
+                               and then the code is cancelled. With the agent
+                               key only
   POST /window/relaunch     -> {"tabs": [[window id, place, url], ...]}, the
                                Chrome tabs showing the board that `facilitator
                                restart` read: each one is sent, where it is,
-                               to its own page, which loads it again (the
-                               config's app_url page as it is; any other
-                               page is left alone). Only while the board
-                               keeps no window cookie, as on the first
-                               restart after an update from before the lock,
-                               does each own page go with a launch code of
-                               its own. {sent: ["SENT", "GONE", "CHANGED" or
+                               to its own page, which loads it again (a
+                               board page, in any loopback spelling, as
+                               http://127.0.0.1:PORT/ with only its project
+                               kept; the config's app_url page as it is;
+                               any other page is left alone). Only while
+                               the board keeps no window cookie, as on the
+                               first restart after an update from before the
+                               lock, does each own page go with a launch code
+                               of its own. {sent: ["SENT", "GONE", "CHANGED" or
                                null, one per tab]}; the code of every send
                                that is not SENT is cancelled. With the agent
                                key only
@@ -1264,7 +1269,7 @@ import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urljoin, urlparse, quote, unquote_plus
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, quote, unquote_plus
 
 # the owner's servers and their links. A copy of the board without the file,
 # as the tests' fixtures make, has no links, no socket for them and no gate
@@ -2789,6 +2794,11 @@ WINDOW_TABS_MAX = 64        # board tabs one relaunch sends on; any past these a
 WINDOW_BODY_MAX = 65536     # bytes a window route reads
 WINDOW_ROUTES = frozenset({"/window/open", "/window/relaunch", "/window/launch"})
 LOOPBACK_SPELLINGS = frozenset({"localhost", "::1", "ip6-localhost"})
+# the one part of a board tab's query the board carries on to the page it
+# opens or sends a tab to: a pulled-out window's project, the one query
+# index.html keeps (its other, a Spotify sign-in's code, is spent as the
+# page lands)
+WINDOW_QUERY_KEPT = ("project",)
 # One tab, named by its window's id and its place there, sent to an address
 # as one typed into it, and only while it still shows the page it was read
 # showing. Whether Chrome is running is read by AppleScript itself, which
@@ -2846,17 +2856,21 @@ def _page_key(url: str):
 
 
 def _own_page(url: str) -> str | None:
-    """That address, with any launch code taken out of its query, when it is
-    this board's own page on this Mac's loopback; None for any other address,
-    which never gets a code."""
+    """When that address is this board's own page on this Mac's loopback, in
+    any spelling, the board's own address for it, built here and never taken
+    from the caller: http://127.0.0.1:PORT/, the one address the board's
+    port listens on, with only the address's project kept from its query, so a
+    launch code the caller sends is dropped. A caller naming
+    http://[::1]:PORT/, localhost or 127.0.0.2 gets 127.0.0.1, so no code is
+    ever written into an address some other program could listen on. None
+    for any other address, which never gets a code."""
     if not isinstance(url, str) or re.search(r"[\x00-\x20\x7f]", url):
         return None
     if _page_key(url) != ("http", "loopback", PORT, "/"):
         return None
-    bits = urlparse(url.strip())
-    kept = "&".join(part for part in bits.query.split("&")
-                    if part and unquote_plus(part.split("=", 1)[0]) != "launch")
-    return bits._replace(path="/", query=kept).geturl()
+    kept = [(name, value) for name, value in parse_qsl(urlparse(url.strip()).query, keep_blank_values=True)
+            if name in WINDOW_QUERY_KEPT]
+    return f"http://127.0.0.1:{PORT}/" + ("?" + urlencode(kept) if kept else "")
 
 
 def _with_launch(page: str) -> tuple:
@@ -2935,9 +2949,9 @@ def _send_tab(wid: int, place: int, expected: str, goal: str):
 
 def _relaunch_tabs(tabs: list) -> list:
     """Send each tab the command read showing the board, where it is, to its
-    own page: this board's own page, which loads the board again; the page
-    the config's app_url names, as it is. Anything else is not the board's
-    and is left alone (None).
+    own page: for this board's own page, the address _own_page builds,
+    which loads the board again; the page the config's app_url names, as it
+    is. Anything else is not the board's and is left alone (None).
 
     A launch code goes with the board's own page only while the board keeps
     no window cookie at all (window-keys.json missing or empty): that is the
@@ -12469,7 +12483,8 @@ class BoardLock(SiteGuard):
 
     async def _window(self, path: str, receive) -> tuple:
         """(status, answer) for a window route. /window/open takes the page
-        to open as its body (empty for the board's own root), /window/relaunch
+        to open as its body (empty for the board's own root) and opens the
+        address _own_page builds for it, /window/relaunch
         {"tabs": [[window id, place, url], ...]}. POST /window/launch, which
         once handed out a code, answers that it does not, and opens nothing:
         a command from before this answer opens or reloads the page itself

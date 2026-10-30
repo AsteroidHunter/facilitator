@@ -18,7 +18,7 @@
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { execFile } = require("node:child_process");
-const { request } = require("node:http");
+const { createServer, request } = require("node:http");
 const { chmod, copyFile, readFile, readdir, rm, stat, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -397,10 +397,11 @@ test("the board opens its own window: a chromeless app window on its page, with 
   assert.deepEqual(argv, ["-na", "Google Chrome", "--args", `--app=${board.origin}/?launch=${code}`]);
   assert.equal(app.pathname, "/");
   assert.match(code, /^[A-Za-z0-9_-]{32}$/);
-  // the page the command names, in its own loopback spelling, with its query
+  // the page the command names, in another loopback spelling, opens as the
+  // board's own address
   const named = await raw("POST", "/window/open", { headers: key(), body: `http://localhost:${board.port}` });
   assert.equal(named.status, 200, named.text);
-  assert.equal(lastOpen().argv[3], `--app=http://localhost:${board.port}/?launch=${lastOpen().code}`);
+  assert.equal(lastOpen().argv[3], `--app=${board.origin}/?launch=${lastOpen().code}`);
   // and nothing but this board's own page on this Mac
   const count = windowOpens(board.windowDir).length;
   for (const page of ["https://example.com/", `http://127.0.0.1:${board.port + 1}/`, `http://127.0.0.1:${board.port}/m`,
@@ -409,6 +410,66 @@ test("the board opens its own window: a chromeless app window on its page, with 
     assert.equal(refused.status, 400, page);
   }
   assert.equal(windowOpens(board.windowDir).length, count, "a page not the board's was opened");
+});
+
+// an address opened as Chrome opens it: a request to the host and port the
+// address names, whoever listens there
+function asChrome(address) {
+  const where = new URL(address);
+  return new Promise((resolve, reject) => {
+    const req = request({ host: where.hostname.replace(/^\[|\]$/g, ""), port: where.port,
+      path: where.pathname + where.search, headers: { Host: where.host, ...OPEN } }, res => {
+      res.resume();
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("a page named as [::1], localhost or 127.0.0.2 opens on 127.0.0.1, so no code reaches another listener", async () => {
+  // the reviewer's case: a program of this account listens on [::1] at the
+  // board's port, which the board, on 127.0.0.1 alone, leaves free, and names
+  // that address, or another loopback spelling, to open or send a tab to
+  await noWindowLetIn();
+  const heard = [];
+  const listener = createServer((req, res) => { heard.push(req.url); res.end(); });
+  const bound = await new Promise(resolve => {
+    listener.once("error", () => resolve(false));
+    listener.listen(board.port, "::1", () => resolve(true));
+  });
+  assert.ok(bound, "nothing could listen on [::1] at the board's port");
+  try {
+    const spellings = [`http://[::1]:${board.port}/`, `http://localhost:${board.port}/`, `http://127.0.0.2:${board.port}/`];
+    const chosen = `http://[::1]:${board.port}/?launch=CHOSEN&project=pastureland&code=x&%6Caunch=CHOSEN2#box-3`;
+    // a relaunch while no window has been let in, which writes a code into each own page
+    const before = windowSends(board.windowDir).length;
+    const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+      [7, 1, spellings[0]], [7, 2, spellings[1]], [7, 3, spellings[2]], [7, 4, chosen]] }) });
+    assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", "SENT", "SENT", "SENT"] }]);
+    const goals = windowSends(board.windowDir).slice(before).map(([, , , goal]) => goal);
+    const codes = goals.map(goal => new URL(goal).searchParams.get("launch"));
+    assert.deepEqual(goals, [`${board.origin}/?launch=${codes[0]}`, `${board.origin}/?launch=${codes[1]}`,
+                             `${board.origin}/?launch=${codes[2]}`, `${board.origin}/?project=pastureland&launch=${codes[3]}`],
+      "a code was written into an address the caller chose");
+    // the board's own window, opened on each of those bodies
+    for (const body of [...spellings, chosen]) {
+      const opened = await raw("POST", "/window/open", { headers: key(), body });
+      assert.deepEqual([opened.status, json(opened)], [200, { opened: true }], body);
+      const { argv, code } = lastOpen();
+      assert.equal(argv[3], `--app=${board.origin}/?${body === chosen ? "project=pastureland&" : ""}launch=${code}`, body);
+      goals.push(argv[3].slice("--app=".length));
+    }
+    // each address, opened as Chrome opens it, reaches the board, whose code lets the window in
+    for (const goal of goals) {
+      const landed = await asChrome(goal);
+      assert.equal(landed.status, 303, goal);
+      assert.ok(landed.headers["set-cookie"], `${goal} set no cookie`);
+    }
+  } finally {
+    await new Promise(resolve => listener.close(resolve));
+  }
+  assert.deepEqual(heard, [], "the listener on [::1] read a request");
 });
 
 test("the board's window opens full screen when run.config.json says app_fullscreen true, and only then", async () => {
@@ -462,7 +523,7 @@ test("a relaunch once a window has been let in makes no code: each tab just load
     assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", "SENT", null] }]);
     const sends = windowSends(board.windowDir).slice(before);
     assert.deepEqual(sends, [["424242", "1", own, own],
-                             ["7", "3", pulled, `${board.origin}/?project=pastureland#box-3`]],
+                             ["7", "3", pulled, `${board.origin}/?project=pastureland`]],
       "a tab was sent on with a code, or an old code was kept");
     assert.equal(codesGiven().length, codes, "a relaunch made a code once a window was let in");
     return sends;
@@ -498,8 +559,8 @@ test("a relaunch before any window was let in, as after an update from before th
   const [first, second] = sends.map(([, , , goal]) => new URL(goal));
   assert.equal(first.href, `${own}?launch=${first.searchParams.get("launch")}`);
   assert.equal(second.href,
-    `${board.origin}/?project=pastureland&launch=${second.searchParams.get("launch")}#box-3`,
-    "the tab's own query and place were not kept, or an old code was kept");
+    `${board.origin}/?project=pastureland&launch=${second.searchParams.get("launch")}`,
+    "the tab's project was not kept, or an old code was kept");
   assert.notEqual(first.searchParams.get("launch"), second.searchParams.get("launch"), "two tabs shared a code");
   for (const goal of [first, second]) assert.equal(r.text.includes(goal.searchParams.get("launch")), false);
   // each one lets its window in, with nothing for the person to do
@@ -555,7 +616,8 @@ test("a send that does not end SENT cancels its code at once, and osascript is g
       `${said}: the code of a send that did not take still set the window cookie`);
   }
   // a page with a quote and a backslash in it reaches the script as it is,
-  // and one with anything but printable ASCII is sent nowhere
+  // the address it is sent to holding its project encoded, and one with
+  // anything but printable ASCII is sent nowhere
   const quoted = `${board.origin}/?project=a"b\\c&d=\\"`;
   const before = windowSends(board.windowDir).length;
   const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
@@ -564,7 +626,8 @@ test("a send that does not end SENT cancels its code at once, and osascript is g
   const sends = windowSends(board.windowDir).slice(before);
   assert.equal(sends.length, 1, "a page that is not printable ASCII was written into a script");
   assert.equal(sends[0][2], quoted);
-  assert.equal(sends[0][3], `${quoted}&launch=${new URL(sends[0][3]).searchParams.get("launch")}`);
+  assert.equal(sends[0][3],
+    `${board.origin}/?project=a%22b%5Cc&launch=${new URL(sends[0][3]).searchParams.get("launch")}`);
   // osascript was given no argument but the "-" that names its standard input
   const argv = sendArguments(board.windowDir).slice(argsBefore);
   assert.equal(argv.length, 4);
