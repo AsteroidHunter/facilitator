@@ -228,6 +228,54 @@
     "addEventListener('keyup', e => say('up', e), true);" +
     "addEventListener('blur', e => { if (e.target === window) say('up', { key: '' }); }, true);" +
     "})();";
+  // a page kept loaded out of sight (magicView's keep) makes no sound, and
+  // otherwise runs on as if it were shown. The board says the word, a space
+  // and "hush" as it hides the page, and "sound" as it shows it again. Hushed,
+  // the page is muted and nothing more: its Web Audio reaches the speakers
+  // through a gain of its own, which goes to nothing, and its audio and video
+  // are muted, so a sound it starts meanwhile, from a timer, plays unheard when
+  // it would have played and is over, and its clocks and timers keep their
+  // time. Shown again it is heard as it is then: a sound still going is heard
+  // from where it has got to, and nothing it made while hidden comes late.
+  // Speech, which cannot be muted, is cut off, and words it says meanwhile are
+  // never said. A context is reached at its own output, which every sound of it
+  // is joined to, and a clip by its play() or its play event, in the document
+  // and in any shadow root; the page reads its own muted, never the hush's. It
+  // stands ahead of the agent's own script, so every one the page makes is
+  // known. A frame the page makes of its own is out of its reach, and a page
+  // with one is not kept (magicView's keep). Anything in it that fails stops it
+  // alone, never the words after it in the same script
+  const PAGE_HUSH = "(() => { try {" +
+    "let hushed = false; const outs = new Map(), clips = new Set(), quiet = new Map();" +
+    "const put = (o, k, v) => Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true });" +
+    "const AN = window.AudioNode && AudioNode.prototype, AD = window.AudioDestinationNode, BA = window.BaseAudioContext || window.AudioContext || window.webkitAudioContext," +
+    " OA = window.OfflineAudioContext || window.webkitOfflineAudioContext;" +
+    "const level = (g, v) => { try { const p = g.gain, t = g.context.currentTime; p.cancelScheduledValues(t); p.setTargetAtTime(v, t, 0.01); } catch (_) { try { g.gain.value = v; } catch (_) {} } };" +
+    "if (AN && AD && BA) { const join = AN.connect, part = AN.disconnect, gain = BA.prototype.createGain;" +
+    "const out = t => { if (!(t instanceof AD) || (OA && t.context instanceof OA)) return null; let g = outs.get(t);" +
+    "if (!g) { try { g = gain.call(t.context); g.gain.value = hushed ? 0 : 1; join.call(g, t); outs.set(t, g); } catch (_) { return null; } } return g; };" +
+    "put(AN, 'connect', function connect(t) { const g = out(t); if (!g) return join.apply(this, arguments); const a = [...arguments]; a[0] = g; join.apply(this, a); return t; });" +
+    "put(AN, 'disconnect', function disconnect(t) { const g = outs.get(t); if (!g) return part.apply(this, arguments); const a = [...arguments]; a[0] = g; return part.apply(this, a); }); }" +
+    "const MP = window.HTMLMediaElement && HTMLMediaElement.prototype, M = MP && Object.getOwnPropertyDescriptor(MP, 'muted');" +
+    "const mute = m => { if (quiet.has(m)) return; quiet.set(m, M.get.call(m)); M.set.call(m, true); };" +
+    "const drop = () => { for (const m of clips) if (m.paused && !m.isConnected) clips.delete(m); };" +
+    "const heard = m => { if (!M || !M.get || !M.set || !(m instanceof HTMLMediaElement)) return; if (clips.size > 50) drop(); clips.add(m); if (hushed) mute(m); };" +
+    "if (M && M.get && M.set) { const caught = e => heard(e.target);" +
+    "addEventListener('play', caught, true);" +
+    "const AS = Element.prototype.attachShadow;" +
+    "if (AS) put(Element.prototype, 'attachShadow', function attachShadow(o) { const r = AS.call(this, o); r.addEventListener('play', caught, true); return r; });" +
+    "const PL = MP.play; put(MP, 'play', function play() { heard(this); return PL.call(this); });" +
+    "Object.defineProperty(MP, 'muted', { enumerable: true, configurable: true, get() { return quiet.has(this) ? quiet.get(this) : M.get.call(this); }," +
+    " set(v) { if (hushed) heard(this); if (quiet.has(this)) quiet.set(this, !!v); else M.set.call(this, v); } }); }" +
+    "const SP = window.SpeechSynthesis && SpeechSynthesis.prototype, say = SP && SP.speak, cut = SP && SP.cancel;" +
+    "if (SP) put(SP, 'speak', function speak(u) { if (!hushed) return say.call(this, u); });" +
+    "addEventListener('message', e => { if (e.source !== parent || (e.data !== W + ' hush' && e.data !== W + ' sound')) return;" +
+    "const on = e.data === W + ' hush'; if (on === hushed) return; hushed = on;" +
+    "for (const [d, g] of outs) { if (d.context.state === 'closed') outs.delete(d); else level(g, on ? 0 : 1); }" +
+    "if (!on) { for (const [m, v] of quiet) { try { M.set.call(m, v); } catch (_) {} } quiet.clear(); return; }" +
+    "drop(); for (const m of new Set([...clips, ...document.querySelectorAll('audio, video')])) heard(m);" +
+    "if (SP && (speechSynthesis.speaking || speechSynthesis.pending)) cut.call(speechSynthesis); });" +
+    "} catch (_) {} })();";
   // the Mac's box shows no scrollbar inside a page, the board's rule for every
   // scroller (card-tokens.css) restated for the frame, which the board's sheet
   // does not reach. A page wider than the box scrolls sideways inside it, as
@@ -298,10 +346,11 @@
   // phone's drawer, which lays the page out that tall and scrolls the box, and
   // keeps a second tap from zooming (TAPS). widget: the page is a widget and is
   // given its way to talk with the board (WIDGET), after the word, so the word
-  // is said first on load
+  // is said first on load. every page with a word goes quiet while the board
+  // keeps it out of sight (PAGE_HUSH)
   function pageDoc(html, word, sized, tall, widget) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
-    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_ESCAPE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT + PAGE_ESCAPE : "";
+    const told = PAGE_HUSH + (sized ? PAGE_BACK + PAGE_CREATE + PAGE_ESCAPE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT + PAGE_ESCAPE : "");
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
       (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + (widget ? ";" + WIDGET : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
@@ -342,5 +391,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, WIDGET, pageDoc, holderDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, PAGE_HUSH, WIDGET, pageDoc, holderDoc, SITE_SANDBOX };
 })(globalThis);
