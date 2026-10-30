@@ -9544,16 +9544,105 @@ function magicView(el, hooks = {}){
   };
   zoomTouch("touchend", zoomLift);
   zoomTouch("touchcancel", zoomLift);
-  // everything in it gone, so a frame that was showing stops running
+  // everything in it gone, so a frame that was showing stops running. an
+  // agent's page is kept instead where the board asks (hooks.keep, below):
+  // hidden and drawing nothing, and shown again as it was when its card comes
+  // back
   view.clear = () => {
     zoomOff(false);
+    if (view.page) keep(view.page);
     view.url = ""; view.page = null; view.natural = null; view.fade = null; view.lead = null; view.known = false;
     view.widget = null;
     if (view.alone){ view.alone = null; view.body.classList.remove("alone"); }
     delete view.body.dataset.kind;
-    view.body.textContent = "";
+    empty();
     bands();
   };
+  // hooks.keep: how many agents' pages stay loaded, hidden, while their cards
+  // are not on screen, so going back to a card shows its page in the same
+  // frame as the card, as a picture or words are shown. a page made afresh
+  // on each visit starts a frame (in Chrome a process of its own), loads and
+  // runs the page and, for a widget, reads its record again, all after the
+  // click, and the box waits on it. none are kept without the hook. kept:
+  // "card:revision" -> the page's run, oldest first; a kept page's frame and
+  // cover stay where they are in the body (a frame moved in the page loads
+  // again), out of sight and out of every .mbframe and .mbcover rule
+  const kept = new Map();
+  const keyOf = box => box && box.box != null && box.rev != null ? box.box + ":" + box.rev : null;
+  // a page hidden while it has the keys lets go of them first, so the next
+  // key is the board's, as it was when a page left was taken off the page: a
+  // frame out of sight keeps them otherwise, and every key typed goes into a
+  // page no one can see. hidden, the page is told to go quiet, and shown, to
+  // carry on (MagicBox.pageDoc's hush)
+  const hide = (run, on) => {
+    if (on && document.activeElement === run.frame) run.frame.blur();
+    for (const [el, cls] of [[run.frame, "mbframe"], [run.cover, "mbcover"]]){
+      if (!el.style) continue;
+      el.className = on ? "mbkept" : cls;
+      el.style.display = on ? "none" : "";
+    }
+    hush(run, on);
+  };
+  const hush = (run, on) => {
+    try { run.frame.contentWindow.postMessage(run.word + (on ? " hush" : " sound"), "*"); } catch (_) {}
+  };
+  // a page that has made frames of its own, which its hush does not reach and
+  // a click of the person's in one could have set sounding: the holder's one
+  // frame is the page, and how many the page holds is read across origins
+  const deep = run => {
+    try { const w = run.frame.contentWindow; return !!(w && w[0] && w[0].length > 0); } catch (_) { return false; }
+  };
+  const drop = run => {
+    if (kept.get(run.key) === run) kept.delete(run.key);
+    if (run.frame.remove) run.frame.remove();
+    if (run.cover.remove) run.cover.remove();
+  };
+  // the page shown, as its card goes: kept, still loading or loaded, with
+  // the oldest let go past hooks.keep, and another revision of the same
+  // card's let go at once. one with frames of its own goes, as every page
+  // went before, since it could not be made quiet
+  function keep(run){
+    if (!(hooks.keep > 0) || !run.key || deep(run)){ drop(run); return; }
+    for (const other of [...kept.values()]) if (other !== run && other.box === run.box) drop(other);
+    hide(run, true);
+    kept.delete(run.key);
+    kept.set(run.key, run);
+    while (kept.size > hooks.keep) drop(kept.values().next().value);
+  }
+  // the body emptied of everything but the kept pages
+  const empty = () => {
+    if (!kept.size){ view.body.textContent = ""; return; }
+    const stay = new Set();
+    for (const run of kept.values()) stay.add(run.frame).add(run.cover);
+    for (const node of [...view.body.childNodes]) if (!stay.has(node)) node.remove();
+  };
+  // a page made ahead, before its card is shown, and kept as a page shown
+  // and left is: the board makes the ones its owner is likely to go to
+  // (wanted, a set of card:revision). at hooks.keep, the oldest kept page
+  // that is not wanted makes room, and with none nothing is made
+  view.prepare = (box, wanted) => {
+    const key = keyOf(box);
+    if (!(hooks.keep > 0) || !box || box.kind !== "html" || !key || kept.has(key) || (view.page && view.page.key === key)) return false;
+    if (kept.size >= hooks.keep){
+      const spare = [...kept.values()].find(run => !(wanted && wanted.has(run.key)));
+      if (!spare) return false;
+      drop(spare);
+    }
+    for (const other of [...kept.values()]) if (other.box === box.box) drop(other);
+    const run = build(box.html || "", 0, box);
+    hide(run, true);
+    kept.set(key, run);
+    view.body.append(run.frame, run.cover);
+    return true;
+  };
+  // the kept pages whose card:revision is not in keys let go: a card whose
+  // box was closed or filled again, a card done or gone
+  view.keepOnly = keys => {
+    for (const run of [...kept.values()]) if (!keys.has(run.key)) drop(run);
+  };
+  // what is kept, oldest first: whether each has loaded (said its word), and
+  // how long ago it was made or last shown, in ms
+  view.kept = () => [...kept.values()].map(run => ({ key: run.key, said: run.said >= run.loads && run.said > 0, age: Date.now() - run.since }));
   // seen: a picture the page has already fetched and read, {src, natural}, so
   // the box is sized and shown at once rather than when the picture arrives
   view.draw = (box, seen) => {
@@ -9590,7 +9679,14 @@ function magicView(el, hooks = {}){
     } else if (box.kind === "html"){
       // a page its agent named a widget talks with the board, for this card alone
       view.widget = box.widget ? { box: box.box, rev: box.rev, name: box.widget } : null;
-      page(box.html || "", 0);
+      // the card's page kept from its last showing, or made ahead, is shown
+      // as it is: no new frame, no new load and no new reading of its record
+      const was = kept.get(keyOf(box));
+      if (was) show(was);
+      else {
+        for (const other of [...kept.values()]) if (other.box === box.box) drop(other);
+        page(box.html || "", 0, box);
+      }
     } else if (box.kind === "url" && box.shown === "frame"){
       const frame = h("iframe", "mbframe");
       frame.setAttribute("credentialless", "");
@@ -9620,32 +9716,63 @@ function magicView(el, hooks = {}){
   // does not follow is the page trying to send its frame somewhere else,
   // which it may not: a fresh frame with the page takes its place, and a page
   // that keeps trying is taken down after three tries. the frame cannot be
-  // looked into, so the word is how the board knows what is in it
-  const page = (html, tries) => {
-    view.body.textContent = "";
-    view.body.style.removeProperty("--mb-page");
-    view.page = null;
-    if (tries > 3) return;
+  // looked into, so the word is how the board knows what is in it. a kept
+  // page that loads without its word is let go, and made afresh if its card
+  // comes back. box: the card's box the page is ({box, rev, widget}), whose
+  // card:revision it is kept under
+  const build = (html, tries, box) => {
     const frame = h("iframe", "mbframe");
     frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
     frame.setAttribute("referrerpolicy", "no-referrer");
-    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0,
+    const widget = box && box.widget ? { box: box.box, rev: box.rev, name: box.widget } : null;
+    const run = { frame, cover: h("div", "mbcover"), box: box ? box.box : null, key: keyOf(box), widget,
+      word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0,
       seen: { top: 0, whole: 0, client: 0 }, sent: 0, ready: false, wrev: null, sends: [], save: null };
-    // a board that sizes the box to the page waits a moment for its height
-    // (view.waiting), then shows it at whatever size it has
-    if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
     run.loaded = () => {
       run.loads++;
       // the word is posted from the page's own load, so it lands about when
       // the holder's does; half a second is long past it on a page that stayed
       setTimeout(() => {
-        if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
+        if (!frame.isConnected || run.said >= run.loads) return;
+        if (view.page === run) page(html, tries + 1, box);
+        else drop(run);
       }, 500);
     };
-    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall, !!view.widget));
+    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall, !!widget));
     run.since = Date.now();
-    view.body.append(frame, h("div", "mbcover"));
+    return run;
   };
+  const page = (html, tries, box) => {
+    empty();
+    view.body.style.removeProperty("--mb-page");
+    view.page = null;
+    if (tries > 3) return;
+    const run = view.page = build(html, tries, box);
+    // a board that sizes the box to the page waits a moment for its height
+    // (view.waiting), then shows it at whatever size it has
+    if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
+    view.body.append(run.frame, run.cover);
+  };
+  // a kept page shown again, as the page in the box. the height it last said
+  // at the box's width is the box's again (on the phone, laid out that tall),
+  // and it says another if the width has changed meanwhile; a page made ahead
+  // has said none yet and is waited for as a new one is
+  const show = run => {
+    kept.delete(run.key);
+    hide(run, false);
+    view.page = run;
+    view.body.style.removeProperty("--mb-page");
+    if (hooks.tall && run.height) view.body.style.setProperty("--mb-page", run.height + "px");
+    run.since = Date.now();
+    if (hooks.sized && !run.height) setTimeout(placed, PAGE_WAIT + 50);
+  };
+  // the page a message came from: the one shown, or a kept one
+  const runOf = source => {
+    if (view.page && source === view.page.frame.contentWindow) return view.page;
+    for (const run of kept.values()) if (source === run.frame.contentWindow) return run;
+    return null;
+  };
+  const live = run => view.page === run || kept.get(run.key) === run;
   // hooks.sized: the page also says its own height, the word, a space and the
   // height in its pixels (MagicBox.pageDoc), and the box is sized to it.
   // hooks.heard(height, width) is told each height it says and the width it
@@ -9665,8 +9792,8 @@ function magicView(el, hooks = {}){
     if (run.same < 2) view.body.style.setProperty("--mb-page", run.height + "px");
   };
   addEventListener("message", e => {
-    const run = view.page;
-    if (!run || e.source !== run.frame.contentWindow) return;
+    const run = runOf(e.source);
+    if (!run) return;
     // the page has loaded in its holder, which alone says true (MagicBox.holderDoc)
     if (e.data === true) return run.loaded();
     // a widget's request, heard only once the page has said its word since it
@@ -9676,7 +9803,16 @@ function magicView(el, hooks = {}){
       return;
     }
     if (typeof e.data !== "string") return;
-    if (e.data === run.word) run.said++;
+    // a kept page that has loaded is told to go quiet, which it could not hear
+    // before it had loaded, and is said to the board, which makes the next one
+    // ahead (hooks.made)
+    if (e.data === run.word){
+      run.said++;
+      if (run !== view.page){ hush(run, true); if (hooks.made) hooks.made(); }
+    }
+    // a kept page is out of sight: it has no keys, nothing to scroll and no
+    // height the box could take, since it is laid out at none
+    else if (run !== view.page) return;
     // control+option+left typed inside the page, which the board never hears
     // from a sealed frame: the page relays it (MagicBox.pageDoc)
     else if (hooks.back && e.data === run.word + " back") hooks.back();
@@ -9730,13 +9866,15 @@ function magicView(el, hooks = {}){
   // person's fresh activation, which a click, tap or key of theirs in the
   // frame gives every window above it and no script can make, and only while
   // they are at the box (hooks.atBox), never more than one a second or 30 a
-  // minute. Nothing is heard from a website's frame or the Mac's measuring
-  // copy, which are never view.page, and nothing is told a page before it has
-  // asked widget/ready. The routes take a page's messages and memory only from
+  // minute, and only from the page shown. Nothing is heard from a website's
+  // frame or the Mac's measuring copy, which are never the box's pages, and
+  // nothing is told a page before it has asked widget/ready. A kept page
+  // (hooks.keep) is answered its record and keeps its memory as the page
+  // shown does. The routes take a page's messages and memory only from
   // the board's own pages, and the agent's answers only from an agent
   const WIDGET_ID = /^[A-Za-z0-9_-]{8,64}$/, WIDGET_NOTE_MOST = 80 * 1024;
   const widgetPost = (run, m) => {
-    if (view.page !== run) return;
+    if (!live(run)) return;
     try { run.frame.contentWindow.postMessage({ jsonrpc: "2.0", ...m }, "*"); } catch (_) {}
   };
   const widgetFail = (run, id, code, message) => widgetPost(run, { id, error: { code, message } });
@@ -9754,7 +9892,7 @@ function magicView(el, hooks = {}){
     status === 409 ? "this page was replaced" : status === 429 ? "too many sends" :
       (status === 400 || status === 413) && body && body.error ? body.error : again);
   function widgetNote(run, m){
-    const w = view.widget;
+    const w = run.widget;
     if (!w || m.jsonrpc !== "2.0" || typeof m.id !== "string") return;
     if (!WIDGET_ID.test(m.id) || typeof m.method !== "string") return m.id.length <= 64 && widgetFail(run, m.id, -32600, "invalid request");
     let size = Infinity;
@@ -9775,7 +9913,7 @@ function magicView(el, hooks = {}){
       }).catch(() => widgetFail(run, m.id, -32005, "not read, try again"));
     } else if (m.method === "widget/send"){
       const ua = navigator.userActivation;
-      if (!ua || !ua.isActive || !hooks.atBox || !hooks.atBox()) return widgetFail(run, m.id, -32001, "needs a click or key in the box");
+      if (run !== view.page || !ua || !ua.isActive || !hooks.atBox || !hooks.atBox()) return widgetFail(run, m.id, -32001, "needs a click or key in the box");
       if (typeof p.text !== "string" || !p.text.trim() || (p.about != null && typeof p.about !== "string"))
         return widgetFail(run, m.id, -32602, "a message is words, about one id");
       const now = Date.now();
@@ -9802,7 +9940,7 @@ function magicView(el, hooks = {}){
   }
   function widgetSave(run, w){
     const save = run.save;
-    if (!save || save.busy || !save.next || view.page !== run) return;
+    if (!save || save.busy || !save.next || !live(run)) return;
     const wait = save.at + 250 - Date.now();
     if (wait > 0){
       if (!save.timer) save.timer = setTimeout(() => { save.timer = 0; widgetSave(run, w); }, wait);
