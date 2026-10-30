@@ -6,7 +6,7 @@ To install, run `./install.sh` in the downloaded folder. It needs Claude Code or
 
 ## Uninstalling
 
-`facilitator uninstall` (or `./uninstall.sh`) removes only what the installer added. First it asks whether to keep your board's data in `data/`: your cards and their history, attachments, settings, profile, magic boxes, logs, phone sign-in, push key, backups and any config you changed. Enter keeps it all. A no is followed by a second question, "Are you sure?", and only a yes to that deletes everything in `data/` except the board's own Python, which uninstall removes anyway when the installer made it. Any other answer, or no terminal to ask on, keeps it all. `--keep-attachments` keeps it all without asking. `--remove-attachments` answers the first question with no, so only "Are you sure?" is asked, and with no terminal it keeps it all. It has no dry run.
+`facilitator uninstall` (or `./uninstall.sh`) removes only what the installer added. First it asks whether to keep your board's data in `data/`: your cards and their history, attachments, settings, profile, magic boxes, logs, phone sign-in, push key, backups and any config you changed. Enter keeps it all. A no is followed by a second question, "Are you sure?", and only a yes to that deletes everything in `data/` except the board's own Python, which uninstall removes anyway when the installer made it. Any other answer, or no terminal to ask on, keeps it all. `--keep-data` keeps it all without asking. `--delete-data` answers the first question with no, so only "Are you sure?" is asked, and with no terminal it keeps it all. It has no dry run.
 
 ## Updating
 

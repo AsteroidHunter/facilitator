@@ -177,7 +177,7 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
     assert.notEqual(held(place).pid, secondPid, "update's restart did not reach the moved board");
     const home = path.join(place.outer, "home");
     fs.mkdirSync(home);
-    const uninstall = await command(place, ["uninstall", "--keep-attachments"], { HOME: home });
+    const uninstall = await command(place, ["uninstall", "--keep-data"], { HOME: home });
     assert.equal(uninstall.code, 1);
     assert.match(uninstall.stderr, new RegExp(`The board is up on port ${next}\\.`));
   } finally {
@@ -236,7 +236,7 @@ test("this folder's board turning its key away is said so, never taken for no bo
     assert.equal(await canBind(base + 2), true, "something was started on the next pair");
     const home = path.join(place.outer, "home");
     fs.mkdirSync(home);
-    const uninstall = await command(place, ["uninstall", "--keep-attachments"], { HOME: home });
+    const uninstall = await command(place, ["uninstall", "--keep-data"], { HOME: home });
     assert.equal(uninstall.code, 1);
     assert.match(uninstall.stderr, new RegExp(`Something is up on port ${base} and turned away this folder's key`));
     // the restart the line names gives the board a new key, and it answers again

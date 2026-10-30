@@ -251,7 +251,7 @@ test("install uses the script while uninstall remains a command", async () => {
   const dir = await freshClone();
   const source = await readFile(path.join(dir, "facilitator"), "utf8");
   assert.doesNotMatch(source, /^ {2}facilitator install$/m);
-  assert.match(source, /^ {2}facilitator uninstall \[--keep-attachments \| --remove-attachments\]$/m, "uninstall is not in the usage");
+  assert.match(source, /^ {2}facilitator uninstall \[--keep-data \| --delete-data\]$/m, "uninstall is not in the usage");
   assert.match(source, /elif cmd == "_install" and os\.environ\.get\("FACILITATOR_INTERNAL_INSTALL"\)/);
   assert.match(source, /elif cmd == "uninstall":\n\s+cmd_uninstall\(args\)/, "uninstall is not dispatched");
 
@@ -259,7 +259,7 @@ test("install uses the script while uninstall remains a command", async () => {
     .then(() => null, error => error);
   assert.ok(unknown, "an unknown command was accepted");
   assert.doesNotMatch(unknown.stderr, /facilitator install/);
-  assert.match(unknown.stderr, /facilitator uninstall \[--keep-attachments \| --remove-attachments\]/);
+  assert.match(unknown.stderr, /facilitator uninstall \[--keep-data \| --delete-data\]/);
   assert.doesNotMatch(source, /wipe/i, "the facilitator command still mentions wipe");
 });
 
@@ -700,8 +700,8 @@ const BOARD_DATA = ["state", "transcript", "settings", "profile", "uploads", "ol
   "logs", "vapid", "bridge_auth", "backups"];
 const keptAll = files => BOARD_DATA.every(key => files[key]);
 const keptNone = files => BOARD_DATA.every(key => !files[key]);
-const FIRST = "Keep your board's data (cards, attachments, settings and logs)? [Y/n] ";
-const SURE = "Are you sure? Your cards, attachments, settings and logs will be deleted for good. [y/N] ";
+const FIRST = "Keep your board's data (cards, attachments, settings, logs, phone sign-in and backups)? [Y/n] ";
+const SURE = "Are you sure? Your cards, attachments, settings, logs, phone sign-in and backups will be deleted for good. [y/N] ";
 
 test("uninstall keeps only the data section, then check-mark lines and the finish", async () => {
   const dir = await freshClone();
@@ -764,7 +764,7 @@ test("uninstall --wipe is refused like any unknown option and deletes no board d
   await fabricateData(dir);
 
   const res = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"));
-  assert.match(String(res.exit), /^\n⚠ Unknown option: --wipe\.\n  uninstall takes --keep-attachments or --remove-attachments\./);
+  assert.match(String(res.exit), /^\n⚠ Unknown option: --wipe\.\n  uninstall takes --keep-data or --delete-data\./);
   assert.doesNotMatch(res.out, /Keep your board's data|Are you sure\? Your|uninstaller/, "a refused run asked or showed the banner");
   assert.ok(installed(res.files) && keptAll(res.files), JSON.stringify(res.files));
   assert.equal(await readFile(path.join(data(dir), "bridge-auth.json"), "utf8"), "{}");
@@ -775,7 +775,7 @@ test("uninstall --wipe is refused like any unknown option and deletes no board d
   assert.ok(real, "uninstall accepted --wipe");
   assert.equal(real.code, 1);
   assert.match(real.stderr, /⚠ Unknown option: --wipe\./);
-  assert.match(real.stderr, /usage: facilitator uninstall \[--keep-attachments \| --remove-attachments\]/);
+  assert.match(real.stderr, /usage: facilitator uninstall \[--keep-data \| --delete-data\]/);
 });
 
 // a terminal on stdin that answers the questions with the given text
@@ -855,7 +855,7 @@ for (const [said, name] of [["n\n\n", "Enter"], ["n\nn\n", "a no"], ["n\nsure\n"
 }
 
 test("Ctrl-C at either question stops uninstall before anything is removed", async () => {
-  for (const flag of [[], ["--remove-attachments"]]) {
+  for (const flag of [[], ["--delete-data"]]) {
     const dir = await freshClone();
     await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
     await fabricateData(dir);
@@ -982,13 +982,13 @@ test("a no and a yes with other copies of the board beside this one ask nothing 
   assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
 });
 
-test("--remove-attachments asks only \"Are you sure?\", and a yes deletes this copy's data and nothing of another copy's", async () => {
+test("--delete-data asks only \"Are you sure?\", and a yes deletes this copy's data and nothing of another copy's", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
   const copy = await addCopy(dir);
 
-  const res = await run(dir, stubs() + "\n" + answering("y\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
+  const res = await run(dir, stubs() + "\n" + answering("y\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--delete-data'])"));
   assert.equal(res.exit, null, res.out);
   assert.ok(!res.out.includes(FIRST), "the flag did not answer the first question");
   assert.ok(res.out.includes(SURE), "the flag skipped the confirmation");
@@ -997,38 +997,38 @@ test("--remove-attachments asks only \"Are you sure?\", and a yes deletes this c
   assert.equal(await readFile(path.join(copy, "data", "uploads", "theirs.png"), "utf8"), "img", "the other copy was touched");
 });
 
-test("--remove-attachments keeps it all after Enter at \"Are you sure?\", and with no terminal", async () => {
+test("--delete-data keeps it all after Enter at \"Are you sure?\", and with no terminal", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
 
-  const enter = await run(dir, stubs() + "\n" + answering("\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
+  const enter = await run(dir, stubs() + "\n" + answering("\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--delete-data'])"));
   assert.equal(enter.exit, null, enter.out);
   assert.ok(enter.out.includes(SURE + "⊘ Keeping your board's data."), enter.out);
   assert.ok(keptAll(enter.files), JSON.stringify(enter.files));
 
-  const none = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
+  const none = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--delete-data'])"));
   assert.equal(none.exit, null, none.out);
   assert.doesNotMatch(none.out, /Are you sure\? Your/);
   assert.match(none.out, /⊘ Keeping your board's data: there is no terminal to ask on\./);
   assert.ok(keptAll(none.files), JSON.stringify(none.files));
 });
 
-test("--keep-attachments keeps it all without asking, and both flags together are refused", async () => {
+test("--keep-data keeps it all without asking, and both flags together are refused", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
 
   const both = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n"
-    + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments', '--remove-attachments'])"));
-  assert.match(String(both.exit), /^\n⚠ Both --keep-attachments and --remove-attachments were given\.\n  Give one of them, not both\.$/);
+    + snapshot("cli.cmd_uninstall(['uninstall', '--keep-data', '--delete-data'])"));
+  assert.match(String(both.exit), /^\n⚠ Both --keep-data and --delete-data were given\.\n  Give one of them, not both\.$/);
   assert.ok(installed(both.files) && keptAll(both.files), "a refused run removed something");
 
   const res = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n"
-    + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments'])"));
+    + snapshot("cli.cmd_uninstall(['uninstall', '--keep-data'])"));
   assert.equal(res.exit, null, res.out);
   assert.doesNotMatch(res.out, /Keep your board's data|Are you sure\? Your|Keeping your board's data/, "the flag did not answer the question");
-  assert.ok(keptAll(res.files), "--keep-attachments deleted data: " + JSON.stringify(res.files));
+  assert.ok(keptAll(res.files), "--keep-data deleted data: " + JSON.stringify(res.files));
   assert.equal(res.files.venv, false, "the rest of uninstall did not run");
 });
 
@@ -1038,7 +1038,7 @@ test("uninstall has no dry run: --dry-run is refused before anything is asked or
   await fabricateData(dir);
 
   const res = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--dry-run'])"));
-  assert.match(String(res.exit), /^\n⚠ Unknown option: --dry-run\.\n  uninstall takes --keep-attachments or --remove-attachments\./);
+  assert.match(String(res.exit), /^\n⚠ Unknown option: --dry-run\.\n  uninstall takes --keep-data or --delete-data\./);
   assert.doesNotMatch(res.out, /Keep your board's data|Are you sure\? Your|uninstaller/, "a refused run asked or showed the banner");
   assert.ok(installed(res.files) && keptAll(res.files), JSON.stringify(res.files));
 });
@@ -1152,5 +1152,5 @@ test("uninstall refuses unknown options before it touches anything", async () =>
     .then(() => null, error => error);
   assert.ok(refused, "uninstall accepted an unknown option");
   assert.equal(refused.code, 1);
-  assert.match(refused.stderr, /⚠ Unknown option: --bogus\.\n  uninstall takes --keep-attachments or --remove-attachments\./, refused.stderr);
+  assert.match(refused.stderr, /⚠ Unknown option: --bogus\.\n  uninstall takes --keep-data or --delete-data\./, refused.stderr);
 });

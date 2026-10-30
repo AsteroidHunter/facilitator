@@ -631,7 +631,7 @@ test("a pull by hand with no update leaves the new command and server refusing, 
   fillOldBoard(w);
   w.pushNew();
   w.git(w.user, "pull", "-q", "--ff-only");
-  for (const words of [["status"], ["run"], ["restart"], ["magic", "m1", "show"], ["uninstall", "--keep-attachments"]]) {
+  for (const words of [["status"], ["run"], ["restart"], ["magic", "m1", "show"], ["uninstall", "--keep-data"]]) {
     const res = await run(PYTHON, [w.cli, ...words], { cwd: w.base, env: w.env });
     assert.equal(res.code, 1, words.join(" "));
     assert.match(res.stderr, /still in their old place at the top of .* \(.*\), so the board stayed down\.\n  Run facilitator update to move them into data\/\. Nothing was changed\./, words.join(" "));

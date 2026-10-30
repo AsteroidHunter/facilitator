@@ -133,7 +133,7 @@
       without a terminal it asks nothing and says so. It does not switch
       the link on; `facilitator run` does once a password is set, or
       `facilitator bridge on`.
-  facilitator uninstall [--keep-attachments | --remove-attachments]
+  facilitator uninstall [--keep-data | --delete-data]
       remove what install made: the .venv, app/tests/node_modules and the
       generated config files, owned shell command, owned agent-skill links, and
       the Claude Code status line entry install added. After its banner it
@@ -142,8 +142,8 @@
       attachments, magic boxes, logs, the phone sign-in, vapid-key.pem and
       the backups). Only a no and then a yes to "Are you sure?" deletes
       everything in data/ but the board's own Python; Enter, any other
-      answer or no terminal keeps it all. --keep-attachments keeps it all
-      without asking; --remove-attachments answers the first question with
+      answer or no terminal keeps it all. --keep-data keeps it all
+      without asking; --delete-data answers the first question with
       no, so only "Are you sure?" is asked, and with no terminal it keeps
       it all. Never removes this folder or stops a running server.
   facilitator password set
@@ -3036,7 +3036,7 @@ INSTALL_HELP = """usage: ./install.sh [--dev]
 Installs Facilitator on this Mac.
 
   --dev   also install what the test suite needs (needs node and npm)"""
-UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
+UNINSTALL_HELP = """usage: facilitator uninstall [--keep-data | --delete-data]
 
 Remove what install made: data/.venv, app/tests/node_modules, generated
 config, owned command and agent-skill links, and the Claude Code status line
@@ -3048,15 +3048,15 @@ logs, the phone sign-in, the push key and the backups. Only a no and then a
 yes to "Are you sure?" deletes everything in data/ but the board's own
 Python. Enter, any other answer or no terminal keeps it all.
 
-  --keep-attachments     keep it all without asking
-  --remove-attachments   answer the first question with no, so only "Are you
-                         sure?" is asked; with no terminal it keeps it all"""
+  --keep-data     keep it all without asking
+  --delete-data   answer the first question with no, so only "Are you
+                  sure?" is asked; with no terminal it keeps it all"""
 # the board's data is everything in data/. What install and update keep there
 # for themselves, these and their records named .facilitator-*, uninstall
 # deals with by its own rules, so they alone are no reason to ask
 INSTALL_DATA_NAMES = (".venv", "run.config.json", "seed.json")
-DATA_QUESTION = "Keep your board's data (cards, attachments, settings and logs)? [Y/n] "
-SURE_QUESTION = "Are you sure? Your cards, attachments, settings and logs will be deleted for good. [y/N] "
+DATA_QUESTION = "Keep your board's data (cards, attachments, settings, logs, phone sign-in and backups)? [Y/n] "
+SURE_QUESTION = "Are you sure? Your cards, attachments, settings, logs, phone sign-in and backups will be deleted for good. [y/N] "
 BANNER_GLYPHS = {
     "F": ["█████", "█    ", "████ ", "█    ", "█    "],
     "A": ["█████", "█   █", "█████", "█   █", "█   █"],
@@ -3559,8 +3559,8 @@ def data_answer(question):
 
 def keep_board_data(answer):
     """True unless the person says no to keeping the board's data and then a
-    clear yes to "Are you sure?". --keep-attachments (answer True) keeps it
-    without asking, and --remove-attachments (answer False) answers only the
+    clear yes to "Are you sure?". --keep-data (answer True) keeps it
+    without asking, and --delete-data (answer False) answers only the
     first question. Enter, anything else or no terminal to ask on keeps it."""
     if answer:
         return True
@@ -3614,16 +3614,16 @@ def cmd_uninstall(args):
     if any(w in ("-h", "--help") for w in words):
         print(UNINSTALL_HELP)
         return
-    extra = [w for w in words if w not in ("--keep-attachments", "--remove-attachments")]
+    extra = [w for w in words if w not in ("--keep-data", "--delete-data")]
     if extra:
         sys.exit(problem("Unknown option: " + " ".join(extra) + ".",
-                         "uninstall takes --keep-attachments or --remove-attachments.")
+                         "uninstall takes --keep-data or --delete-data.")
                  + "\n\n" + UNINSTALL_HELP)
-    if "--keep-attachments" in words and "--remove-attachments" in words:
-        sys.exit(problem("Both --keep-attachments and --remove-attachments were given.",
+    if "--keep-data" in words and "--delete-data" in words:
+        sys.exit(problem("Both --keep-data and --delete-data were given.",
                          "Give one of them, not both."))
-    answer = (True if "--keep-attachments" in words
-              else False if "--remove-attachments" in words else None)
+    answer = (True if "--keep-data" in words
+              else False if "--delete-data" in words else None)
 
     banner("uninstaller")
     port = board_port()
