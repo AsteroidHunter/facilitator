@@ -191,6 +191,16 @@ async function makeWorld({ fresh = false } = {}) {
     fs.mkdirSync(path.join(w.dev, "app", "updates"), { recursive: true });
     for (const name of ["facilitator", "data_folder.py", "shell_integration.py", "server.py", "bridge_auth.py", "bridge_gate.py", "m-gate.html"])
       fs.copyFileSync(path.join(ROOT, name), path.join(w.dev, "app", name));
+    // the board opens its window and sends its tabs on through open and
+    // osascript by their full paths: here, through the same stand-ins
+    const server = path.join(w.dev, "app", "server.py");
+    let source = fs.readFileSync(server, "utf8");
+    for (const [name, stand] of [["OPEN_PROGRAM", "open"], ["OSASCRIPT_PROGRAM", "osascript"]]) {
+      const line = new RegExp(`^${name} = "/usr/bin/[a-z]+"$`, "m");
+      assert.match(source, line, `server.py names no ${name} to stand in for`);
+      source = source.replace(line, `${name} = ${JSON.stringify(path.join(w.bin, stand))}`);
+    }
+    fs.writeFileSync(server, source);
     fs.copyFileSync(path.join(ROOT, "updates", "README.md"), path.join(w.dev, "app", "updates", "README.md"));
     fs.writeFileSync(path.join(w.dev, "app", "index.html"), '<span id="npversion">v0.2.415</span>\n');
     fs.writeFileSync(path.join(w.dev, "app", "requirements.txt"), "\n");
@@ -371,7 +381,8 @@ test("an older checkout with its board running moves every file into data/ throu
   assert.equal(alive(oldPid), false, "the old board is still running");
   // Chrome cannot be asked here (osascript answers nothing) and the board,
   // from before the lock, has let no window in, so any window open on it is
-  // refused now: one window opens, on a launch link, as facilitator run opens it
+  // refused now: the board opens one window, on a launch link, as it opens one
+  // for facilitator run
   const opened = fs.existsSync(w.opened) ? fs.readFileSync(w.opened, "utf8").trim().split("\n") : [];
   assert.equal(opened.length, 1, `windows opened: ${opened.join(" | ")}`);
   assert.match(opened[0],

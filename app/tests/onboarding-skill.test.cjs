@@ -11,7 +11,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
-const { copyBridgeFiles, dataOf, freePortPair } = require('./fixture-auth.cjs');
+const { copyBridgeFiles, dataOf, freePortPair, stubWindow, windowOpens } = require('./fixture-auth.cjs');
 
 const exec = promisify(execFile);
 // what a ready inspect answers on the Mac: the lane, its port and runbook, and
@@ -45,11 +45,13 @@ async function fixture(laneDirs, { lock = true } = {}) {
   // these cases are about the helper, not the typing hold (typing-hold.test.cjs),
   // so a message sent here is free to go out at once
   assert.match(source, /TYPING_HOLD = 3\.5/);
-  await fs.writeFile(path.join(app, 'server.py'), source
+  // the board's window goes to stand-ins in window/, never to the real Chrome
+  const windowDir = path.join(outer, 'window');
+  await fs.writeFile(path.join(app, 'server.py'), stubWindow(source
     .replace('PORT = 8877', "PORT = int(os.environ['FACILITATOR_TEST_PORT'])")
     .replace('TYPING_HOLD = 3.5', 'TYPING_HOLD = 0.0')
     .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
-      `TAILSCALE_APP = ${JSON.stringify(path.join(outer, 'no-real-tailscale'))}`));
+      `TAILSCALE_APP = ${JSON.stringify(path.join(outer, 'no-real-tailscale'))}`), windowDir));
   copyBridgeFiles(app);
   await fs.cp(path.join(ROOT, '..', '.agents'), path.join(clone, '.agents'), { recursive: true });
   await fs.copyFile(path.join(ROOT, 'RUNBOOK.md'), path.join(app, 'RUNBOOK.md'));
@@ -103,7 +105,7 @@ async function fixture(laneDirs, { lock = true } = {}) {
     await fs.rm(curl);
   }
   return {
-    outer, app, home, project, second, port, origin, helper, env, curl, keyed, lock,
+    outer, app, home, project, second, port, origin, helper, env, curl, keyed, lock, windowDir,
     // a GET on the board's own port with its key, as an agent's curl -K makes it
     async get(route) { return (await fetch(origin + route, { headers: keyed() })).json(); },
     async run(cwd, ...args) {
@@ -153,12 +155,15 @@ function raw(f, method, route, headers = {}, body) {
 }
 
 // a request from the board's own window, as Chrome sends a script's: on a
-// locked board with the window's cookie, got the way the window gets it
+// locked board with the window's cookie, got the way the window gets it: the
+// board opens its window, and the address it gave the stand-in open is opened
 async function fromThePage(f, method, route, body) {
   const headers = { Origin: f.origin, 'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Dest': 'empty' };
   if (f.lock) {
-    const { code } = JSON.parse((await raw(f, 'POST', '/window/launch', f.keyed())).text);
+    assert.equal((await raw(f, 'POST', '/window/open', f.keyed())).status, 200);
+    const app = windowOpens(f.windowDir).at(-1).find(arg => arg.startsWith('--app='));
+    const code = new URL(app.slice('--app='.length)).searchParams.get('launch');
     const opened = await raw(f, 'GET', `/?launch=${code}`,
       { 'Sec-Fetch-Site': 'none', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' });
     assert.equal(opened.status, 303, opened.text);
@@ -488,9 +493,9 @@ test('the skill and the RUNBOOK loop state the 7 minute listen and no longer the
   assert.doesNotMatch(runbook, /timeout=50\b/);
 });
 
-test('the RUNBOOK says once, in its reply rules, to call the person by the name given at joining', async () => {
+test('the RUNBOOK says once, in its reply rules, to use the name given at joining sparingly, never in every reply', async () => {
   const runbook = await fs.readFile(path.join(ROOT, 'RUNBOOK.md'), 'utf8');
-  const sentence = 'Call the person by the name you were given when you joined; when you were given none, use no name.';
+  const sentence = "Use the person's name, as given when you joined, sparingly: only where it reads naturally, such as a greeting or a sentence that needs it, and never by default in every reply. When you were given none, use no name.";
   assert.equal(runbook.split(sentence).length, 2);
   assert.ok(runbook.split('\n## Replies\n')[1].split('\n## ')[0].includes(`\n- ${sentence}\n`));
   assert.doesNotMatch(runbook, /\{name\}/);

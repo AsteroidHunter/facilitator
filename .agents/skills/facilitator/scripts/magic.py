@@ -37,7 +37,7 @@ MAGIC_HELP = """usage: magic.py CARD KIND (CONTENT | --file PATH | -) [--title T
        magic.py CARD answer ABOUT (TEXT | --file PATH | -) [--agent NAME]
        magic.py CARD widget
 
-On one of the owner's servers, what `facilitator magic` is on the Mac, with
+On one of the person's servers, what `facilitator magic` is on the Mac, with
 the same words. Fill a card's magic box on the Mac board and open it, in
 place of what it held. KIND is text, markdown, html, image or url. CONTENT
 is the words, or one https address for url and image; --file sends a file's
@@ -46,7 +46,7 @@ hides the box and keeps it, reopen shows it again, show prints what it
 holds.
 
 --widget NAME (lowercase letters, digits and -) makes an html page a widget:
-the owner's messages typed in it reach you in /wait and /fresh as
+the person's messages typed in it reach you in /wait and /fresh as
 widget_messages, and never on the card. answer puts your answer about ABOUT,
 one of the page's own ids ("" for none), into the open widget, never on the
 card; --agent names you. widget prints the widget's messages, answers and
@@ -246,7 +246,7 @@ def main(argv):
         sys.exit("magic: " + what + " is not one of " + ", ".join(MAGIC_KINDS) + ", " + ", ".join(MAGIC_ACTIONS) + ", answer")
     rec = remote_record()
     if rec is None:
-        sys.exit("magic: this is not one of the owner's servers; on the Mac run facilitator magic")
+        sys.exit("magic: this is not one of the person's servers; on the Mac run facilitator magic")
     keys = lane_keys(rec)
     if not keys:
         sys.exit("magic: no lane on this server has a key yet: onboard first")

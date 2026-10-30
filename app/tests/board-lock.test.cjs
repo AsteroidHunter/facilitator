@@ -5,21 +5,26 @@
 // sees it (a page open of / or /m gets the page saying to open the board with
 // facilitator run), whatever browser headers it makes up; /unread alone
 // answers. The key works, the cookie works, a launch code works once, ends,
-// sets the cookie and sends the window on to /. A board page the lock refuses
+// sets the cookie and sends the window on to /, and only Chrome ever gets one:
+// the board opens its own window and sends its own tabs on, and no route
+// answers with a code. A board page the lock refuses
 // opens itself again once, so the board's own page says what to do, rather
 // than drawing the refusal as a reading. The phone's door is the bridge
 // gate's and is not asked for either. One locked fixture board on a free pair
 // of ports, plus a copy of the command beside it; the suite never touches 8877,
-// starts no browser and opens no window. Every card and message is invented.
+// starts no browser and opens no window: the board's open and osascript are
+// stand-ins (stubWindow) that write down what they were given. Every card and
+// message is invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { execFile } = require("node:child_process");
-const { request } = require("node:http");
-const { chmod, copyFile, readFile, readdir, stat, writeFile } = require("node:fs/promises");
+const { createServer, request } = require("node:http");
+const { chmod, copyFile, readFile, readdir, rm, stat, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const vm = require("node:vm");
 const { ROOT, startBoard } = require("./board-fixture.cjs");
+const { sendArguments, windowOpens, windowSends } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const LIFE = 2;   // seconds a launch code lives in this copy, so its end can be waited for
@@ -63,15 +68,28 @@ const page = () => ({ Origin: board.origin, "Sec-Fetch-Site": "same-origin", "Se
 const REFUSAL = "this board answers only its own window and agents that carry its key: "
   + "run scripts/onboard.py inspect and put -K and the file it names in front of every curl";
 
+// every launch code the board has given Chrome so far, through the stand-in
+// open and osascript, in the order given
+function codesGiven() {
+  const addresses = [...windowOpens(board.windowDir).map(argv => argv.find(a => a.startsWith("--app=")).slice(6)),
+                     ...windowSends(board.windowDir).map(([, , , goal]) => goal)];
+  return addresses.map(a => new URL(a).searchParams.get("launch")).filter(Boolean);
+}
+
+// the board opens its window, as facilitator run asks it to, and the code it
+// gave Chrome comes back from the stand-in open, as Chrome would open it
 async function launchCode() {
-  const r = await raw("POST", "/window/launch", { headers: key() });
-  assert.equal(r.status, 200, r.text);
-  return json(r);
+  const before = windowOpens(board.windowDir).length;
+  const r = await raw("POST", "/window/open", { headers: key() });
+  assert.deepEqual([r.status, json(r)], [200, { opened: true }], r.text);
+  const opens = windowOpens(board.windowDir);
+  assert.equal(opens.length, before + 1, "the board did not open one window");
+  return new URL(opens.at(-1).find(a => a.startsWith("--app=")).slice(6)).searchParams.get("launch");
 }
 
 // a window's cookie, got the way the window gets it
 async function windowCookie() {
-  const { code } = await launchCode();
+  const code = await launchCode();
   const opened = await raw("GET", `/?launch=${code}`, { headers: OPEN });
   assert.equal(opened.status, 303, opened.text);
   const set = opened.headers["set-cookie"];
@@ -94,7 +112,8 @@ test("the key files are for this account alone and carry the key for curl", asyn
 test("no key and no cookie is a 401 on every route, and the route never runs", async () => {
   const asked = [["GET", "/state"], ["GET", "/thread?box=1.1"], ["POST", "/send?box=1.1", "from another account"],
     ["POST", "/navsave?lane=pastureland&path=a.md", "overwritten"], ["GET", "/dirs?path=~"],
-    ["POST", "/remote/pair/new?name=lab"], ["GET", "/settings"], ["GET", "/sw.js"], ["POST", "/window/launch"]];
+    ["POST", "/remote/pair/new?name=lab"], ["GET", "/settings"], ["GET", "/sw.js"], ["POST", "/window/launch"],
+    ["POST", "/window/open"], ["POST", "/window/relaunch", JSON.stringify({ tabs: [[1, 1, `${board.origin}/`]] })]];
   for (const [method, route, body] of asked) {
     for (const headers of [{}, { "User-Agent": "curl/8.7.1" }, page(), OPEN]) {
       const r = await raw(method, route, { body, headers });
@@ -109,6 +128,8 @@ test("no key and no cookie is a 401 on every route, and the route never runs", a
     assert.equal((await raw("GET", "/state", { headers })).status, 401, JSON.stringify(headers));
   const thread = json(await raw("GET", "/thread?box=1.1", { headers: key() }));
   assert.equal(JSON.stringify(thread).includes("from another account"), false, "a refused send was stored");
+  assert.deepEqual([windowOpens(board.windowDir), windowSends(board.windowDir)], [[], []],
+    "a caller without the key opened a window or sent a tab on");
   const logged = (await Promise.all((await readdir(board.logs)).filter(n => n.startsWith("server-"))
     .map(n => readFile(path.join(board.logs, n), "utf8")))).join("");
   assert.match(logged, /"reason": ?"no key or window cookie"/);
@@ -165,8 +186,11 @@ test("the window's cookie opens the board, and what the window sends is the pers
   assert.equal(said.status, 200, said.text);
   const box = json(await raw("GET", "/state", { headers: key() })).boxes.find(b => b.id === "1.1");
   assert.equal(box.pendingBy.at(-1), null, "the window's message was not stored as the person's");
-  // the cookie alone does not mint launch codes
-  assert.equal((await raw("POST", "/window/launch", { headers: { ...page(), Cookie: cookie } })).status, 401);
+  // the cookie alone opens no window and sends no tab on
+  const opens = windowOpens(board.windowDir).length, sends = windowSends(board.windowDir).length;
+  for (const route of ["/window/open", "/window/relaunch", "/window/launch"])
+    assert.equal((await raw("POST", route, { headers: { ...page(), Cookie: cookie } })).status, 401, route);
+  assert.deepEqual([windowOpens(board.windowDir).length, windowSends(board.windowDir).length], [opens, sends]);
 });
 
 // a page's own reading code, cut from its file between start and end and run
@@ -232,9 +256,8 @@ test("a window the lock refuses opens itself again once, and the refusal is neve
 });
 
 test("a launch code works once, as a page, sets the cookie and sends the window on to /", async () => {
-  const given = await launchCode();
+  const given = { code: await launchCode() };
   assert.match(given.code, /^[A-Za-z0-9_-]{32}$/);
-  assert.equal(given.seconds, LIFE);
   // fetched by a script rather than opened as a page, it is not spent
   const fetched = await raw("GET", `/?launch=${given.code}`, { headers: page() });
   assert.equal(fetched.status, 401);
@@ -260,7 +283,7 @@ test("a launch code works once, as a page, sets the cookie and sends the window 
   // a window that already has its cookie keeps it, and a dead code in its address goes
   const kept = await raw("GET", `/?launch=${given.code}`, { headers: { ...OPEN, Cookie: parts[0] } });
   assert.deepEqual([kept.status, kept.headers.location, kept.headers["set-cookie"]], [303, "/", undefined]);
-  const fresh = await launchCode();
+  const fresh = { code: await launchCode() };
   const reopened = await raw("GET", `/?launch=${fresh.code}`, { headers: { ...OPEN, Cookie: parts[0] } });
   assert.deepEqual([reopened.status, reopened.headers["set-cookie"]], [303, undefined]);
   // a made-up code is no code
@@ -269,7 +292,7 @@ test("a launch code works once, as a page, sets the cookie and sends the window 
 
 test("a launch code sends the window on to its own query, a pulled-out project's, without any code", async () => {
   // a window without the cookie is let in and lands on its own project
-  const { code } = await launchCode();
+  const code = await launchCode();
   const opened = await raw("GET", `/?project=pastureland&launch=${code}&x=1`, { headers: OPEN });
   assert.equal(opened.status, 303, opened.text);
   assert.equal(opened.headers.location, "/?project=pastureland&x=1");
@@ -277,7 +300,7 @@ test("a launch code sends the window on to its own query, a pulled-out project's
   const cookie = opened.headers["set-cookie"][0].split(";")[0];
   // one that has the cookie lands there too, and a code spelt another way in
   // the address is still a code and is never sent on, so nothing loops
-  const fresh = await launchCode();
+  const fresh = { code: await launchCode() };
   const kept = await raw("GET", `/?launch=${fresh.code}&project=pastureland&%6Caunch=${fresh.code}`,
     { headers: { ...OPEN, Cookie: cookie } });
   assert.deepEqual([kept.status, kept.headers.location, kept.headers["set-cookie"]],
@@ -288,7 +311,7 @@ test("a launch code sends the window on to its own query, a pulled-out project's
 });
 
 test("a launch code ends after its life", async () => {
-  const { code } = await launchCode();
+  const code = await launchCode();
   await new Promise(resolve => setTimeout(resolve, LIFE * 1000 + 300));
   const late = await raw("GET", `/?launch=${code}`, { headers: OPEN });
   assert.equal(late.status, 401);
@@ -357,26 +380,360 @@ test("the command's calls carry the key", async () => {
   assert.match(status.stdout, /^server up, \d+ boxes, \d+ queued/);
 });
 
-test("the command opens the window on a launch code that sets the window's cookie", async () => {
-  const { stdout } = await cli([
-    "opened = []",
+// the address the stand-in open was last given, and its launch code
+function lastOpen() {
+  const argv = windowOpens(board.windowDir).at(-1);
+  const app = new URL(argv.find(a => a.startsWith("--app=")).slice(6));
+  return { argv, app, code: app.searchParams.get("launch") };
+}
+const setConfig = extra => writeFile(path.join(board.data, "run.config.json"),
+  JSON.stringify({ port: board.port, lanes: [], ...extra }));
+
+test("the board opens its own window: a chromeless app window on its page, with a code only Chrome gets", async () => {
+  const r = await raw("POST", "/window/open", { headers: key() });
+  assert.deepEqual([r.status, json(r)], [200, { opened: true }]);
+  assert.equal(r.text.includes(lastOpen().code), false, "the answer held the code");
+  const { argv, app, code } = lastOpen();
+  assert.deepEqual(argv, ["-na", "Google Chrome", "--args", `--app=${board.origin}/?launch=${code}`]);
+  assert.equal(app.pathname, "/");
+  assert.match(code, /^[A-Za-z0-9_-]{32}$/);
+  // the page the command names, in another loopback spelling, opens as the
+  // board's own address
+  const named = await raw("POST", "/window/open", { headers: key(), body: `http://localhost:${board.port}` });
+  assert.equal(named.status, 200, named.text);
+  assert.equal(lastOpen().argv[3], `--app=${board.origin}/?launch=${lastOpen().code}`);
+  // and nothing but this board's own page on this Mac
+  const count = windowOpens(board.windowDir).length;
+  for (const page of ["https://example.com/", `http://127.0.0.1:${board.port + 1}/`, `http://127.0.0.1:${board.port}/m`,
+                      `https://127.0.0.1:${board.port}/`, `http://evil.example:${board.port}/`, "not a page"]) {
+    const refused = await raw("POST", "/window/open", { headers: key(), body: page });
+    assert.equal(refused.status, 400, page);
+  }
+  assert.equal(windowOpens(board.windowDir).length, count, "a page not the board's was opened");
+});
+
+// an address opened as Chrome opens it: a request to the host and port the
+// address names, whoever listens there
+function asChrome(address) {
+  const where = new URL(address);
+  return new Promise((resolve, reject) => {
+    const req = request({ host: where.hostname.replace(/^\[|\]$/g, ""), port: where.port,
+      path: where.pathname + where.search, headers: { Host: where.host, ...OPEN } }, res => {
+      res.resume();
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("a page named as [::1], localhost or 127.0.0.2 opens on 127.0.0.1, so no code reaches another listener", async () => {
+  // the reviewer's case: a program of this account listens on [::1] at the
+  // board's port, which the board, on 127.0.0.1 alone, leaves free, and names
+  // that address, or another loopback spelling, to open or send a tab to
+  await noWindowLetIn();
+  const heard = [];
+  const listener = createServer((req, res) => { heard.push(req.url); res.end(); });
+  const bound = await new Promise(resolve => {
+    listener.once("error", () => resolve(false));
+    listener.listen(board.port, "::1", () => resolve(true));
+  });
+  assert.ok(bound, "nothing could listen on [::1] at the board's port");
+  try {
+    const spellings = [`http://[::1]:${board.port}/`, `http://localhost:${board.port}/`, `http://127.0.0.2:${board.port}/`];
+    const chosen = `http://[::1]:${board.port}/?launch=CHOSEN&project=pastureland&code=x&%6Caunch=CHOSEN2#box-3`;
+    // a relaunch while no window has been let in, which writes a code into each own page
+    const before = windowSends(board.windowDir).length;
+    const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+      [7, 1, spellings[0]], [7, 2, spellings[1]], [7, 3, spellings[2]], [7, 4, chosen]] }) });
+    assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", "SENT", "SENT", "SENT"] }]);
+    const goals = windowSends(board.windowDir).slice(before).map(([, , , goal]) => goal);
+    const codes = goals.map(goal => new URL(goal).searchParams.get("launch"));
+    assert.deepEqual(goals, [`${board.origin}/?launch=${codes[0]}`, `${board.origin}/?launch=${codes[1]}`,
+                             `${board.origin}/?launch=${codes[2]}`, `${board.origin}/?project=pastureland&launch=${codes[3]}`],
+      "a code was written into an address the caller chose");
+    // the board's own window, opened on each of those bodies
+    for (const body of [...spellings, chosen]) {
+      const opened = await raw("POST", "/window/open", { headers: key(), body });
+      assert.deepEqual([opened.status, json(opened)], [200, { opened: true }], body);
+      const { argv, code } = lastOpen();
+      assert.equal(argv[3], `--app=${board.origin}/?${body === chosen ? "project=pastureland&" : ""}launch=${code}`, body);
+      goals.push(argv[3].slice("--app=".length));
+    }
+    // each address, opened as Chrome opens it, reaches the board, whose code lets the window in
+    for (const goal of goals) {
+      const landed = await asChrome(goal);
+      assert.equal(landed.status, 303, goal);
+      assert.ok(landed.headers["set-cookie"], `${goal} set no cookie`);
+    }
+  } finally {
+    await new Promise(resolve => listener.close(resolve));
+  }
+  assert.deepEqual(heard, [], "the listener on [::1] read a request");
+});
+
+test("the board's window opens full screen when run.config.json says app_fullscreen true, and only then", async () => {
+  try {
+    await setConfig({ app_fullscreen: true });
+    assert.equal((await raw("POST", "/window/open", { headers: key() })).status, 200);
+    assert.deepEqual(lastOpen().argv.slice(-2), [`--app=${board.origin}/?launch=${lastOpen().code}`, "--start-fullscreen"]);
+    for (const value of [false, "true", 1, null]) {
+      await setConfig({ app_fullscreen: value });
+      assert.equal((await raw("POST", "/window/open", { headers: key() })).status, 200);
+      assert.equal(lastOpen().argv.length, 4, `app_fullscreen ${JSON.stringify(value)} changed the launch`);
+    }
+  } finally {
+    await setConfig({});
+  }
+});
+
+test("a window Chrome would not open is passed back with what open said, for the command's one line", async () => {
+  const fails = path.join(board.windowDir, "open-fails");
+  await writeFile(fails, "Unable to find application named 'Google Chrome'\nmore\n");
+  try {
+    const r = await raw("POST", "/window/open", { headers: key() });
+    assert.deepEqual([r.status, json(r)],
+      [502, { error: "could not open Chrome", said: "Unable to find application named 'Google Chrome'" }]);
+    // the code put in that window's address is cancelled, so it lets nothing in
+    const taken = await raw("GET", `/?launch=${lastOpen().code}`, { headers: OPEN });
+    assert.deepEqual([taken.status, taken.headers["set-cookie"]], [401, undefined],
+      "the code of a window that did not open still set the window cookie");
+  } finally {
+    await rm(fails, { force: true });
+  }
+});
+
+// the board as the first restart after an update from before the lock finds
+// it: no window let in yet, so window-keys.json holds nothing
+async function noWindowLetIn() {
+  await board.restart(() => rm(path.join(board.data, "window-keys.json"), { force: true }));
+}
+
+test("a relaunch once a window has been let in makes no code: each tab just loads its page again", async () => {
+  const cookie = await windowCookie();
+  const own = `${board.origin}/`;
+  const pulled = `${board.origin}/?project=pastureland&launch=SPENT&%6Caunch=SPENT2#box-3`;
+  // the reviewer's case: a window id nobody has, which the stand-in osascript
+  // says was SENT, as a Chrome the caller drives itself would, beside real tabs
+  const relaunch = async () => {
+    const codes = codesGiven().length;
+    const before = windowSends(board.windowDir).length;
+    const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+      [424242, 1, own], [7, 3, pulled], [8, 1, "https://example.com/"]] }) });
+    assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", "SENT", null] }]);
+    const sends = windowSends(board.windowDir).slice(before);
+    assert.deepEqual(sends, [["424242", "1", own, own],
+                             ["7", "3", pulled, `${board.origin}/?project=pastureland`]],
+      "a tab was sent on with a code, or an old code was kept");
+    assert.equal(codesGiven().length, codes, "a relaunch made a code once a window was let in");
+    return sends;
+  };
+  for (const [, , , goal] of await relaunch()) {
+    // opened as Chrome opens it, with no cookie, the page lets nobody in
+    const plain = await raw("GET", new URL(goal).pathname + new URL(goal).search, { headers: OPEN });
+    assert.deepEqual([plain.status, plain.headers["set-cookie"]], [401, undefined], goal);
+    assert.match(plain.text, /Open the board with facilitator run/);
+    // and a tab whose Chrome holds the cookie loads the board
+    const kept = await raw("GET", new URL(goal).pathname + new URL(goal).search, { headers: { ...OPEN, Cookie: cookie } });
+    assert.equal(kept.status, 200, goal);
+    assert.match(kept.text, /id="npversion"/);
+  }
+  // as often as it is asked, and after a restart, which reads the kept cookie back
+  await relaunch();
+  await board.restart();
+  await relaunch();
+  assert.equal((await raw("GET", "/state", { headers: { ...page(), Cookie: cookie } })).status, 200);
+});
+
+test("a relaunch before any window was let in, as after an update from before the lock, sends each board tab to its own page with a code of its own", async () => {
+  await noWindowLetIn();
+  const before = windowSends(board.windowDir).length;
+  const own = `${board.origin}/`;
+  const pulled = `${board.origin}/?project=pastureland&launch=SPENT&%6Caunch=SPENT2#box-3`;
+  const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+    [7, 2, own], [7, 3, pulled], [8, 1, "https://example.com/"], [8, 2, `http://127.0.0.1:${board.port + 1}/`]] }) });
+  assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", "SENT", null, null] }]);
+  const sends = windowSends(board.windowDir).slice(before);
+  assert.deepEqual(sends.map(([wid, place, expected]) => [wid, place, expected]), [["7", "2", own], ["7", "3", pulled]],
+    "a tab not the board's was sent on, or the board's own was not");
+  const [first, second] = sends.map(([, , , goal]) => new URL(goal));
+  assert.equal(first.href, `${own}?launch=${first.searchParams.get("launch")}`);
+  assert.equal(second.href,
+    `${board.origin}/?project=pastureland&launch=${second.searchParams.get("launch")}`,
+    "the tab's project was not kept, or an old code was kept");
+  assert.notEqual(first.searchParams.get("launch"), second.searchParams.get("launch"), "two tabs shared a code");
+  for (const goal of [first, second]) assert.equal(r.text.includes(goal.searchParams.get("launch")), false);
+  // each one lets its window in, with nothing for the person to do
+  const opened = await raw("GET", second.pathname + second.search, { headers: OPEN });
+  assert.deepEqual([opened.status, opened.headers.location], [303, "/?project=pastureland"]);
+  assert.ok(opened.headers["set-cookie"], "the code sent on set no cookie");
+  const cookie = opened.headers["set-cookie"][0].split(";")[0];
+  const landed = await raw("GET", opened.headers.location, { headers: { ...OPEN, Cookie: cookie } });
+  assert.equal(landed.status, 200);
+  assert.match(landed.text, /id="npversion"/);
+  // and from then on a relaunch makes no code
+  const sentBefore = windowSends(board.windowDir).length;
+  const next = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [[7, 2, own]] }) });
+  assert.deepEqual(json(next), { sent: ["SENT"] });
+  assert.deepEqual(windowSends(board.windowDir).slice(sentBefore), [["7", "2", own, own]]);
+  // what Chrome answers comes back as it is, and a body that is not tabs is refused
+  const answer = path.join(board.windowDir, "send-answer");
+  await writeFile(answer, "GONE\n");
+  try {
+    const gone = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [[7, 2, own]] }) });
+    assert.deepEqual(json(gone), { sent: ["GONE"] });
+  } finally {
+    await rm(answer, { force: true });
+  }
+  for (const body of ["", "[]", '{"tabs": [[0, 1, "x"]]}', '{"tabs": [["7", 1, "x"]]}', '{"tabs": [[7, 1]]}'])
+    assert.equal((await raw("POST", "/window/relaunch", { headers: key(), body })).status, 400, body);
+});
+
+test("a send that does not end SENT cancels its code at once, and osascript is given no code", async () => {
+  await noWindowLetIn();
+  const own = `${board.origin}/`;
+  const answer = path.join(board.windowDir, "send-answer");
+  const argsBefore = sendArguments(board.windowDir).length;
+  // a tab that does not exist (GONE), one showing another page (CHANGED), and
+  // an osascript that says nothing the board knows (Chrome not asked)
+  for (const [said, want] of [["GONE", "GONE"], ["CHANGED", "CHANGED"], ["execution error", null]]) {
+    const before = windowSends(board.windowDir).length;
+    await writeFile(answer, said + "\n");
+    let r;
+    try {
+      r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [[424242, 1, own]] }) });
+    } finally {
+      await rm(answer, { force: true });
+    }
+    assert.deepEqual([r.status, json(r)], [200, { sent: [want] }], said);
+    const sends = windowSends(board.windowDir).slice(before);
+    assert.deepEqual(sends.map(([wid, place, expected]) => [wid, place, expected]), [["424242", "1", own]], said);
+    const code = new URL(sends[0][3]).searchParams.get("launch");
+    assert.match(code, /^[A-Za-z0-9_-]{32}$/, said);
+    // someone else who got hold of that code, as Chrome would open it
+    const taken = await raw("GET", `/?launch=${code}`, { headers: OPEN });
+    assert.deepEqual([taken.status, taken.headers["set-cookie"]], [401, undefined],
+      `${said}: the code of a send that did not take still set the window cookie`);
+  }
+  // a page with a quote and a backslash in it reaches the script as it is,
+  // the address it is sent to holding its project encoded, and one with
+  // anything but printable ASCII is sent nowhere
+  const quoted = `${board.origin}/?project=a"b\\c&d=\\"`;
+  const before = windowSends(board.windowDir).length;
+  const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+    [7, 4, quoted], [7, 5, `${board.origin}/?project=é`], [7, 6, `${board.origin}/?project=a b`]] }) });
+  assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", null, null] }]);
+  const sends = windowSends(board.windowDir).slice(before);
+  assert.equal(sends.length, 1, "a page that is not printable ASCII was written into a script");
+  assert.equal(sends[0][2], quoted);
+  assert.equal(sends[0][3],
+    `${board.origin}/?project=a%22b%5Cc&launch=${new URL(sends[0][3]).searchParams.get("launch")}`);
+  // osascript was given no argument but the "-" that names its standard input
+  const argv = sendArguments(board.windowDir).slice(argsBefore);
+  assert.equal(argv.length, 4);
+  for (const one of sendArguments(board.windowDir)) assert.deepEqual(one, ["-"], "osascript was given an argument");
+});
+
+test("no route answers with a launch code: the old one says so, and nothing the board serves holds one", async () => {
+  const old = await raw("POST", "/window/launch", { headers: key() });
+  assert.equal(old.status, 410);
+  assert.deepEqual(Object.keys(json(old)), ["error"]);
+  assert.equal(windowOpens(board.windowDir).length + windowSends(board.windowDir).length > 0, true);
+  // codes still good, and some spent, are in the board's memory now; none of
+  // them is in any answer to a reading of any route, nor in the board's log
+  await launchCode();
+  await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [[9, 1, `${board.origin}/`]] }) });
+  const codes = codesGiven();
+  assert.ok(codes.length >= 10, `only ${codes.length} codes were given`);
+  const source = await readFile(path.join(ROOT, "server.py"), "utf8");
+  const reads = [...source.matchAll(/Route\("(\/[^"{]*)", [^\n]*methods=\[[^\]]*"GET"/g)].map(m => m[1])
+    .filter(route => !["/wait", "/events"].includes(route));
+  assert.ok(reads.length > 40, `only ${reads.length} routes were read`);
+  const cookie = await windowCookie();
+  for (const route of reads) {
+    for (const headers of [key(), { ...page(), Cookie: cookie }]) {
+      const r = await Promise.race([raw("GET", route, { headers }),
+                                    new Promise(resolve => setTimeout(() => resolve({ text: "" }), 3000))]);
+      for (const code of codes) assert.equal(r.text.includes(code), false, `GET ${route} answered with a code`);
+    }
+  }
+  for (const route of ["/window/open", "/window/relaunch", "/window/launch"]) {
+    const r = await raw("POST", route, { headers: key(), body: route === "/window/relaunch"
+      ? JSON.stringify({ tabs: [[9, 1, `${board.origin}/`]] }) : "" });
+    for (const code of codesGiven()) assert.equal(r.text.includes(code), false, `POST ${route} answered with a code`);
+  }
+  const logged = (await Promise.all((await readdir(board.logs)).map(n => readFile(path.join(board.logs, n), "utf8")))).join("");
+  for (const code of codesGiven()) assert.equal(logged.includes(code), false, "a launch code was written to the log");
+  // the one place a code is made is the one that puts it in an address for Chrome
+  assert.deepEqual([...source.matchAll(/_new_launch\(\)/g)].length, 2, "a code is made somewhere new");
+  assert.match(source, /def _with_launch\(page: str\) -> tuple:\s+"""[^"]*"""\s+code = _new_launch\(\)\n[^]*?"launch=" \+ code\)/);
+});
+
+// the command, through this board: what it asks the board and what it runs
+function commandWith(code) {
+  return cli([
+    "ran = []",
     "class Done:",
     "    returncode = 0",
     "    stderr = ''",
-    "cli.subprocess.run = lambda command, **kw: opened.append(command) or Done()",
+    "cli.subprocess.run = lambda command, **kw: ran.append(command) or Done()",
+    // whether this Mac lets the command control Chrome decides only the step
+    // that brings Chrome forward (cli-quiet.test.cjs), never what is opened
+    "cli.chrome_allowed = lambda: False",
+    code,
+  ].join("\n"));
+}
+
+test("the command has the board open its window, and opens any other page itself, with no code", async () => {
+  const before = windowOpens(board.windowDir).length;
+  const { stdout } = await commandWith([
     `cli.open_app({'port': ${board.port}}, False)`,
     `cli.open_app({'port': ${board.port}, 'app_url': 'https://board.example.com/'}, False)`,
-    "print(json.dumps(opened))",
+    "print(json.dumps(ran))",
   ].join("\n"));
-  const [mine, elsewhere] = JSON.parse(stdout.trim());
-  assert.deepEqual(mine.slice(0, 4), ["open", "-na", "Google Chrome", "--args"]);
-  const url = new URL(mine[4].replace(/^--app=/, ""));
-  assert.equal(url.origin + url.pathname, `${board.origin}/`);
-  const code = url.searchParams.get("launch");
-  assert.match(code, /^[A-Za-z0-9_-]{32}$/);
-  // another page than this board's is opened as it is, with no code
-  assert.equal(elsewhere[4], "--app=https://board.example.com/");
+  // the board's own page: the board opened it, and the command ran nothing
+  assert.equal(windowOpens(board.windowDir).length, before + 1);
+  const { argv, code } = lastOpen();
+  assert.deepEqual(argv, ["-na", "Google Chrome", "--args", `--app=${board.origin}/?launch=${code}`]);
+  // another page than this board's is opened by the command as it is
+  assert.deepEqual(JSON.parse(stdout.trim()), [["open", "-na", "Google Chrome", "--args", "--app=https://board.example.com/"]]);
   const opened = await raw("GET", `/?launch=${code}`, { headers: OPEN });
   assert.equal(opened.status, 303);
   assert.ok(opened.headers["set-cookie"][0].startsWith(`${cookieName()}=`));
+});
+
+test("a window the board could not open is the command's same one line", async () => {
+  const fails = path.join(board.windowDir, "open-fails");
+  await writeFile(fails, "Unable to find application named 'Google Chrome'\n");
+  try {
+    const { stdout } = await commandWith([`cli.open_app({'port': ${board.port}}, False)`, "print(json.dumps(ran))"].join("\n"));
+    assert.deepEqual(stdout.trim().split("\n"), [
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`,
+      "[]"]);
+  } finally {
+    await rm(fails, { force: true });
+  }
+});
+
+test("the command reads Chrome's tabs and the board sends the ones showing it on, so no code reaches the command", async () => {
+  const before = windowSends(board.windowDir).length;
+  const { stdout } = await commandWith([
+    `cli.chrome_tabs = lambda: [(7, ["chrome://newtab/", "${board.origin}/?project=pastureland"]), (8, ["https://example.com/"])]`,
+    "asked = []",
+    "real = cli.board_window",
+    "cli.board_window = lambda *a: asked.append(a[1]) or real(*a)",
+    `found = cli.relaunch_board_tabs({'port': ${board.port}})`,
+    "cli.chrome_tabs = lambda: None",
+    `unknown = cli.relaunch_board_tabs({'port': ${board.port}})`,
+    "cli.chrome_tabs = lambda: [(8, ['https://example.com/'])]",
+    `none = cli.relaunch_board_tabs({'port': ${board.port}})`,
+    "print(json.dumps({'found': found, 'unknown': unknown, 'none': none, 'asked': asked, 'ran': ran}))",
+  ].join("\n"));
+  const got = JSON.parse(stdout.trim());
+  assert.deepEqual(got, { found: 1, unknown: null, none: 0, asked: ["/window/relaunch"], ran: [] });
+  const sends = windowSends(board.windowDir).slice(before);
+  assert.equal(sends.length, 1);
+  assert.deepEqual(sends[0].slice(0, 3), ["7", "2", `${board.origin}/?project=pastureland`]);
+  // the board has let a window in by now, so the tab just loads its page again
+  assert.equal(sends[0][3], `${board.origin}/?project=pastureland`);
 });

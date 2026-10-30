@@ -595,7 +595,7 @@ test("a send whose reply was lost, then a sleep past the horizon: nothing more i
     await page.keyboard.press("Enter");
     await ringShown(page, 6000);
     assert.deepEqual(await pendingOn("0"), ["Landed, then the phone slept"], "the first try did not reach the board");
-    // half a day passes on the phone's clock
+    // 15 minutes pass on the phone's clock
     const opId = await page.evaluate(() => {
       const op = ops.find(o => o.state === "pending");
       op.ts = Date.now() - OP_GIVE_UP_MS - 1000;
@@ -643,7 +643,7 @@ test("an unsure send the board has no receipt of is settled as not sent inside t
       await page.keyboard.press("Enter");
     }
     await page.waitForFunction(() => document.querySelectorAll("article.box.sel .sentwrap .answmsg[data-op]").length === 2, { timeout: 5000 });
-    // the first is half a day old, the second older than the window where
+    // the first is past the 15 minutes, the second older than the window where
     // "unknown" still proves anything
     await page.evaluate(() => {
       const [young, old] = ops;

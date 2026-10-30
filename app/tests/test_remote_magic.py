@@ -593,7 +593,7 @@ class TheCommand(unittest.TestCase):
     def test_off_a_server_or_with_no_key_it_says_so(self):
         r = self.magic("m1", "text", "words")
         self.assertEqual((r.returncode, r.stderr.strip()),
-                         (1, "magic: this is not one of the owner's servers; on the Mac run facilitator magic"))
+                         (1, "magic: this is not one of the person's servers; on the Mac run facilitator magic"))
         self.serve()
         for held in (self.top / "agents").glob("*.key"):
             held.unlink()

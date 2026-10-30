@@ -5,9 +5,9 @@ On the Mac every call carries the board's agent key, which the board keeps in
 data/agent.key with a curl config beside it, data/agent.curl, and inspect
 names that file for the runbook's curl lines once the board has made it.
 
-On one of the owner's servers, where the setup program (scripts/pair.py) put
+On one of the person's servers, where the setup program (scripts/pair.py) put
 this skill in ~/.facilitator/skill with remote.json beside it, the board is
-on the owner's Mac and is reached by connecting out to its agent door over
+on the person's Mac and is reached by connecting out to its agent door over
 the tailnet, never by the Mac logging in here. inspect makes sure this
 server's link runs (scripts/link.py), then joins the lane with the server's
 key, which gives this agent a key of its own for the lane, kept in
@@ -241,7 +241,7 @@ class Blocked(LinkDown):
     trying again in the same place does not help."""
 
 
-BLOCKED = "Access to the board on the owner's Mac was denied by the operating system or sandbox."
+BLOCKED = "Access to the board on the person's Mac was denied by the operating system or sandbox."
 
 
 # no proxy, ever: a proxy named in this account's settings would be handed
