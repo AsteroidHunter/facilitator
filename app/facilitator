@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """facilitator: board CLI.
 
-  facilitator run [--attach] [--spawn] [--force] [--dry-run]
-      start the server and the app window. That is all it touches by default:
+  facilitator run [--dry-run]
+      start the server and the app window. That is all it touches:
       it says the board is up and nothing more. The board listens on the port
       in run.config.json and the one above it; when something else holds that
       pair, run moves the board to the next free pair, writes the new port
@@ -15,12 +15,11 @@
       prints one line saying the phone link is off and why, and the board is
       up all the same. With no password set it does nothing about the bridge.
       When the board stopped itself after three days unused, run says so
-      first, in one line, once (see stop below).
-      --attach types the attach
-      instruction into the lane's existing tmux claude (send-keys), and
-      --spawn additionally creates a fresh session
-      for lanes with no reachable one. --force ignores the lane-covered guard.
-      --dry-run names the bridge step too.
+      first, in one line, once (see stop below). It never touches a lane or
+      an agent; a lane's tmux, instruction and prompt in run.config.json,
+      left from older versions, are not read.
+      --dry-run says what it would do, the bridge step included, and does
+      nothing.
   facilitator restart [--dry-run]
       stop this board's server and start it again on the same port. One
       process is stopped: the one holding the listening socket, read back as
@@ -172,7 +171,7 @@
 
 The program lives in app/ inside the checkout, and everything the board writes
 lives in data/ beside it, which git ignores. Reads data/run.config.json:
-machine-local, since lanes name real directories and tmux sessions;
+machine-local, since lanes name real directories;
 ./install.sh writes it from app/run.config.example.json for you to fill in.
 This script is Python stdlib only and runs on the python3 macOS ships (3.9 or
 newer); ./install.sh builds the server's data/.venv on a Python 3.14 that uv
@@ -410,7 +409,8 @@ def json_kind(value):
 
 
 def check_lanes(cfg):
-    """Lanes must be objects with an owner; other keys are read where used."""
+    """Lanes must be objects with an owner. The server reads a lane's dir;
+    the tmux, instruction and prompt older lanes carry are not read."""
     if "lanes" not in cfg:
         sys.exit(f'{CONFIG.name} has no "lanes"; copy run.config.example.json and fill in real lanes')
     for index, lane in enumerate(cfg["lanes"], 1):
@@ -418,12 +418,6 @@ def check_lanes(cfg):
             sys.exit(f"{CONFIG.name}: lane {index} must be an object, not {json_kind(lane)}")
         if not isinstance(lane.get("owner"), str) or not lane["owner"]:
             sys.exit(f'{CONFIG.name}: lane {index} has no "owner"')
-
-
-def lane_value(lane, key):
-    if key not in lane:
-        sys.exit(f'{CONFIG.name}: lane {lane["owner"]} has no "{key}"')
-    return lane[key]
 
 
 def agent_key():
@@ -805,16 +799,6 @@ def open_app(cfg, dry):
         said = (opened.stderr or "").strip().splitlines()
         detail = f" ({said[0]})" if said else ""
         print(f"could not open Chrome{detail}; open {url} yourself")
-
-
-def lane_covered(st, owner):
-    """True when some agent has this lane: attached right now, mid-claim, or
-    heard from within 30 min (between long-poll cycles listening reads false)."""
-    if st is None:
-        return False
-    if st["listening"].get(owner) or st["busy"].get(owner):
-        return True
-    return st["listenerGap"].get(owner, 9e9) < 1800
 
 
 # --- restart: finding, stopping and starting this board's own server -------
@@ -1833,76 +1817,6 @@ def close_board_windows(cfg, port):
     return lines
 
 
-def claude_pane(name):
-    """Pane id of the claude running anywhere inside tmux session `name`.
-    None = no such session; "" = session exists but no claude pane."""
-    if not shutil.which("tmux"):
-        return None
-    r = subprocess.run(["tmux", "list-panes", "-s", "-t", name,
-                        "-F", "#{pane_id} #{pane_current_command}"],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    for line in r.stdout.splitlines():
-        pid, _, cmd = line.partition(" ")
-        if cmd.startswith("claude") or cmd == "node":
-            return pid
-    return ""
-
-
-def instruct(lane, dry):
-    """Type the attach instruction into the claude PANE of the lane's tmux
-    session (a session's active pane may be a bare shell; the claude can live
-    in any pane). Verifies the text landed before pressing Enter. Never types
-    into a shell. Returns (delivered, why); why says what is missing, or None."""
-    name, text = lane.get("tmux"), lane_value(lane, "instruction")
-    if not name:
-        return False, None
-    pane = claude_pane(name)
-    if pane is None:
-        return False, f"tmux session {name} not found"
-    if not pane:
-        return False, f"no claude pane inside tmux {name}; not typing into shells"
-    if dry:
-        print(f"listener {lane['owner']}: would send the attach instruction to tmux {name} pane {pane}")
-        return True, None
-    subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], check=True)
-    time.sleep(1)
-    seen = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
-                          capture_output=True, text=True).stdout
-    if text[:40] not in seen:
-        print(f"lane {lane['owner']}: instruction did not land in pane {pane}; Enter NOT pressed")
-        return False, None
-    subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], check=True)
-    print(f"lane {lane['owner']}: instructed the claude in tmux {name} (pane {pane})")
-    return True, None
-
-
-def spawn(lane, dry):
-    """Create a FRESH claude session for the lane (only ever on --spawn)."""
-    owner = lane["owner"]
-    d, prompt = str(Path(lane_value(lane, "dir")).expanduser()), lane_value(lane, "prompt")
-    if dry:
-        print(f"listener {owner}: would spawn a NEW claude session in {d}")
-        return
-    if shutil.which("tmux"):
-        name = f"facil-{owner}"
-        if subprocess.run(["tmux", "has-session", "-t", name], capture_output=True).returncode == 0:
-            print(f"lane {owner}: tmux session {name} already exists; attach with: tmux attach -t {name}")
-            return
-        subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", d, "claude", prompt], check=True)
-        term_cmd = f"tmux attach -t {name}"
-        how = f"tmux {name}"
-    else:
-        term_cmd = f"cd {shlex.quote(d)} && claude {shlex.quote(prompt)}"
-        how = "terminal window"
-    esc = term_cmd.replace("\\", "\\\\").replace('"', '\\"')
-    subprocess.run(["osascript",
-                    "-e", f'tell application "Terminal" to do script "{esc}"',
-                    "-e", 'tell application "Terminal" to activate'], check=False)
-    print(f"lane {owner}: spawned NEW session ({how})")
-
-
 # --- the idle stop: TEMPORARY, the Chrome-window version only ---------------
 # The board stops itself after three days with no activity (server.py, the
 # idle stop) and writes this marker before it starts the stop; run and status
@@ -1925,21 +1839,16 @@ def idle_stop_note():
 
 
 def cmd_run(args):
-    """Server and window only, by default. The CLI never touches tmux unless
-    asked: --attach types the instruction into existing lane sessions, --spawn
-    creates fresh ones. A real run says the board is up and nothing more, and
-    those two options add one line per lane they act on; --dry-run keeps its
-    longer account. A board that had to move to a free pair gets one line more
-    saying so, and the phone's link is pointed at the new pair with it. On a
-    checkout with a phone password the link is then left on, silently when it
-    is, and in one line when it cannot be. A board that stopped itself after
-    three days unused is said first, once, before the board starts."""
+    """Server and window, and nothing about any lane or agent. A real run says
+    the board is up and nothing more; --dry-run keeps its longer account. A
+    board that had to move to a free pair gets one line more saying so, and
+    the phone's link is pointed at the new pair with it. On a checkout with a
+    phone password the link is then left on, silently when it is, and in one
+    line when it cannot be. A board that stopped itself after three days
+    unused is said first, once, before the board starts."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
-    force = "--force" in args
-    do_spawn = "--spawn" in args
-    do_attach = "--attach" in args or do_spawn
     if not dry:
         # read before the board starts, since a start takes the marker away
         said = idle_stop_note()
@@ -1966,39 +1875,6 @@ def cmd_run(args):
             said = follow_bridge("on", port)
             if said:
                 print(said)
-    st = state(port)
-    for lane in cfg["lanes"]:
-        ow = lane["owner"]
-        if not force and lane_covered(st, ow):
-            if dry:
-                if st["busy"].get(ow):
-                    why = f"mid-claim on box {st['busy'][ow]}"
-                elif st["listening"].get(ow):
-                    why = "attached right now"
-                else:
-                    why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
-                print(f"listener {ow}: lane covered ({why})")
-            continue
-        if not do_attach:
-            if dry:
-                print(f"listener {ow}: not attached. Tell that agent to start listening, or\n"
-                      f"  rerun with --attach to type the instruction into its tmux session:\n"
-                      f"  {lane_value(lane, 'instruction')}")
-            continue
-        delivered, why = instruct(lane, dry)
-        if delivered:
-            continue
-        if dry and why:
-            print(f"listener {ow}: {why}")
-        if do_spawn:
-            spawn(lane, dry)
-        elif dry:
-            print(f"listener {ow}: no reachable session. Paste this into the right claude yourself,\n"
-                  f"  or rerun with --spawn to create a fresh session:\n"
-                  f"  {lane['instruction']}")
-        else:
-            print(f"lane {ow}: {why or 'no reachable session'}; paste this into its claude, "
-                  f"or rerun with --spawn: {lane['instruction']}")
 
 
 # set once a restart has sent the board's own tabs on (cmd_restart), so an
@@ -2011,8 +1887,8 @@ def cmd_restart(args):
     every Chrome tab showing it (relaunch_board_tabs). Nothing here touches a
     lane, a tmux session or the bridge: restart is about the server, the
     board's own tabs and, at most, one new window. Unknown words are refused
-    rather than ignored, so a run flag typed here cannot quietly turn into
-    attaching, spawning or forcing anything."""
+    rather than ignored, so a flag meant for another command, such as stop's
+    --force, cannot quietly pass as part of a restart."""
     extra = [a for a in args[1:] if a != "--dry-run"]
     if extra:
         sys.exit("restart takes --dry-run and nothing else; got " + " ".join(extra))
