@@ -69,19 +69,19 @@
   facilitator magic CARD widget
       fill a card's magic box, the box beside the card on the Mac
       board and above it on the phone, and open it in place of what it held,
-      so an agent can show the owner what words carry badly without being
+      so an agent can show the person what words carry badly without being
       asked. It waits on its card and never takes the keys. KIND is text
       (shown as typed), markdown, html (a page of its own, run sealed off
       with no network), image (a picture file, or one https address the
       board downloads once) or url (one https website: shown live when it
       allows that, as a square holding the site's name, which opens it in a
       new page, when it does not). The box shows the content beside a short
-      bar whose cross lets the owner close it; --title is kept with it.
+      bar whose cross lets the person close it; --title is kept with it.
       CONTENT is
       the words or the address; --file sends a file's contents and - reads
       standard input. close hides the box and keeps it, reopen shows it
       again, show prints what the board says it holds. --widget makes an
-      html page a widget, which sends the owner's messages typed in it to
+      html page a widget, which sends the person's messages typed in it to
       the card's agent beside the card's own; answer puts the agent's answer
       about ABOUT, one of the page's own ids, into the widget and never on
       the card, and widget prints the widget's messages, answers and memory.
@@ -2176,7 +2176,7 @@ bytes for image) and - reads standard input. close hides the box and keeps
 it, reopen shows it again, show prints what it holds.
 
 --widget NAME (lowercase letters, digits and -) makes an html page a widget:
-the owner's messages typed in it reach you in /wait and /fresh as
+the person's messages typed in it reach you in /wait and /fresh as
 widget_messages, and never on the card. answer puts your answer about ABOUT,
 one of the page's own ids ("" for none), into the open widget, never on the
 card; --agent names you. widget prints the widget's messages, answers and

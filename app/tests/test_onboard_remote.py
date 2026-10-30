@@ -446,7 +446,7 @@ class OnAServer(unittest.TestCase):
         self.serve()     # the board answers; only this process may not reach it
         said = self.run_helper("inspect", blocked=True)[1]
         self.assertEqual(said["status"], "permission_denied")
-        self.assertEqual(said["detail"], "Access to the board on the owner's Mac was denied by the "
+        self.assertEqual(said["detail"], "Access to the board on the person's Mac was denied by the "
                                          "operating system or sandbox.")
         self.give_key()
         began = time.monotonic()

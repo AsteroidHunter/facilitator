@@ -493,9 +493,9 @@ test('the skill and the RUNBOOK loop state the 7 minute listen and no longer the
   assert.doesNotMatch(runbook, /timeout=50\b/);
 });
 
-test('the RUNBOOK says once, in its reply rules, to call the person by the name given at joining', async () => {
+test('the RUNBOOK says once, in its reply rules, to use the name given at joining sparingly, never in every reply', async () => {
   const runbook = await fs.readFile(path.join(ROOT, 'RUNBOOK.md'), 'utf8');
-  const sentence = 'Call the person by the name you were given when you joined; when you were given none, use no name.';
+  const sentence = "Use the person's name, as given when you joined, sparingly: only where it reads naturally, such as a greeting or a sentence that needs it, and never by default in every reply. When you were given none, use no name.";
   assert.equal(runbook.split(sentence).length, 2);
   assert.ok(runbook.split('\n## Replies\n')[1].split('\n## ')[0].includes(`\n- ${sentence}\n`));
   assert.doesNotMatch(runbook, /\{name\}/);
