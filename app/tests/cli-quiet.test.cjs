@@ -198,13 +198,13 @@ test("a window that fails to open is one plain line, and is never reported as op
     const done = await run(["run"], { board: "covered", config: { port: PORT, lanes: [LANES[0]] }, ...options });
     assert.deepEqual(done.said, [
       ...UP,
-      `could not open Chrome (Unable to find application named 'Google Chrome'); open ${BOARD} yourself`,
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`,
     ], JSON.stringify(options));
     assert.ok(!done.said.some(line => /opened/.test(line)), "a window that failed was called opened");
   }
   // a board that could say nothing of what open printed is still the one line
   const bare = await run(["run"], { board: "covered", opens: "", config: { port: PORT, lanes: [LANES[0]] } });
-  assert.deepEqual(bare.said, [...UP, `could not open Chrome; open ${BOARD} yourself`]);
+  assert.deepEqual(bare.said, [...UP, `could not open Chrome; open Chrome, then run facilitator run`]);
 });
 
 // after the board says it opened its window, the command brings Chrome to the
@@ -225,7 +225,7 @@ test("Chrome is brought forward once after the board opens its window, and never
   const failed = await run(["run"], { board: "covered", allowed: true, config: lanes,
                                       opens: "Unable to find application named 'Google Chrome'" });
   assert.deepEqual(failed.said, [...UP,
-    `could not open Chrome (Unable to find application named 'Google Chrome'); open ${BOARD} yourself`]);
+    `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`]);
   assert.deepEqual(forwarded(failed.calls), []);
   // a dry run, a board from before (the command's own open comes forward as it
   // always did), and a Mac that would have to ask first: nothing is activated

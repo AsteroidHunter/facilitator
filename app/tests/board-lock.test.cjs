@@ -708,7 +708,7 @@ test("a window the board could not open is the command's same one line", async (
   try {
     const { stdout } = await commandWith([`cli.open_app({'port': ${board.port}}, False)`, "print(json.dumps(ran))"].join("\n"));
     assert.deepEqual(stdout.trim().split("\n"), [
-      `could not open Chrome (Unable to find application named 'Google Chrome'); open http://127.0.0.1:${board.port} yourself`,
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`,
       "[]"]);
   } finally {
     await rm(fails, { force: true });

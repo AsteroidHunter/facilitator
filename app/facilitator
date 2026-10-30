@@ -843,8 +843,7 @@ def open_app(cfg, dry):
             bring_chrome_forward()
             return
         if answer is not None and answer[0] == 502:
-            said = str(answer[1].get("said") or "").strip()
-            print(f"could not open Chrome{f' ({said})' if said else ''}; open {url} yourself")
+            print(chrome_failed(str(answer[1].get("said") or "").strip()))
             return
     command = ["open", "-na", "Google Chrome", "--args", f"--app={url}"]
     if full:
@@ -852,8 +851,15 @@ def open_app(cfg, dry):
     opened = subprocess.run(command, capture_output=True, text=True, check=False)
     if opened.returncode != 0:
         said = (opened.stderr or "").strip().splitlines()
-        detail = f" ({said[0]})" if said else ""
-        print(f"could not open Chrome{detail}; open {url} yourself")
+        print(chrome_failed(said[0] if said else ""))
+
+
+def chrome_failed(said):
+    """The one line a window that did not open gets: that Chrome could not be
+    opened, with the first line open printed, and what to do. No address: the
+    board's plain address shows only its lock page, and a launch code printed
+    here would reach whatever ran the command."""
+    return f"could not open Chrome{f' ({said})' if said else ''}; open Chrome, then run facilitator run"
 
 
 # Chrome brought to the front, and nothing more, once the board has opened its

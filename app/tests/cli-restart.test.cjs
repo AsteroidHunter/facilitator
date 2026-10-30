@@ -1103,7 +1103,7 @@ test("a window that fails to open is said in one line, never reported as opened"
     assert.equal(run.ok, true, run.stderr);
     assert.deepEqual(run.said, [
       "Board restarted.",
-      `could not open Chrome (Unable to find application named 'Google Chrome'); open http://127.0.0.1:${port} yourself`,
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`,
     ], JSON.stringify(options));
     assert.equal(run.events.filter(e => e[0] === "run").length, options.openFails ? 1 : 0);
   }
