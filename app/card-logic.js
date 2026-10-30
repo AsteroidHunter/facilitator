@@ -9027,9 +9027,10 @@ function settingsOverlay(host, source, opts){
     if (downOutside && e.target === veil) close();
     downOutside = false;
   });
-  // and focus cannot wander onto the board behind it
+  // and focus cannot wander onto the board behind it. a pop-up standing over
+  // the page (.up-veil: the update's) keeps its own
   document.addEventListener("focusin", e => {
-    if (open && !seat.contains(e.target)) page.focus();
+    if (open && !seat.contains(e.target) && !(e.target.closest && e.target.closest(".up-veil.open"))) page.focus();
   });
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
