@@ -197,8 +197,12 @@ test("the rule: only a reading asked after the opening decides, and the screen g
       out.afterOpeningAnswer = { down: down(), opening };
       linkDown(openedAt + 20, null);
       out.afterAnsweredOpening = down();
+      // a page that has opened itself again once for a 401 (an ended sign-in)
+      // takes the next one as the board answering
       linkOpened();
+      sessionStorage.setItem(SIGNIN_RELOAD_MARK, "1");
       linkDown(openedAt, { status: 401 });
+      sessionStorage.removeItem(SIGNIN_RELOAD_MARK);
       out.afterRefusal = { down: down(), opening };
       linkOpened();
       linkDown(openedAt, { status: 403 });
@@ -341,12 +345,10 @@ test("opening: the first reading decides, an app in use is never covered", async
       await page.close();
     },
     async openedWithARefusal() {
-      for (const status of [401, 403]) {
-        const { page } = await openPhone("/m?box=1.1", { mode: "status", status });
-        await settle(5000);
-        assert.deepEqual(await downLog(page), [], `a ${status} on the first reading is the board answering`);
-        await page.close();
-      }
+      const { page } = await openPhone("/m?box=1.1", { mode: "status", status: 403 });
+      await settle(5000);
+      assert.deepEqual(await downLog(page), [], "a 403 on the first reading is the board answering");
+      await page.close();
     },
     async inUseWhileTyping() {
       const { page, reads } = await openPhone("/m?box=1.1");
@@ -378,9 +380,39 @@ test("opening: the first reading decides, an app in use is never covered", async
     async inUseRefused() {
       const { page, reads } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
-      reads.mode = "status"; reads.status = 401;
+      reads.mode = "status"; reads.status = 403;
       await settle(8000);
-      assert.deepEqual(await downLog(page), [], "a 401 is the board answering");
+      assert.deepEqual(await downLog(page), [], "a 403 is the board answering");
+      await page.close();
+    },
+    async inUseSignInEnded() {
+      // a 401 is the sign-in ended: the page opens itself again, where the
+      // phone's door shows the password page. Here the copy's own port answers
+      // the open with the app, and its readings are refused again: it opens
+      // once, never over and over, and never shows the white screen
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      // every page load from here on is counted in the tab's own storage
+      await page.evaluateOnNewDocument(() => {
+        sessionStorage.setItem("__opens", String(Number(sessionStorage.getItem("__opens") || 0) + 1));
+      });
+      await page.evaluate(() => { window.__before = true; });
+      reads.mode = "status"; reads.status = 401;
+      // with the live line up, a reading waits for a change; one is asked for here
+      await page.evaluate(() => { poll(); });
+      await page.waitForFunction(() => !window.__before && document.readyState === "complete" &&
+        typeof poll === "function", { polling: 100, timeout: 10000 });
+      await page.evaluate(() => { poll(); });
+      await settle(6000);
+      assert.equal(await page.evaluate(() => sessionStorage.getItem("__opens")), "1",
+        "the page did not open itself again exactly once");
+      assert.deepEqual(await downLog(page), [], "an ended sign-in brought the white screen up");
+      // signed in again: a good reading lets the mark go
+      reads.mode = "pass";
+      await page.evaluate(() => { poll(); });
+      await boardDrawn(page);
+      await page.waitForFunction(() => sessionStorage.getItem("facilitator-signin-reload") === null,
+        { polling: 100, timeout: 10000 });
       await page.close();
     },
     async inUseSlowRead() {
@@ -426,9 +458,28 @@ test("opening: the first reading decides, an app in use is never covered", async
     async comingBackToTheScreenWithARefusal() {
       const { page, reads } = await openPhone("/m?box=1.1");
       await boardDrawn(page);
-      reads.mode = "status"; reads.status = 401;
+      reads.mode = "status"; reads.status = 403;
       await leaveAndReturn(page);
       await settle(4000);
+      assert.deepEqual(await downLog(page), []);
+      await page.close();
+    },
+    async comingBackToTheScreenAfterTheSignInEnded() {
+      const { page, reads } = await openPhone("/m?box=1.1");
+      await boardDrawn(page);
+      // put away, the sign-in ends, and coming back reads at once
+      await page.evaluate(() => {
+        window.__before = true;
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await settle(200);
+      reads.mode = "status"; reads.status = 401;
+      await page.evaluate(() => {
+        delete document.hidden;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.waitForFunction(() => !window.__before, { polling: 100, timeout: 10000 });
       assert.deepEqual(await downLog(page), []);
       await page.close();
     },
