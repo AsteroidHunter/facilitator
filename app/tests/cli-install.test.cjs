@@ -167,9 +167,11 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     `        return types.SimpleNamespace(returncode=${shFails ? 1 : 0}, stdout=b'downloading uv\\ninstalling to /fake/home\\n', stderr=b'the fake installer could not write uv\\n')`,
     "    raise AssertionError('unexpected subprocess: ' + ' '.join(map(str, argv)))",
     "cli.subprocess.run = fake_run",
-    up
-      ? "cli.state = lambda port, timeout=2: {'boxes': [], 'listening': {}, 'busy': {}, 'listenerGap': {}}"
-      : "cli.state = lambda port, timeout=2: None",
+    up === "refused"
+      ? "cli.state = lambda port, timeout=2: cli.REFUSED"
+      : up
+        ? "cli.state = lambda port, timeout=2: {'boxes': [], 'listening': {}, 'busy': {}, 'listenerGap': {}}"
+        : "cli.state = lambda port, timeout=2: None",
     "cli.find_tailscale = lambda: None",
   ].join("\n");
 }
@@ -1001,6 +1003,17 @@ test("uninstall refuses while the board answers on the port, and removes nothing
   assert.doesNotMatch(res.out, /Keep your card attachments/, "a refused uninstall asked about attachments");
   // nothing was removed
   assert.ok(installed(res.files), "files were removed while the board was up");
+});
+
+test("uninstall refuses while the port turns this folder's key away, and removes nothing", async () => {
+  const dir = await freshClone();
+  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+
+  const res = await run(dir, stubs({ up: "refused" }) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  assert.equal(typeof res.exit, "string", "a board that refused the key did not stop the uninstall");
+  assert.match(res.exit, /^\n⚠ Something is up on port \d+ and turned away this folder's key \(.*agent\.key\)\.\n  Stop that server first, then run uninstall again\.$/, res.exit);
+  assert.doesNotMatch(res.out, /Keep your card attachments/, "a refused uninstall asked about attachments");
+  assert.ok(installed(res.files), "files were removed while a board was up");
 });
 
 test("uninstall prints the bridge-off command when a bridge is active", async () => {
