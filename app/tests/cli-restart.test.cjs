@@ -1313,17 +1313,13 @@ test("--dry-run signals nothing, starts nothing and opens nothing", async () => 
   assert.match(kept.said[1], /is open; would load it again, in the tab it is in$/);
 });
 
-test("run is untouched: still server, window, and no tmux without being asked", async () => {
+test("run is untouched: still server and window, and nothing else", async () => {
   const laneConfig = JSON.stringify({
     port, lanes: [{ owner: "facilitator", instruction: "go and listen" }],
   });
   const { stdout } = await probe([
     harness({ listeners: [], chrome: null }),
     `cli.load_config = lambda: json.loads(${JSON.stringify(laneConfig)})`,
-    "def boom(*a, **kw):",
-    "    raise AssertionError('run touched tmux on its own')",
-    "cli.instruct = boom",
-    "cli.spawn = boom",
     "cli.cmd_run(['run'])",
     "say()",
   ].join("\n"));

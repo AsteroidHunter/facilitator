@@ -496,7 +496,8 @@ Endpoints:
                                signed with a VAPID token openssl produces; the
                                phone's worker uses that event identity directly.
                                A subscription the push service reports gone
-                               (404, 410) is dropped.
+                               (404, 410) is dropped, and so is one whose
+                               bridge session has ended.
                                Each subscribe, unsubscribe, drop and skipped
                                session writes one log line with a short hash of
                                the endpoint and the number now stored
@@ -5343,7 +5344,8 @@ def _push_turn(bid: str) -> None:
     Runs on its own thread: it reads the subscriptions under the lock, checks
     that Tailscale is connected and serving this board before each send, talks
     to push services with the lock released, and takes it again only to keep
-    successes or drop subscriptions the services report gone."""
+    successes or drop subscriptions the services report gone and the ones
+    whose sign-in has ended."""
     with _lock:
         subs = list(_state.get("push_subs", []))
         box = _box(bid)
@@ -5351,13 +5353,19 @@ def _push_turn(bid: str) -> None:
                              separators=(",", ":")).encode()
     gone = []
     gone_status = {}
+    ended = set()   # (endpoint, session) of the ones whose sign-in has ended
     worked = None
     for sub in subs:
-        # A sign-out or password change invalidates delivery as well as HTTP
-        # access. Pre-upgrade subscriptions have no session and are skipped.
+        # A sign-out, a password change or 30 days unused ends a sign-in, and
+        # with it delivery as well as HTTP access. Its subscription is skipped,
+        # said so once, and dropped below; a phone that signs in again sends
+        # its subscription again. Pre-upgrade subscriptions have no session and
+        # go the same way.
         if _BRIDGE_AUTH is None or not _BRIDGE_AUTH.has_session_digest(sub.get("session")):
             _info("pushsession", bid, rec=_push_rec(sub.get("endpoint", "")),
                   reason="no live session", count=len(subs))
+            if _BRIDGE_AUTH is not None:
+                ended.add((sub.get("endpoint"), sub.get("session")))
             continue
         # Probe immediately before every service call. A bridge can go down
         # while an earlier phone's push service is answering, and that must
@@ -5383,17 +5391,20 @@ def _push_turn(bid: str) -> None:
         if code in (404, 410):
             gone.append(sub["endpoint"])
             gone_status[sub["endpoint"]] = code
-    if gone or worked:
+    if gone or worked or ended:
         with _lock:
             if worked:
                 # what the next start line reads, so a board coming back up can
                 # say when a phone was last actually reached
                 _state["push_last_ok"] = {"ts": time.time(), "host": worked}
             dropped = []
-            if gone:
+            if gone or ended:
                 held = _state.get("push_subs", [])
                 dropped = [s["endpoint"] for s in held if s.get("endpoint") in gone]
-                _state["push_subs"] = [s for s in held if s.get("endpoint") not in gone]
+                # an ended one goes only if it still names the ended sign-in: a
+                # phone that signed in again meanwhile has sent a new record
+                _state["push_subs"] = [s for s in held if s.get("endpoint") not in gone
+                                       and (s.get("endpoint"), s.get("session")) not in ended]
             _save()
             for endpoint in dropped:
                 _info("pushgone", bid, rec=_push_rec(endpoint), status=gone_status[endpoint],

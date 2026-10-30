@@ -222,3 +222,41 @@ test("a write the board did not answer goes again; one it refused is let go; lea
   assert.equal(leaving.calls[0].keepalive, true);
   assert.deepEqual(leaving.calls[0].body, { bgcolor: "#010101" });
 });
+
+test("a reading that changes values hands the changed keys to the page once they are in, and no others", async () => {
+  const b = board({ bgcolor: "#111111", tocw: "200" });
+  const c = clock();
+  const s = create({ seed: { rev: 1, values: { ...b.values } }, local: storage(), fetch: b.fetch, now: c.now, later: c.later });
+  const heard = [];
+  s.onChange(keys => heard.push({ keys: [...keys].sort(), newlayout: s.getItem("newlayout") }));
+  // another window turns the new layout on and changes nothing else
+  b.values.newlayout = "1";
+  b.rev += 1;
+  s.notice(b.rev);
+  assert.deepEqual(heard, [], "the page was told before the values came");
+  await c.run();
+  assert.deepEqual(heard, [{ keys: ["newlayout"], newlayout: "1" }]);
+  // a reading with nothing new tells the page nothing
+  b.rev += 1;
+  s.notice(b.rev);
+  await c.run();
+  assert.equal(heard.length, 1);
+  // a key taken away is a change too; a key this window holds is not
+  s.setItem("bgcolor", "#222222");
+  await c.run();
+  heard.length = 0;
+  delete b.values.newlayout;
+  b.values.bgcolor = "#333333";
+  b.rev += 1;
+  s.notice(b.rev);
+  await c.run();
+  assert.deepEqual(heard, [{ keys: ["newlayout"], newlayout: null }]);
+  // and a call that throws leaves the store working
+  s.onChange(() => { throw new Error("a page's call failed"); });
+  b.values.tocw = "300";
+  b.rev += 1;
+  s.notice(b.rev);
+  await c.run();
+  assert.equal(s.getItem("tocw"), "300");
+  assert.deepEqual(heard.at(-1).keys, ["tocw"]);
+});

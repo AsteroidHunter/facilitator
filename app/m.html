@@ -6113,7 +6113,22 @@ function linkTouched(){
   // a touch on the white screen itself is not use of the app
   if (opening && !document.body.classList.contains("down")) opening = false;
 }
+// a 401 is the phone's sign-in ended: signed out, the phone password changed
+// on the Mac, or 30 days unused. The page opens itself again, and the board
+// answers that open with the password page. The mark kept for this tab stops a
+// page that is refused again from opening itself over and over, and the next
+// good reading lets it go (readBoard)
+const SIGNIN_RELOAD_MARK = "facilitator-signin-reload";
+function signinEnded(){
+  try {
+    if (sessionStorage.getItem(SIGNIN_RELOAD_MARK)) return false;
+    sessionStorage.setItem(SIGNIN_RELOAD_MARK, "1");
+  } catch (_) { return false; }
+  location.reload();
+  return true;
+}
 function linkDown(asked, response){
+  if (response && response.status === 401 && signinEnded()) return;
   // an answer that refuses is still an answer: the board is there
   if (response && (response.status === 401 || response.status === 403)){ linkUp(asked); return; }
   if (opening && asked >= openedAt && !document.body.classList.contains("down")){
@@ -6288,6 +6303,7 @@ async function readBoard(){
     try {
       pollFails = 0; pollGap = POLL_MS;
       linkUp(asked);
+      try { sessionStorage.removeItem(SIGNIN_RELOAD_MARK); } catch (_) {}
       startupAnswered();   // a reading got through: the startup globe turns again
       versionSeen(data.version);
       if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
