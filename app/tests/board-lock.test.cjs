@@ -24,7 +24,7 @@ const path = require("node:path");
 const { promisify } = require("node:util");
 const vm = require("node:vm");
 const { ROOT, startBoard } = require("./board-fixture.cjs");
-const { windowOpens, windowSends } = require("./fixture-auth.cjs");
+const { sendArguments, windowOpens, windowSends } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const LIFE = 2;   // seconds a launch code lives in this copy, so its end can be waited for
@@ -433,6 +433,10 @@ test("a window Chrome would not open is passed back with what open said, for the
     const r = await raw("POST", "/window/open", { headers: key() });
     assert.deepEqual([r.status, json(r)],
       [502, { error: "could not open Chrome", said: "Unable to find application named 'Google Chrome'" }]);
+    // the code put in that window's address is cancelled, so it lets nothing in
+    const taken = await raw("GET", `/?launch=${lastOpen().code}`, { headers: OPEN });
+    assert.deepEqual([taken.status, taken.headers["set-cookie"]], [401, undefined],
+      "the code of a window that did not open still set the window cookie");
   } finally {
     await rm(fails, { force: true });
   }
@@ -472,6 +476,48 @@ test("a relaunch sends each board tab, where it is, to its own page with a code 
     assert.equal((await raw("POST", "/window/relaunch", { headers: key(), body })).status, 400, body);
 });
 
+test("a send that does not end SENT cancels its code at once, and osascript is given no code", async () => {
+  const own = `${board.origin}/`;
+  const answer = path.join(board.windowDir, "send-answer");
+  const argsBefore = sendArguments(board.windowDir).length;
+  // a tab that does not exist (GONE), one showing another page (CHANGED), and
+  // an osascript that says nothing the board knows (Chrome not asked)
+  for (const [said, want] of [["GONE", "GONE"], ["CHANGED", "CHANGED"], ["execution error", null]]) {
+    const before = windowSends(board.windowDir).length;
+    await writeFile(answer, said + "\n");
+    let r;
+    try {
+      r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [[424242, 1, own]] }) });
+    } finally {
+      await rm(answer, { force: true });
+    }
+    assert.deepEqual([r.status, json(r)], [200, { sent: [want] }], said);
+    const sends = windowSends(board.windowDir).slice(before);
+    assert.deepEqual(sends.map(([wid, place, expected]) => [wid, place, expected]), [["424242", "1", own]], said);
+    const code = new URL(sends[0][3]).searchParams.get("launch");
+    assert.match(code, /^[A-Za-z0-9_-]{32}$/, said);
+    // someone else who got hold of that code, as Chrome would open it
+    const taken = await raw("GET", `/?launch=${code}`, { headers: OPEN });
+    assert.deepEqual([taken.status, taken.headers["set-cookie"]], [401, undefined],
+      `${said}: the code of a send that did not take still set the window cookie`);
+  }
+  // a page with a quote and a backslash in it reaches the script as it is,
+  // and one with anything but printable ASCII is sent nowhere
+  const quoted = `${board.origin}/?project=a"b\\c&d=\\"`;
+  const before = windowSends(board.windowDir).length;
+  const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+    [7, 4, quoted], [7, 5, `${board.origin}/?project=é`], [7, 6, `${board.origin}/?project=a b`]] }) });
+  assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", null, null] }]);
+  const sends = windowSends(board.windowDir).slice(before);
+  assert.equal(sends.length, 1, "a page that is not printable ASCII was written into a script");
+  assert.equal(sends[0][2], quoted);
+  assert.equal(sends[0][3], `${quoted}&launch=${new URL(sends[0][3]).searchParams.get("launch")}`);
+  // osascript was given no argument but the "-" that names its standard input
+  const argv = sendArguments(board.windowDir).slice(argsBefore);
+  assert.equal(argv.length, 4);
+  for (const one of sendArguments(board.windowDir)) assert.deepEqual(one, ["-"], "osascript was given an argument");
+});
+
 test("no route answers with a launch code: the old one says so, and nothing the board serves holds one", async () => {
   const old = await raw("POST", "/window/launch", { headers: key() });
   assert.equal(old.status, 410);
@@ -504,7 +550,7 @@ test("no route answers with a launch code: the old one says so, and nothing the 
   for (const code of codesGiven()) assert.equal(logged.includes(code), false, "a launch code was written to the log");
   // the one place a code is made is the one that puts it in an address for Chrome
   assert.deepEqual([...source.matchAll(/_new_launch\(\)/g)].length, 2, "a code is made somewhere new");
-  assert.match(source, /def _with_launch\(page: str\) -> str:[^]*?"launch=" \+ _new_launch\(\)/);
+  assert.match(source, /def _with_launch\(page: str\) -> tuple:\s+"""[^"]*"""\s+code = _new_launch\(\)\n[^]*?"launch=" \+ code\)/);
 });
 
 // the command, through this board: what it asks the board and what it runs

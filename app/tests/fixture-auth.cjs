@@ -99,16 +99,28 @@ async function freePortPair() {
 // in place of the real ones, so no test ever opens a window on the screen or
 // asks the real Chrome. The stand-in open writes each call's arguments as a
 // line of opened.jsonl and fails, saying what open-fails holds, when that file
-// is there; the stand-in osascript writes the tab, its place, the page it must
-// still show and the address it is sent to as a line of sent.jsonl and answers
-// what send-answer holds, or SENT. windowOpens and windowSends read them back.
+// is there; the stand-in osascript writes its arguments as a line of
+// send-argv.jsonl, reads the script on its standard input, writes the tab, its
+// place, the page it must still show and the address it is sent to, as the
+// script's first lines set them, as a line of sent.jsonl, and answers what
+// send-answer holds, or SENT. windowOpens, sendArguments and windowSends read
+// them back.
 const STAND_IN = (log, take, after) => `#!/usr/bin/env python3
-import json, os, sys
+import json, os, re, sys
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, ${JSON.stringify(log)}), "a") as f:
     f.write(json.dumps(sys.argv[${take}:]) + "\\n")
 ${after}
 `;
+const READ_SCRIPT = String.raw`script = sys.stdin.read()
+def value(name):
+    found = re.search(r'^\s*set ' + name + r' to (\d+|"(?:[^"\\]|\\.)*")$', script, re.M)
+    if not found:
+        return None
+    text = found.group(1)
+    return text if text[0] != '"' else re.sub(r'\\(.)', r'\1', text[1:-1])
+with open(os.path.join(here, "sent.jsonl"), "a") as f:
+    f.write(json.dumps([value(n) for n in ("wanted", "place", "expected", "goal")]) + "\n")`;
 function stubWindow(source, dir) {
   fs.mkdirSync(dir, { recursive: true });
   const open = path.join(dir, 'open');
@@ -119,8 +131,9 @@ function stubWindow(source, dir) {
     '    sys.stderr.write(open(fails).read())',
     '    sys.exit(1)',
   ].join('\n')), { mode: 0o755 });
-  // past "-e SCRIPT": the window's id, the tab's place, the page, the address
-  fs.writeFileSync(osascript, STAND_IN('sent.jsonl', 3, [
+  // the window's id, the tab's place, the page, the address: from the script
+  fs.writeFileSync(osascript, STAND_IN('send-argv.jsonl', 1, [
+    READ_SCRIPT,
     'answer = os.path.join(here, "send-answer")',
     'print(open(answer).read().strip() if os.path.exists(answer) else "SENT")',
   ].join('\n')), { mode: 0o755 });
@@ -139,6 +152,7 @@ function readLines(file) {
 }
 const windowOpens = dir => readLines(path.join(dir, 'opened.jsonl'));
 const windowSends = dir => readLines(path.join(dir, 'sent.jsonl'));
+const sendArguments = dir => readLines(path.join(dir, 'send-argv.jsonl'));
 
-module.exports = { appFolder, copyBridgeFiles, dataOf, freePortPair, noProfile, PROFILE, stubWindow,
+module.exports = { appFolder, copyBridgeFiles, dataOf, freePortPair, noProfile, PROFILE, sendArguments, stubWindow,
                    windowOpens, windowSends };

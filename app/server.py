@@ -51,15 +51,17 @@ Endpoints:
                                on it with a launch code inside, full screen
                                when run.config.json's app_fullscreen is true.
                                {opened: true}, or 502 {error, said: the first
-                               line open printed}. With the agent key only
+                               line open printed}, and then the code is
+                               cancelled. With the agent key only
   POST /window/relaunch     -> {"tabs": [[window id, place, url], ...]}, the
                                Chrome tabs showing the board that `facilitator
                                restart` read: each one is sent, where it is,
                                to its own page with a launch code of its own
                                (the config's app_url page as it is; any other
                                page is left alone). {sent: ["SENT", "GONE",
-                               "CHANGED" or null, one per tab]}. With the
-                               agent key only
+                               "CHANGED" or null, one per tab]}; the code of
+                               every send that is not SENT is cancelled. With
+                               the agent key only
   POST /window/launch       -> 410: the board hands out no launch code. With
                                the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
@@ -2550,20 +2552,27 @@ def _lane_in_touch(ow: str) -> bool:
 # board the ones showing it (POST /window/relaunch), and the board sends each
 # one, where it is, to its own page with a code of its own. A caller with the
 # key gets a window on the screen and never the code. A code is good once, for
-# LAUNCH_LIFE seconds, and is held in memory alone. Opening it as a page sets the cookie, HttpOnly and
-# SameSite=Strict, and sends the window on to / so the code leaves the address
-# bar. The board keeps only the cookie's hash, in data/window-keys.json, so
-# that file alone opens nothing.
+# LAUNCH_LIFE seconds, and is held in memory alone, and one whose window did
+# not open, or whose send did not end SENT, is cancelled at once. Opening it
+# as a page sets the cookie, HttpOnly and SameSite=Strict, and sends the
+# window on to / so the code leaves the address bar. The board keeps only the
+# cookie's hash, in data/window-keys.json, so that file alone opens nothing.
 #
 # The limit, which no secret sent over a loopback port can close: while the
 # board is down, during a restart say, a program of another account can take
 # its port and catch what the window or an agent sends it. A cookie also
 # belongs to the host and not the port, so Chrome sends the window cookie to
 # every port of 127.0.0.1, and a page another account serves on one of them
-# could catch it when opened in that Chrome. A launch code, last, shows for a
-# moment in the arguments of open and of the Chrome it starts, where a program
-# of this account watching the process list could read it and race Chrome to
-# it; the window it was meant for then shows the lock's page.
+# could catch it when opened in that Chrome. A launch code, last, sits in the
+# arguments of open and of the Chrome it starts while the board opens its
+# window: for under a second, or for that Chrome's whole life when the launch
+# started Chrome, by which time the code is spent. A program of this account
+# reading the process list could take it there and race Chrome to it, and if
+# it wins it gets a window cookie of its own. The window the code was meant
+# for then shows the lock's page, unless its Chrome already holds a window
+# cookie, in which case it just loads the board and nothing on the screen
+# shows the race. A tab sent on after a restart gets its code inside the
+# script osascript reads on its standard input, in no program's arguments.
 AGENT_KEY_PATH = DATA / "agent.key"
 AGENT_CURL_PATH = DATA / "agent.curl"
 WINDOW_KEYS_PATH = DATA / "window-keys.json"
@@ -2754,6 +2763,12 @@ def _spend_launch(code: str) -> bool:
     return until is not None and time.monotonic() < until
 
 
+def _cancel_launch(code: str) -> None:
+    """The code is good no more: its window did not open, or its send did not
+    end SENT, so nothing is waiting to spend it."""
+    _launches.pop(_key_digest(code), None)
+
+
 # ---- the board's window, opened and sent on by the board itself ---------------
 # The two programs the window goes through, by their full paths so nothing on
 # PATH can stand in for them and catch a code. A test's copy of this file puts
@@ -2773,15 +2788,14 @@ LOOPBACK_SPELLINGS = frozenset({"localhost", "::1", "ip6-localhost"})
 # need is the one to control Chrome, the one the command's own reading of the
 # tabs has just used: macOS asks it for the app at the head of the process
 # chain, and the board doing this is the one that same command has just
-# started. Every value goes in as an argument, never as script text, and the
-# window is not brought to the front.
+# started. The window is not brought to the front. The address holds a launch
+# code, and a program's arguments can be read by any program of this account
+# in the process list, so the script goes to osascript on its standard input
+# with no arguments at all: the window's id, the place, the page and the
+# address are written into its first lines (_send_tab_script), as text that
+# no value can end, since only printable ASCII is let in and its backslashes
+# and quotes are escaped.
 SEND_TAB_SCRIPT = "\n".join([
-    'on run argv',
-    '  if (count of argv) is not 4 then return "BADARGS"',
-    '  set wanted to (item 1 of argv) as integer',
-    '  set place to (item 2 of argv) as integer',
-    '  set expected to item 3 of argv',
-    '  set goal to item 4 of argv',
     '  if not (application "Google Chrome" is running) then return "GONE"',
     '  tell application "Google Chrome"',
     '    set candidates to (every window whose id is wanted)',
@@ -2837,10 +2851,12 @@ def _own_page(url: str) -> str | None:
     return bits._replace(path="/", query=kept).geturl()
 
 
-def _with_launch(page: str) -> str:
-    """The board's own page with a new launch code at the end of its query."""
+def _with_launch(page: str) -> tuple:
+    """The board's own page with a new launch code at the end of its query,
+    and the code, so a window that does not take it can cancel it."""
+    code = _new_launch()
     bits = urlparse(page)
-    return bits._replace(query=(bits.query + "&" if bits.query else "") + "launch=" + _new_launch()).geturl()
+    return bits._replace(query=(bits.query + "&" if bits.query else "") + "launch=" + code).geturl(), code
 
 
 def _window_config() -> dict:
@@ -2857,27 +2873,51 @@ def _open_window(page: str) -> tuple:
     Chrome sees, and full screen when run.config.json's app_fullscreen is
     true (a config without it opens as it always did). The answer for the
     command: opened, or the first line `open` said, so it can say Chrome did
-    not open."""
-    command = [OPEN_PROGRAM, "-na", "Google Chrome", "--args", f"--app={_with_launch(page)}"]
+    not open. A window that did not open leaves its code cancelled."""
+    address, code = _with_launch(page)
+    command = [OPEN_PROGRAM, "-na", "Google Chrome", "--args", f"--app={address}"]
     if _window_config().get("app_fullscreen") is True:
         command.append("--start-fullscreen")
     try:
         opened = subprocess.run(command, capture_output=True, text=True, timeout=OPEN_WAIT)
     except subprocess.TimeoutExpired:
+        _cancel_launch(code)
         return 502, {"error": "could not open Chrome", "said": "open did not finish"}
     except OSError as error:
+        _cancel_launch(code)
         return 502, {"error": "could not open Chrome", "said": error.strerror or type(error).__name__}
     if opened.returncode == 0:
         return 200, {"opened": True}
+    _cancel_launch(code)
     lines = (opened.stderr or "").strip().splitlines()
     return 502, {"error": "could not open Chrome", "said": lines[0] if lines else ""}
 
 
+SCRIPT_TEXT_SHAPE = re.compile(r"[\x20-\x7e]*")   # what a value written into a script may hold
+
+
+def _script_text(value: str) -> str:
+    """A printable ASCII value as an AppleScript string, which nothing in it
+    can end."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _send_tab_script(wid: int, place: int, expected: str, goal: str) -> str:
+    return "\n".join(["on run", f"  set wanted to {int(wid)}", f"  set place to {int(place)}",
+                      f"  set expected to {_script_text(expected)}", f"  set goal to {_script_text(goal)}",
+                      SEND_TAB_SCRIPT])
+
+
 def _send_tab(wid: int, place: int, expected: str, goal: str):
     """"SENT", "GONE" or "CHANGED" as the send script says, or None when
-    Chrome could not be asked."""
+    Chrome could not be asked, or a page or address holds anything but
+    printable ASCII (Chrome reads every tab's address as plain ASCII). The
+    script, with the address in it, goes to osascript on its standard input,
+    and osascript is given no arguments."""
+    if not (SCRIPT_TEXT_SHAPE.fullmatch(expected) and SCRIPT_TEXT_SHAPE.fullmatch(goal)):
+        return None
     try:
-        done = subprocess.run([OSASCRIPT_PROGRAM, "-e", SEND_TAB_SCRIPT, str(wid), str(place), expected, goal],
+        done = subprocess.run([OSASCRIPT_PROGRAM, "-"], input=_send_tab_script(wid, place, expected, goal),
                               capture_output=True, text=True, timeout=SEND_WAIT)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -2890,13 +2930,19 @@ def _relaunch_tabs(tabs: list) -> list:
     own page: this board's own page with a launch code of its own, so a
     window from before the lock is let in, and one with its cookie already
     just loads the board again; the page the config's app_url names, as it
-    is. Anything else is not the board's and is left alone (None)."""
+    is. Anything else is not the board's and is left alone (None). A code
+    whose send did not end SENT (a tab gone or changed, or Chrome not asked)
+    is cancelled before the next tab, so it lets nothing in."""
     app_page = _page_key(_window_config().get("app_url") or "")
     answers = []
     for wid, place, url in tabs:
         own = _own_page(url)
         if own is not None:
-            answers.append(_send_tab(wid, place, url, _with_launch(own)))
+            goal, code = _with_launch(own)
+            answer = _send_tab(wid, place, url, goal)
+            if answer != "SENT":
+                _cancel_launch(code)
+            answers.append(answer)
         elif app_page is not None and _page_key(url) == app_page:
             answers.append(_send_tab(wid, place, url, url))
         else:

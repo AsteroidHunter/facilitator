@@ -1228,8 +1228,13 @@ test("restart reads Chrome without driving it, and the board sends a tab on in o
   assert.equal(server.split("set URL of").length - 1, 1, "more than one place sends a tab on");
   const agreed = sender.indexOf("if not agreed then return");
   assert.ok(agreed !== -1 && agreed < sender.indexOf("set URL of"), "a tab is sent on without being read again");
-  assert.ok(pySource(server, "_send_tab").includes("SEND_TAB_SCRIPT"));
+  assert.ok(pySource(server, "_send_tab_script").includes("SEND_TAB_SCRIPT"));
   assert.equal(server.split("SEND_TAB_SCRIPT").length - 1, 2, "the send script is used somewhere else");
+  // the script, with the address and its code in it, goes on osascript's
+  // standard input, and osascript is given no argument but the "-" naming it
+  assert.match(pySource(server, "_send_tab"),
+    /subprocess\.run\(\[OSASCRIPT_PROGRAM, "-"\], input=_send_tab_script\(wid, place, expected, goal\),/);
+  assert.equal(server.split("OSASCRIPT_PROGRAM").length - 1, 2, "osascript is run somewhere else");
 
   // stop's window walk reads in the same way, and only the close script closes
   const walk = pySource(source, "chrome_windows");
