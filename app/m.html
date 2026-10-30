@@ -2990,12 +2990,11 @@ turnAgain = () => { if (lastState) apply(lastState); };
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
 // card is closed and the next one still open takes the screen, so the screen is
-// never left holding a card that has just gone
-async function closeCard(id){
-  const { order, section } = cardDeparture(lastState, id);
-  await fetch(closeCardUrl(id), { method: "POST" }).catch(() => {});
-  selectNextCard(id, order, section);
-  poll();
+// never left holding a card that has just gone. the card and its ticket in the
+// list leave together on the press, and the board is told after (closeCardNow,
+// card-logic.js)
+function closeCard(id){
+  return closeCardNow(id, card => fetch(closeCardUrl(card), { method: "POST" }));
 }
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});

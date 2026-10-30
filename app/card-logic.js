@@ -2185,6 +2185,7 @@ const TIK_EASE = "cubic-bezier(.42,.06,.38,1)";       // the board's --gentle
 let tikSheetAnim = null;
 let tikShownView = null;      // the section the sheet rests at or is travelling to
 let tikTravelIntent = null;   // set while a tab press commits, so a render does not jump the sheet
+let tikShownOnly = false;     // set while a close draws (closeCardNow): the sections off screen wait
 
 // the sheet's live translateX in sections (1 == one section to the left), read
 // off the composited transform so a redirect begins where the eye sees it
@@ -7568,6 +7569,46 @@ function holdFlagsPass(state, asked){
 function closeCardUrl(id){
   for (const kind of Object.keys(FLAG_KINDS)) dropFlag(flagKey(id, kind));
   return "/close?box=" + encodeURIComponent(id) + "&sid=" + encodeURIComponent(flagStreamOf()) + "&seq=" + (++flagTaps);
+}
+
+// the cross on the card on screen, and the done keys that stand for it: the card
+// leaves the screen and its ticket leaves the list in the same turn, the way the
+// moon moves a card, and the board is told after. Waiting for the board first
+// moved the card once the close had answered and the ticket only once the
+// reading after it was drawn, a whole reading behind the card on a full board.
+// The close is held as a tap on done is held: no reading asked before the board
+// answers may bring the ticket back, and the answer is judged by flagAnswered,
+// so a close the board refuses puts the ticket back in its section with the
+// reason on the card, and one with no answer is held as unconfirmed until a
+// reading settles it or the window ends it. send is the page's own one POST to
+// /close (closeCardUrl), handed in so each page's close stays one request
+// through the authoritative route. It is made before the hold, since
+// closeCardUrl ends whatever this card was holding and takes the next place.
+// The draw in the press leaves the ticket sections off screen to the board's
+// reading after the close, or a tab press, which draw them whole: a full Done
+// section is most of a draw on a board used a while, and drawing it in the
+// press held the card and its ticket on screen while it ran
+async function closeCardNow(id, send){
+  const { order, section } = cardDeparture(lastState, id);   // the list as it stands, before the close
+  const going = send(id);
+  const tap = flagTaps, key = flagKey(id, "done"), spec = flagSpec("done");
+  flagHolds[key] = { id, kind: "done", want: true, owed: true, sending: tap, guard: Infinity,
+                     until: Date.now() + FLAG_HOLD_MS, basis: 0, settled: false, truth: null, boxRef: null, timer: null };
+  flagNote(id, "");
+  paintFlag(id, spec, true, true);
+  tikShownOnly = true;
+  try { flagRepaint(); } finally { tikShownOnly = false; }   // the ticket leaves the list
+  selectNextCard(id, order, section);                        // and the card the screen
+  let status = 0, body = null, lost = "", late = null;
+  try {
+    const r = await Promise.race([going, new Promise(done => { late = setTimeout(done, FLAG_DEADLINE_MS, null); })]);
+    if (!r) lost = "timeout";
+    else { status = r.status; body = await r.json().catch(() => null); }
+  } catch (err){
+    lost = "network";
+  }
+  clearTimeout(late);
+  flagAnswered(key, tap, true, status, body, lost);
 }
 
 // what the page draws from, drawn again now. The tapped card has already

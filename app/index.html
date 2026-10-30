@@ -4329,7 +4329,7 @@
      opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.3.70</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.3.71</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -7186,16 +7186,12 @@ function makeBox(b, i, state){
     const x = h("button", "xbtn", "×");
     x.setAttribute("aria-label", "done");
     x.dataset.tip = SECTION_CHIP_TIPS.done;
-    x.addEventListener("click", async e => {
+    x.addEventListener("click", e => {
       e.stopPropagation();
       if (chipOff(x)) return;   // a done card: the cross has nothing left to do
-      const { order, section } = cardDeparture(lastState, b.id);   // the list as it stands, before the close
-      // the server reads the current record atomically, so a handler born with
-      // an empty card can never erase replies that arrived on later polls
-      await fetch(closeCardUrl(b.id), { method: "POST" }).catch(() => {});
-      // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
-      selectNextCard(b.id, order, section);
-      poll();
+      // dismiss this card from the center and its ticket from the list at once,
+      // and jump to the next ongoing chat, so no extra click is needed
+      boardCloseCard(b.id);
     });
     topbar.appendChild(x);   // the done mark is an item of the bar now, not a pinned corner
     // the card's own number, its id; the same number the quick note's "card N" /
@@ -12777,6 +12773,7 @@ function renderCarousel(state){
   // two-section jump; each is its own group's pool
   if (sheet){
     for (const name of TICKET_VIEWS){
+      if (tikShownOnly && name !== curView()) continue;   // a close's own draw (closeCardNow)
       const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
       if (pane) paintTicketPane(pane, viewPoolFor(state, name), name, state, laneSig);
     }
@@ -13753,13 +13750,13 @@ function boardMoveLive(){
     !(selectedId && els[selectedId]?.wtmenu?.classList.contains("open"));
 }
 
-// the large card's close from the done keys: the cross's own request, then the
-// cross's own hop to the next doing card, once the board has answered
-async function boardCloseCard(id){
-  const { order, section } = cardDeparture(lastState, id);
-  await fetch(closeCardUrl(id), { method: "POST" }).catch(() => {});
-  selectNextCard(id, order, section);
-  poll();
+// the large card's close, from the cross and the done keys alike: the card and
+// its ticket leave together on the press, the hop goes to the next doing card,
+// and the board is told after (closeCardNow, card-logic.js). the server reads
+// the current record atomically, so a handler born with an empty card can never
+// erase replies that arrived on later polls
+function boardCloseCard(id){
+  return closeCardNow(id, card => fetch(closeCardUrl(card), { method: "POST" }));
 }
 
 // the section keys' one path on the large card: a meta card moved the way its
