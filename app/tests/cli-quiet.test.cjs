@@ -67,9 +67,11 @@ function loadCli() {
 // `open` prints when it fails. `opens` is what the board answers when asked to
 // open its window: "ok", the message open printed there, or null for a board
 // from before it opened its own window, which leaves the command to open it.
+// `allowed` is macOS's answer to whether this app may control Chrome without
+// asking, false unless a test says, so no run here depends on the Mac's own.
 async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncovered", tmux = "none",
                           hasTmux = true, open = "ok", booting = false, sessionExists = false, lands = true,
-                          opens = "ok" } = {}) {
+                          opens = "ok", allowed = false } = {}) {
   await writeConfig(config);
   const states = {
     uncovered: { boxes: [], queued: 0, listening: { facilitator: false, example: false }, busy: {}, listenerGap: { facilitator: 99999, example: 99999 } },
@@ -121,6 +123,7 @@ async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncov
     "        return None",
     "    return (200, {'opened': True}) if OPENS == 'ok' else (502, {'error': 'could not open Chrome', 'said': OPENS})",
     "cli.board_window = fake_board_window",
+    `cli.chrome_allowed = lambda: ${allowed ? "True" : "False"}`,
     `cli.cmd_run(${JSON.stringify(args)})`,
     "sys.stdout.flush()",
     "print('CALLS ' + json.dumps(CALLS))",
@@ -212,6 +215,36 @@ test("a window that fails to open is one plain line, and is never reported as op
   // a board that could say nothing of what open printed is still the one line
   const bare = await run(["run"], { board: "covered", opens: "", config: { port: PORT, lanes: [LANES[0]] } });
   assert.deepEqual(bare.said, [...UP, `could not open Chrome; open ${BOARD} yourself`]);
+});
+
+// after the board says it opened its window, the command brings Chrome to the
+// front from the app it runs in: AppleScript's activate, no address, no code
+const FORWARD = ["/usr/bin/osascript", "-e",
+  'if application "Google Chrome" is running then\n  tell application "Google Chrome" to activate\nend if'];
+const forwarded = calls => calls.filter(c => c[0].endsWith("osascript"));
+
+test("Chrome is brought forward once after the board opens its window, and never after a failure", async () => {
+  const lanes = { port: PORT, lanes: [LANES[0]] };
+  const done = await run(["run"], { board: "covered", allowed: true, config: lanes });
+  assert.deepEqual(done.said, UP, done.stderr);
+  assert.deepEqual(forwarded(done.calls), [FORWARD]);
+  assert.deepEqual(opened(done.calls), [], "a window was opened besides the board's");
+  const order = done.calls.filter(c => c[0] === "board" || c[0].endsWith("osascript")).map(c => c[0]);
+  assert.deepEqual(order, ["board", "/usr/bin/osascript"], "Chrome was brought forward before the board answered");
+  // the board could not open Chrome: the same one line, and Chrome is left alone
+  const failed = await run(["run"], { board: "covered", allowed: true, config: lanes,
+                                      opens: "Unable to find application named 'Google Chrome'" });
+  assert.deepEqual(failed.said, [...UP,
+    `could not open Chrome (Unable to find application named 'Google Chrome'); open ${BOARD} yourself`]);
+  assert.deepEqual(forwarded(failed.calls), []);
+  // a dry run, a board from before (the command's own open comes forward as it
+  // always did), and a Mac that would have to ask first: nothing is activated
+  for (const [what, args, options] of [["a dry run", ["run", "--dry-run"], {}],
+                                       ["an older board", ["run"], { opens: null }],
+                                       ["macOS would ask", ["run"], { allowed: false }]]) {
+    const other = await run(args, { board: "covered", allowed: true, config: lanes, ...options });
+    assert.deepEqual(forwarded(other.calls), [], `${what}: Chrome was brought forward`);
+  }
 });
 
 test("--attach: one line per lane, whether the instruction typed or not", async () => {

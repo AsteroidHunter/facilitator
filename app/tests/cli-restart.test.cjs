@@ -1066,14 +1066,22 @@ test("Chrome that read but would not send is an unknown, and a board that let no
 });
 
 test("no page anywhere means exactly one new app window, which the board opens", async () => {
-  const run = await restart({
-    chrome: [`http://127.0.0.1:${port + 1}/`, "https://example.com/"], openApp: "REAL", boardOpens: "OPENED",
-  });
+  const chrome = [`http://127.0.0.1:${port + 1}/`, "https://example.com/"];
+  const run = await restart({ chrome, openApp: "REAL", boardOpens: "OPENED" });
   assert.equal(run.ok, true, run.stderr);
   assert.deepEqual(run.events.filter(e => e[0] === "board_open"),
     [["board_open", "/window/open", `http://127.0.0.1:${port}`]], "the board was not asked once to open its window");
-  assert.deepEqual(run.events.filter(e => e[0] === "run"), [], "the command opened a window itself as well");
+  // the command opens nothing itself; once the board says it opened the
+  // window, it brings Chrome forward, with no page and no code
+  const ran = run.events.filter(e => e[0] === "run" || e[0] === "board_open").map(e => e[0] === "run" ? e[1] : e[0]);
+  assert.deepEqual(ran, ["board_open", ["/usr/bin/osascript", "-e",
+    'if application "Google Chrome" is running then\n  tell application "Google Chrome" to activate\nend if']],
+    "the command opened a window itself as well, or did not bring Chrome forward once after the board");
   assert.deepEqual(run.said, ["Board restarted."], "a window that opened was announced");
+  // when macOS would have to ask first, Chrome is left as the board's open left it
+  const asks = await restart({ chrome, openApp: "REAL", boardOpens: "OPENED", allowed: false });
+  assert.equal(asks.ok, true, asks.stderr);
+  assert.deepEqual(asks.events.filter(e => e[0] === "run"), []);
 });
 
 test("a board from before it opened its own window gets one opened by the command, as before", async () => {

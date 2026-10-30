@@ -804,6 +804,7 @@ def open_app(cfg, dry):
         # answers 404, and the window is opened here as it always was
         answer = board_window(cfg["port"], "/window/open", url.encode(), 45)
         if answer is not None and answer[0] == 200:
+            bring_chrome_forward()
             return
         if answer is not None and answer[0] == 502:
             said = str(answer[1].get("said") or "").strip()
@@ -817,6 +818,40 @@ def open_app(cfg, dry):
         said = (opened.stderr or "").strip().splitlines()
         detail = f" ({said[0]})" if said else ""
         print(f"could not open Chrome{detail}; open {url} yourself")
+
+
+# Chrome brought to the front, and nothing more, once the board has opened its
+# window: no address, no code, no window. The board's open of Chrome is asked
+# for by the app that started the board, and since macOS 14 that app may not
+# be let bring Chrome in front of the one being typed in; this is asked from
+# the app this command runs in, as the command's own open was. Not `open -a`:
+# on a running Chrome that is a click on its Dock icon, which leaves app
+# windows such as the board's out, so Chrome opens a new ordinary window, or
+# lifts its other windows over the board's (and `open -na` with no page opens
+# a new window outright). AppleScript's activate is not that reopen and opens
+# nothing, and the script never starts Chrome.
+CHROME_FORWARD_SCRIPT = "\n".join([
+    'if application "Google Chrome" is running then',
+    '  tell application "Google Chrome" to activate',
+    'end if',
+])
+
+
+def bring_chrome_forward():
+    """Bring Chrome to the front after the board has opened its window. Only
+    when macOS already lets this app control Chrome without asking
+    (chrome_allowed), so it never brings up a question of its own; otherwise,
+    and on any failure, nothing is done and nothing is said."""
+    if not chrome_allowed():
+        return
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return
+    try:
+        subprocess.run([osascript, "-e", CHROME_FORWARD_SCRIPT],
+                       capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def lane_covered(st, owner):

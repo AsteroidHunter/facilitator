@@ -515,6 +515,9 @@ function commandWith(code) {
     "    returncode = 0",
     "    stderr = ''",
     "cli.subprocess.run = lambda command, **kw: ran.append(command) or Done()",
+    // whether this Mac lets the command control Chrome decides only the step
+    // that brings Chrome forward (cli-quiet.test.cjs), never what is opened
+    "cli.chrome_allowed = lambda: False",
     code,
   ].join("\n"));
 }
