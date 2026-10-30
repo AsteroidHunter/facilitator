@@ -200,7 +200,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import unquote_plus, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -770,23 +770,23 @@ def window_url(cfg):
     return cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
 
 
-def launch_url(cfg, url):
-    """The address the window is opened on: this board's own page with a
-    launch code the running board gave for it, which leaves the window's
-    cookie in Chrome, or the page as it is when the window shows another
-    page or the board gives no code (one older than the code, or not up)."""
-    if not same_board_page(url, f"http://127.0.0.1:{cfg['port']}"):
-        return url
+def board_window(port, route, body, timeout):
+    """One of the board's window routes, asked with the agent key: (status,
+    answer) for any answer the board gives, None when no board answered. The
+    board opens its window and sends its tabs on itself, with the launch code
+    inside, and its answer never holds one."""
     try:
-        with LOCAL.open(local_request(cfg["port"], "/window/launch", b"", "POST"), timeout=5) as answer:
-            code = json.load(answer).get("code")
-    except (OSError, ValueError, AttributeError, http.client.HTTPException):
-        return url
-    if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", code):
-        return url
-    bits = urlparse(url)
-    return bits._replace(path=bits.path or "/",
-                         query=(bits.query + "&" if bits.query else "") + "launch=" + code).geturl()
+        with LOCAL.open(local_request(port, route, body, "POST"), timeout=timeout) as answer:
+            status, raw = answer.status, answer.read()
+    except urllib.error.HTTPError as refused:
+        status, raw = refused.code, refused.read()
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    try:
+        said = json.loads(raw)
+    except ValueError:
+        said = None
+    return status, said if isinstance(said, dict) else {}
 
 
 def open_app(cfg, dry):
@@ -797,7 +797,19 @@ def open_app(cfg, dry):
         kind = "a chromeless full-screen app window" if full else "a chromeless app window"
         print(f"window: would open {url} as {kind}")
         return
-    command = ["open", "-na", "Google Chrome", "--args", f"--app={launch_url(cfg, url)}"]
+    if same_board_page(url, f"http://127.0.0.1:{cfg['port']}"):
+        # this board's own page: the board opens it in Chrome itself, with
+        # the window's launch code inside, full screen as the config says,
+        # and says whether Chrome opened. A board from before it did that
+        # answers 404, and the window is opened here as it always was
+        answer = board_window(cfg["port"], "/window/open", url.encode(), 45)
+        if answer is not None and answer[0] == 200:
+            return
+        if answer is not None and answer[0] == 502:
+            said = str(answer[1].get("said") or "").strip()
+            print(f"could not open Chrome{f' ({said})' if said else ''}; open {url} yourself")
+            return
+    command = ["open", "-na", "Google Chrome", "--args", f"--app={url}"]
     if full:
         command.append("--start-fullscreen")
     opened = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -1443,16 +1455,19 @@ def start_and_confirm(port, wait=START_WAIT):
         time.sleep(POLL_EVERY)
 
 
-# --- restart: Chrome's tabs, read and sent on --------------------------------
+# --- restart: Chrome's tabs, read here and sent on by the board ---------------
 # After a restart every Chrome tab showing the board is sent, where it is, to
-# its own page with a launch code (relaunch_board_tabs). These two scripts are
-# all of it, and they ask Chrome alone: whether Chrome is running is read by
-# AppleScript itself, which neither starts Chrome nor asks System Events, so
-# the one permission they can ever need is the one to control Chrome. A tab
-# is named by its window's id and its place in that window, both going in as
-# arguments with the page it must still show and the address, never as script
-# text. Chrome opens the address in that tab as one typed there: the window is
-# not brought to the front.
+# its own page with a launch code (relaunch_board_tabs). The command reads the
+# tabs with the script below and hands the board the ones showing it; the
+# board sends each one on itself, with the same kind of script, so the code
+# goes from the board to Chrome and never through this command. The script
+# asks Chrome alone: whether Chrome is running is read by AppleScript itself,
+# which neither starts Chrome nor asks System Events, so the one permission it
+# can ever need is the one to control Chrome. macOS asks that for the app at
+# the head of the process chain, and the board sending the tabs on is the one
+# this same restart has just started, so its sends use the permission this
+# reading has just used. Chrome opens each address in its tab as one typed
+# there: the window is not brought to the front.
 CHROME_TABS_SCRIPT = "\n".join([
     'if not (application "Google Chrome" is running) then return "NOTRUNNING"',
     # inside Chrome's block the bare word tab means Chrome's tab class, so the
@@ -1471,32 +1486,6 @@ CHROME_TABS_SCRIPT = "\n".join([
     "set AppleScript's text item delimiters to linefeed",
     'return listed as text',
 ])
-SEND_TAB_SCRIPT = "\n".join([
-    'on run argv',
-    '  if (count of argv) is not 4 then return "BADARGS"',
-    '  set wanted to (item 1 of argv) as integer',
-    '  set place to (item 2 of argv) as integer',
-    '  set expected to item 3 of argv',
-    '  set goal to item 4 of argv',
-    '  if not (application "Google Chrome" is running) then return "GONE"',
-    '  tell application "Google Chrome"',
-    '    set candidates to (every window whose id is wanted)',
-    '    if (count of candidates) is not 1 then return "GONE"',
-    '    set win to item 1 of candidates',
-    '    if (count of tabs of win) < place then return "GONE"',
-    '    set seen to (URL of (tab place of win)) as text',
-    '    set agreed to false',
-    '    considering case',
-    '      set agreed to (seen = expected)',
-    '    end considering',
-    '    if not agreed then return "CHANGED"',
-    '    set URL of (tab place of win) to goal',
-    '  end tell',
-    '  return "SENT"',
-    'end run',
-])
-
-
 def chrome_tabs():
     """Every Chrome window as (id, [tab URLs]), ordinary windows and chromeless
     app windows alike, or None when that could not be established. An empty
@@ -1522,25 +1511,6 @@ def chrome_tabs():
         if first.strip().isdigit():
             windows.append((int(first), [u.strip() for u in urls]))
     return windows
-
-
-def send_tab(wid, place, expected, goal):
-    """Send one tab, by its window's id and its place there counted from 1, to
-    that address: "SENT" when it went, "GONE" when no such tab (or no Chrome)
-    is there any more, "CHANGED" when the tab no longer shows the page it was
-    read showing and was left alone, None when Chrome could not be asked."""
-    osascript = shutil.which("osascript")
-    if not osascript:
-        return None
-    try:
-        done = subprocess.run([osascript, "-e", SEND_TAB_SCRIPT, str(wid), str(place), expected, goal],
-                              capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if done.returncode != 0:
-        return None
-    answer = done.stdout.strip()
-    return answer if answer in ("SENT", "GONE", "CHANGED") else None
 
 
 def loopback_host(host):
@@ -1593,31 +1563,27 @@ def board_tabs(cfg, windows):
             if any(same_board_page(url, board) for board in boards)]
 
 
-def launch_link(cfg, url):
-    """That tab's own page and query (a pulled-out window's project) with a
-    fresh launch code in place of any code it was left holding (launch_url)."""
-    bits = urlparse(url)
-    kept = "&".join(part for part in bits.query.split("&")
-                    if part and unquote_plus(part.split("=", 1)[0]) != "launch")
-    return launch_url(cfg, bits._replace(query=kept).geturl())
-
-
 def relaunch_board_tabs(cfg):
-    """After a restart, send every Chrome tab showing this board to its own
-    page with a launch code of its own. A window the board opened before its
-    lock came in (v0.3.37) carries no window cookie, and the board started
-    again refuses it; it gets the cookie this way, the way a window facilitator
-    run opens gets it, and a tab that has the cookie already just loads the
-    board again, which is the reload a restart needs anyway. Each code still
-    comes from the board for its key alone. Returns how many board tabs there
-    were, or None when Chrome could not be asked, or could not be asked to
-    send any of them."""
+    """After a restart, have the board send every Chrome tab showing it to
+    its own page with a launch code of its own. A window the board opened
+    before its lock came in (v0.3.37) carries no window cookie, and the board
+    started again refuses it; it gets the cookie this way, the way a window
+    the board opens for facilitator run gets it, and a tab that has the cookie
+    already just loads the board again, which is the reload a restart needs
+    anyway. The tabs are read here and sent on by the board, so no code ever
+    comes back to this command. Returns how many board tabs there were, or
+    None when Chrome could not be asked, or the board could not send any of
+    them."""
     windows = chrome_tabs()
     if windows is None:
         return None
     tabs = board_tabs(cfg, windows)
-    answers = [send_tab(wid, place, url, launch_link(cfg, url)) for wid, place, url in tabs]
-    if tabs and all(answer is None for answer in answers):
+    if not tabs:
+        return 0
+    body = json.dumps({"tabs": [[wid, place, url] for wid, place, url in tabs]}).encode()
+    answer = board_window(cfg["port"], "/window/relaunch", body, 15 + 12 * len(tabs))
+    sent = answer[1].get("sent") if answer is not None and answer[0] == 200 else None
+    if not isinstance(sent, list) or not any(isinstance(one, str) for one in sent):
         return None
     return len(tabs)
 

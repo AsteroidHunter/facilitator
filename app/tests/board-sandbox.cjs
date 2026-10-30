@@ -13,7 +13,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
-const { copyBridgeFiles, dataOf, freePortPair } = require("./fixture-auth.cjs");
+const { copyBridgeFiles, dataOf, freePortPair, stubWindow, windowOpens } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
@@ -34,6 +34,9 @@ function sandbox(name, { config = {}, seed } = {}) {
                       "cm-markdown.js", "manifest.json", "sw.js", "board-settings.js"])
     if (fs.existsSync(path.join(ROOT, file))) fs.copyFileSync(path.join(ROOT, file), path.join(app, file));
   copyBridgeFiles(app);
+  // the board's window goes to stand-ins in window/, never to the real Chrome
+  const windowDir = path.join(outer, "window");
+  fs.writeFileSync(path.join(app, "server.py"), stubWindow(fs.readFileSync(path.join(app, "server.py"), "utf8"), windowDir));
   fs.writeFileSync(path.join(data, "seed.json"), JSON.stringify(seed || {
     title: "sandbox board",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
@@ -45,7 +48,7 @@ function sandbox(name, { config = {}, seed } = {}) {
   fs.mkdirSync(fake);
   fs.copyFileSync(path.join(ROOT, "tests", "fixtures", "fake-tailscale.py"), path.join(bin, "tailscale"));
   fs.chmodSync(path.join(bin, "tailscale"), 0o755);
-  const place = { outer, clone: outer, app, data, bin, fake, logs: path.join(outer, "logs"), children: [] };
+  const place = { outer, clone: outer, app, data, bin, fake, windowDir, logs: path.join(outer, "logs"), children: [] };
   setTailscale(place, {});
   return place;
 }
@@ -95,21 +98,23 @@ function keyed(place) {
 }
 
 // a window's cookie for the board on this port, as `facilitator run` leaves
-// one in Chrome: a launch code asked for with the key, opened as a page
+// one in Chrome: the board is asked with the key to open its window, and the
+// address it gave the stand-in open is opened as Chrome opens it
 async function windowCookie(place, port) {
-  const asked = await fetch(`http://127.0.0.1:${port}/window/launch`, { method: "POST", headers: keyed(place) });
-  if (!asked.ok) throw new Error(`no launch code: ${asked.status}`);
-  const { code } = await asked.json();
+  const asked = await fetch(`http://127.0.0.1:${port}/window/open`, { method: "POST", headers: keyed(place) });
+  if (!asked.ok) throw new Error(`the board opened no window: ${asked.status}`);
+  const app = windowOpens(place.windowDir).at(-1).find(arg => arg.startsWith("--app="));
+  const where = new URL(app.slice("--app=".length));
   // node's fetch writes its own fetch metadata, so the page open goes out by hand
   const opened = await new Promise((resolve, reject) => {
-    const req = require("node:http").request({ host: "127.0.0.1", port, path: `/?launch=${code}`,
+    const req = require("node:http").request({ host: "127.0.0.1", port, path: where.pathname + where.search,
       headers: { "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" } }, resolve);
     req.on("error", reject);
     req.end();
   });
   opened.resume();
   const set = opened.headers["set-cookie"];
-  if (opened.statusCode !== 303 || !set) throw new Error(`the launch code set no cookie: ${opened.statusCode}`);
+  if (opened.statusCode !== 303 || !set) throw new Error(`the window's code set no cookie: ${opened.statusCode}`);
   return set[0].split(";")[0];
 }
 

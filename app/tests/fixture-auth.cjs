@@ -93,4 +93,52 @@ async function freePortPair() {
   throw new Error('No adjacent free loopback ports for the fixture');
 }
 
-module.exports = { appFolder, copyBridgeFiles, dataOf, freePortPair, noProfile, PROFILE };
+// The board opens its own window and sends its tabs on through two programs
+// named in server.py by their full paths. A copy that may be asked to do
+// either gets stand-ins for both in dir, and its source back with them named
+// in place of the real ones, so no test ever opens a window on the screen or
+// asks the real Chrome. The stand-in open writes each call's arguments as a
+// line of opened.jsonl and fails, saying what open-fails holds, when that file
+// is there; the stand-in osascript writes the tab, its place, the page it must
+// still show and the address it is sent to as a line of sent.jsonl and answers
+// what send-answer holds, or SENT. windowOpens and windowSends read them back.
+const STAND_IN = (log, take, after) => `#!/usr/bin/env python3
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(here, ${JSON.stringify(log)}), "a") as f:
+    f.write(json.dumps(sys.argv[${take}:]) + "\\n")
+${after}
+`;
+function stubWindow(source, dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const open = path.join(dir, 'open');
+  const osascript = path.join(dir, 'osascript');
+  fs.writeFileSync(open, STAND_IN('opened.jsonl', 1, [
+    'fails = os.path.join(here, "open-fails")',
+    'if os.path.exists(fails):',
+    '    sys.stderr.write(open(fails).read())',
+    '    sys.exit(1)',
+  ].join('\n')), { mode: 0o755 });
+  // past "-e SCRIPT": the window's id, the tab's place, the page, the address
+  fs.writeFileSync(osascript, STAND_IN('sent.jsonl', 3, [
+    'answer = os.path.join(here, "send-answer")',
+    'print(open(answer).read().strip() if os.path.exists(answer) else "SENT")',
+  ].join('\n')), { mode: 0o755 });
+  let patched = source;
+  for (const [name, stand] of [['OPEN_PROGRAM', open], ['OSASCRIPT_PROGRAM', osascript]]) {
+    const line = new RegExp(`^${name} = "/usr/bin/[a-z]+"$`, 'm');
+    if (!line.test(patched)) throw new Error(`server.py names no ${name} to stand in for`);
+    patched = patched.replace(line, `${name} = ${JSON.stringify(stand)}`);
+  }
+  return patched;
+}
+
+function readLines(file) {
+  try { return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)); }
+  catch { return []; }
+}
+const windowOpens = dir => readLines(path.join(dir, 'opened.jsonl'));
+const windowSends = dir => readLines(path.join(dir, 'sent.jsonl'));
+
+module.exports = { appFolder, copyBridgeFiles, dataOf, freePortPair, noProfile, PROFILE, stubWindow,
+                   windowOpens, windowSends };

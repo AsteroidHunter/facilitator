@@ -27,6 +27,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { startBoard } = require("./board-fixture.cjs");
+const { windowOpens } = require("./fixture-auth.cjs");
 
 const ENDPOINT = (process.env.FACILITATOR_CDP_ENDPOINT || "").replace(/\/$/, "");
 const skip = ENDPOINT ? false : "set FACILITATOR_CDP_ENDPOINT to a running Chrome's debugging address";
@@ -219,10 +220,12 @@ test("a page whose line is refused reads every 1.2 s as before, and stops once t
 
 test("under the board's lock the worker's line carries the window's cookie", { skip }, async () => {
   locked = await startBoard({ lock: true });
-  const r = await fetch(locked.origin + "/window/launch", { method: "POST", headers: locked.keyed() });
+  // the board opens its window with a launch code only Chrome is given: here
+  // the stand-in open is given it, and this browser opens what it was given
+  const r = await fetch(locked.origin + "/window/open", { method: "POST", headers: locked.keyed() });
   assert.equal(r.status, 200);
-  const { code } = await r.json();
-  const first = await browser.tab(locked.origin + "/?launch=" + encodeURIComponent(code));
+  const app = windowOpens(locked.windowDir).at(-1).find(arg => arg.startsWith("--app="));
+  const first = await browser.tab(app.slice("--app=".length));
   await first.until(() => typeof deskLine !== "undefined" && !!deskLine && deskLine.up && !!lastState, "the line on the locked board");
   assert.equal(await first.eval(() => location.pathname + location.search), "/");
   const second = await browser.tab(locked.origin + "/", { shown: false });

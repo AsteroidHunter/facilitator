@@ -690,8 +690,11 @@ cli.port_free = lambda port: True
 cli.start_and_confirm = lambda port: (None, None)
 cli.chrome_allowed = lambda: calls.append("asked macOS") or ${allowed ? "True" : "False"}
 cli.chrome_tabs = lambda: calls.append("read chrome") or [(1, ["http://127.0.0.1:9/"])]
-cli.launch_url = lambda cfg, url: url + "?launch=CODE"
-cli.send_tab = lambda wid, place, expected, goal: calls.append(["sent", place, expected, goal]) or "SENT"
+def board_sends(port, route, body, timeout):
+    tabs = json.loads(body)["tabs"]
+    calls.append(["board sends on", route, tabs])
+    return 200, {"sent": ["SENT" for _ in tabs]}
+cli.board_window = board_sends
 cli.window_key_kept = lambda: ${kept ? "True" : "False"}
 cli.open_app = lambda cfg, dry: calls.append("opened a window")
 out = io.StringIO()
@@ -706,7 +709,7 @@ cli.subprocess = types.SimpleNamespace(Popen=Child, DEVNULL=-3)
 cli.start_server()
 print(json.dumps({"calls": calls, "out": out.getvalue(), "marked": cli.FROM_BOARD_VARIABLE in seen["env"],
                   "env": bool(seen["env"])}))`;
-  const sent = ["sent", 1, "http://127.0.0.1:9/", "http://127.0.0.1:9/?launch=CODE"];
+  const sent = ["board sends on", "/window/relaunch", [[1, 1, "http://127.0.0.1:9/"]]];
   const terminal = await drive(world, harness(false));
   assert.deepEqual(terminal.calls, ["read chrome", sent], "a restart from the terminal did not send the board's tab on");
   assert.equal(terminal.out, "Board restarted.\n", "a restart from the terminal still asks for a reload");

@@ -36,14 +36,32 @@ they always did.
 
 Endpoints:
   GET  /                    -> index.html, the card board
-  GET  /?launch=CODE        -> a launch code from /window/launch, spent: opened
-                               as a page it sets the window's cookie (HttpOnly,
+  GET  /?launch=CODE        -> a launch code the board put in a window it
+                               opened or sent on, spent: opened as a page it
+                               sets the window's cookie (HttpOnly,
                                SameSite=Strict) and answers 303 to /, with
                                the rest of the query, so the code leaves the
                                address bar. A code is good once, for 60
-                               seconds
-  POST /window/launch       -> {code, seconds}: a launch code for the window
-                               `facilitator run` opens. With the agent key only
+                               seconds, and no route ever answers with one
+  POST /window/open         -> the board opens its own window in Chrome, as
+                               `facilitator run` asks it to: the body is the
+                               page (empty for http://127.0.0.1:PORT/, and
+                               only this board's own page on loopback is
+                               opened), the window a chromeless app window
+                               on it with a launch code inside, full screen
+                               when run.config.json's app_fullscreen is true.
+                               {opened: true}, or 502 {error, said: the first
+                               line open printed}. With the agent key only
+  POST /window/relaunch     -> {"tabs": [[window id, place, url], ...]}, the
+                               Chrome tabs showing the board that `facilitator
+                               restart` read: each one is sent, where it is,
+                               to its own page with a launch code of its own
+                               (the config's app_url page as it is; any other
+                               page is left alone). {sent: ["SENT", "GONE",
+                               "CHANGED" or null, one per tab]}. With the
+                               agent key only
+  POST /window/launch       -> 410: the board hands out no launch code. With
+                               the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (pages read this), with rev, the
                                board's revision: every saved change moves it,
@@ -2524,10 +2542,15 @@ def _lane_in_touch(ow: str) -> bool:
 # `curl -K data/agent.curl` carries it and it never shows in ps. Both are for
 # this account alone, in a folder for this account alone.
 #
-# The window cookie comes with a launch code: `facilitator run` asks the
-# running board for one with the agent key (POST /window/launch) and opens the
-# window on /?launch=CODE. A code is good once, for LAUNCH_LIFE seconds, and is
-# held in memory alone. Opening it as a page sets the cookie, HttpOnly and
+# The window cookie comes with a launch code, and the board hands that code to
+# nobody: only Chrome ever gets it. `facilitator run` asks the board, with the
+# agent key, to open its window (POST /window/open), and the board opens it in
+# Chrome itself, on /?launch=CODE, full screen when run.config.json says
+# app_fullscreen. After a restart the command reads Chrome's tabs and hands the
+# board the ones showing it (POST /window/relaunch), and the board sends each
+# one, where it is, to its own page with a code of its own. A caller with the
+# key gets a window on the screen and never the code. A code is good once, for
+# LAUNCH_LIFE seconds, and is held in memory alone. Opening it as a page sets the cookie, HttpOnly and
 # SameSite=Strict, and sends the window on to / so the code leaves the address
 # bar. The board keeps only the cookie's hash, in data/window-keys.json, so
 # that file alone opens nothing.
@@ -2537,7 +2560,10 @@ def _lane_in_touch(ow: str) -> bool:
 # its port and catch what the window or an agent sends it. A cookie also
 # belongs to the host and not the port, so Chrome sends the window cookie to
 # every port of 127.0.0.1, and a page another account serves on one of them
-# could catch it when opened in that Chrome.
+# could catch it when opened in that Chrome. A launch code, last, shows for a
+# moment in the arguments of open and of the Chrome it starts, where a program
+# of this account watching the process list could read it and race Chrome to
+# it; the window it was meant for then shows the lock's page.
 AGENT_KEY_PATH = DATA / "agent.key"
 AGENT_CURL_PATH = DATA / "agent.curl"
 WINDOW_KEYS_PATH = DATA / "window-keys.json"
@@ -2726,6 +2752,174 @@ def _spend_launch(code: str) -> bool:
     is good no more."""
     until = _launches.pop(_key_digest(code), None)
     return until is not None and time.monotonic() < until
+
+
+# ---- the board's window, opened and sent on by the board itself ---------------
+# The two programs the window goes through, by their full paths so nothing on
+# PATH can stand in for them and catch a code. A test's copy of this file puts
+# stand-ins here, so no test ever opens or asks the real Chrome
+OPEN_PROGRAM = "/usr/bin/open"
+OSASCRIPT_PROGRAM = "/usr/bin/osascript"
+OPEN_WAIT = 30              # seconds `open` may take before the window counts as not opened
+SEND_WAIT = 10              # seconds one tab's send may take
+WINDOW_TABS_MAX = 64        # board tabs one relaunch sends on; any past these are left as they are
+WINDOW_BODY_MAX = 65536     # bytes a window route reads
+WINDOW_ROUTES = frozenset({"/window/open", "/window/relaunch", "/window/launch"})
+LOOPBACK_SPELLINGS = frozenset({"localhost", "::1", "ip6-localhost"})
+# One tab, named by its window's id and its place there, sent to an address
+# as one typed into it, and only while it still shows the page it was read
+# showing. Whether Chrome is running is read by AppleScript itself, which
+# neither starts Chrome nor asks System Events, so the one permission it can
+# need is the one to control Chrome, the one the command's own reading of the
+# tabs has just used: macOS asks it for the app at the head of the process
+# chain, and the board doing this is the one that same command has just
+# started. Every value goes in as an argument, never as script text, and the
+# window is not brought to the front.
+SEND_TAB_SCRIPT = "\n".join([
+    'on run argv',
+    '  if (count of argv) is not 4 then return "BADARGS"',
+    '  set wanted to (item 1 of argv) as integer',
+    '  set place to (item 2 of argv) as integer',
+    '  set expected to item 3 of argv',
+    '  set goal to item 4 of argv',
+    '  if not (application "Google Chrome" is running) then return "GONE"',
+    '  tell application "Google Chrome"',
+    '    set candidates to (every window whose id is wanted)',
+    '    if (count of candidates) is not 1 then return "GONE"',
+    '    set win to item 1 of candidates',
+    '    if (count of tabs of win) < place then return "GONE"',
+    '    set seen to (URL of (tab place of win)) as text',
+    '    set agreed to false',
+    '    considering case',
+    '      set agreed to (seen = expected)',
+    '    end considering',
+    '    if not agreed then return "CHANGED"',
+    '    set URL of (tab place of win) to goal',
+    '  end tell',
+    '  return "SENT"',
+    'end run',
+])
+
+
+def _page_key(url: str):
+    """A page reduced to what decides which page it is, as the command reads
+    it: the scheme, the host with every loopback spelling one host, the port
+    with a missing one the scheme's default, and the path with a bare host and
+    a trailing slash both "/". None for anything that is not an http or https
+    page."""
+    try:
+        bits = urlparse((url or "").strip())
+        host = (bits.hostname or "").lower()
+        port = bits.port
+    except ValueError:
+        return None
+    if bits.scheme not in ("http", "https") or not host:
+        return None
+    parts = host.split(".")
+    loopback = host.strip("[]") in LOOPBACK_SPELLINGS or (
+        len(parts) == 4 and parts[0] == "127" and all(p.isdigit() and int(p) < 256 for p in parts))
+    path = "/" + (bits.path or "/").lstrip("/")
+    return (bits.scheme, "loopback" if loopback else host,
+            port or {"http": 80, "https": 443}[bits.scheme], path.rstrip("/") or "/")
+
+
+def _own_page(url: str) -> str | None:
+    """That address, with any launch code taken out of its query, when it is
+    this board's own page on this Mac's loopback; None for any other address,
+    which never gets a code."""
+    if not isinstance(url, str) or re.search(r"[\x00-\x20\x7f]", url):
+        return None
+    if _page_key(url) != ("http", "loopback", PORT, "/"):
+        return None
+    bits = urlparse(url.strip())
+    kept = "&".join(part for part in bits.query.split("&")
+                    if part and unquote_plus(part.split("=", 1)[0]) != "launch")
+    return bits._replace(path="/", query=kept).geturl()
+
+
+def _with_launch(page: str) -> str:
+    """The board's own page with a new launch code at the end of its query."""
+    bits = urlparse(page)
+    return bits._replace(query=(bits.query + "&" if bits.query else "") + "launch=" + _new_launch()).geturl()
+
+
+def _window_config() -> dict:
+    try:
+        cfg = json.loads((DATA / "run.config.json").read_text())
+    except Exception:
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _open_window(page: str) -> tuple:
+    """Open the board's window in Chrome as `facilitator run` always opened
+    it: a new chromeless app window on the page, with a launch code only
+    Chrome sees, and full screen when run.config.json's app_fullscreen is
+    true (a config without it opens as it always did). The answer for the
+    command: opened, or the first line `open` said, so it can say Chrome did
+    not open."""
+    command = [OPEN_PROGRAM, "-na", "Google Chrome", "--args", f"--app={_with_launch(page)}"]
+    if _window_config().get("app_fullscreen") is True:
+        command.append("--start-fullscreen")
+    try:
+        opened = subprocess.run(command, capture_output=True, text=True, timeout=OPEN_WAIT)
+    except subprocess.TimeoutExpired:
+        return 502, {"error": "could not open Chrome", "said": "open did not finish"}
+    except OSError as error:
+        return 502, {"error": "could not open Chrome", "said": error.strerror or type(error).__name__}
+    if opened.returncode == 0:
+        return 200, {"opened": True}
+    lines = (opened.stderr or "").strip().splitlines()
+    return 502, {"error": "could not open Chrome", "said": lines[0] if lines else ""}
+
+
+def _send_tab(wid: int, place: int, expected: str, goal: str):
+    """"SENT", "GONE" or "CHANGED" as the send script says, or None when
+    Chrome could not be asked."""
+    try:
+        done = subprocess.run([OSASCRIPT_PROGRAM, "-e", SEND_TAB_SCRIPT, str(wid), str(place), expected, goal],
+                              capture_output=True, text=True, timeout=SEND_WAIT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    answer = done.stdout.strip() if done.returncode == 0 else ""
+    return answer if answer in ("SENT", "GONE", "CHANGED") else None
+
+
+def _relaunch_tabs(tabs: list) -> list:
+    """Send each tab the command read showing the board, where it is, to its
+    own page: this board's own page with a launch code of its own, so a
+    window from before the lock is let in, and one with its cookie already
+    just loads the board again; the page the config's app_url names, as it
+    is. Anything else is not the board's and is left alone (None)."""
+    app_page = _page_key(_window_config().get("app_url") or "")
+    answers = []
+    for wid, place, url in tabs:
+        own = _own_page(url)
+        if own is not None:
+            answers.append(_send_tab(wid, place, url, _with_launch(own)))
+        elif app_page is not None and _page_key(url) == app_page:
+            answers.append(_send_tab(wid, place, url, url))
+        else:
+            answers.append(None)
+    return answers
+
+
+def _window_tabs(raw: bytes):
+    """The tabs a relaunch names, [[window id, place, url], ...], or None for
+    a body that is not that."""
+    try:
+        tabs = json.loads(raw.decode("utf-8")).get("tabs")
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        return None
+    if not isinstance(tabs, list):
+        return None
+    out = []
+    for tab in tabs[:WINDOW_TABS_MAX]:
+        if not (isinstance(tab, list) and len(tab) == 3 and all(type(n) is int and n > 0 for n in tab[:2])
+                and isinstance(tab[2], str) and len(tab[2]) <= 8192):
+            return None
+        out.append(tab)
+    return out
 
 
 def _agent_request(scope: dict) -> bool:
@@ -12176,10 +12370,12 @@ class BoardLock(SiteGuard):
     agent gets the key. /unread alone answers without either: it reads two
     counts and nothing else, which a Stop hook pasted into an agent's
     settings asks for. The phone's door is the bridge gate's and passes
-    through untouched. Here too are the two steps of the window's cookie (see
-    _lock_up): POST /window/launch, with the key, gives a launch code, and a
-    page open of /?launch=CODE spends it, sets the cookie and sends the window
-    on to /. Refusals are written down as SiteGuard writes its own."""
+    through untouched. Here too are the window's routes (see _lock_up), for
+    the key alone: POST /window/open opens the board's window in Chrome with
+    a launch code inside, POST /window/relaunch sends the board's tabs on to
+    one each, and neither answer holds a code. A page open of /?launch=CODE
+    spends one, sets the cookie and sends the window on to /. Refusals are
+    written down as SiteGuard writes its own."""
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http" or _via_gate(scope):
@@ -12187,12 +12383,12 @@ class BoardLock(SiteGuard):
             return
         method, path = scope.get("method", ""), scope.get("path", "")
         keyed, windowed = _keyed(scope), _windowed(scope)
-        if (method, path) == ("POST", "/window/launch"):
+        if method == "POST" and path in WINDOW_ROUTES:
             if not keyed:
                 await self._refuse(scope, receive, send, "no agent key")
                 return
-            await Response(json.dumps({"code": _new_launch(), "seconds": int(LAUNCH_LIFE)}).encode(),
-                           media_type="application/json",
+            status, answer = await self._window(path, receive)
+            await Response(json.dumps(answer).encode(), status_code=status, media_type="application/json",
                            headers={"Cache-Control": "no-store"})(scope, receive, send)
             return
         if method in ("GET", "HEAD") and path == "/":
@@ -12203,6 +12399,36 @@ class BoardLock(SiteGuard):
             await self.app(scope, receive, send)
             return
         await self._refuse(scope, receive, send, "no key or window cookie")
+
+    async def _window(self, path: str, receive) -> tuple:
+        """(status, answer) for a window route. /window/open takes the page
+        to open as its body (empty for the board's own root), /window/relaunch
+        {"tabs": [[window id, place, url], ...]}. POST /window/launch, which
+        once handed out a code, answers that it does not, and opens nothing:
+        a command from before this answer opens or reloads the page itself
+        when it gets no code, so opening one here would give two windows."""
+        if path == "/window/launch":
+            return 410, {"error": "the board no longer hands out launch codes: it opens its own window "
+                                  "(POST /window/open) and sends its tabs on (POST /window/relaunch)"}
+        raw = b""
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return 400, {"error": "the request body did not arrive"}
+            raw += message.get("body", b"")
+            if len(raw) > WINDOW_BODY_MAX:
+                return 413, {"error": "body too large"}
+            if not message.get("more_body"):
+                break
+        if path == "/window/open":
+            page = _own_page(raw.decode("utf-8", "replace").strip() or f"http://127.0.0.1:{PORT}/")
+            if page is None:
+                return 400, {"error": "the board opens only its own page on this Mac"}
+            return await run_in_threadpool(_open_window, page)
+        tabs = _window_tabs(raw)
+        if tabs is None:
+            return 400, {"error": 'send {"tabs": [[window id, place, url], ...]}'}
+        return 200, {"sent": await run_in_threadpool(_relaunch_tabs, tabs)}
 
     async def _launch(self, scope, receive, send, code: str, windowed: bool) -> bool:
         """A page open of /?launch=CODE, answered: a code still good, opened

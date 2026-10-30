@@ -64,9 +64,12 @@ function loadCli() {
 // One run of cmd_run with everything outside the CLI stood in for. `board` is
 // what the port answers (null for nothing yet, then a board once the launch
 // has been made), `tmux` is live, shell or none, `open` is "ok" or the message
-// `open` prints when it fails.
+// `open` prints when it fails. `opens` is what the board answers when asked to
+// open its window: "ok", the message open printed there, or null for a board
+// from before it opened its own window, which leaves the command to open it.
 async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncovered", tmux = "none",
-                          hasTmux = true, open = "ok", booting = false, sessionExists = false, lands = true } = {}) {
+                          hasTmux = true, open = "ok", booting = false, sessionExists = false, lands = true,
+                          opens = "ok" } = {}) {
   await writeConfig(config);
   const states = {
     uncovered: { boxes: [], queued: 0, listening: { facilitator: false, example: false }, busy: {}, listenerGap: { facilitator: 99999, example: 99999 } },
@@ -111,6 +114,13 @@ async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncov
     "def fake_state(port, timeout=2):",
     "    return ANSWERS.pop(0) if ANSWERS else STATE",
     "cli.state = fake_state",
+    `OPENS = ${opens === null ? "None" : JSON.stringify(opens)}`,
+    "def fake_board_window(port, route, body, timeout):",
+    "    CALLS.append(['board', port, route, body.decode()])",
+    "    if OPENS is None:",
+    "        return None",
+    "    return (200, {'opened': True}) if OPENS == 'ok' else (502, {'error': 'could not open Chrome', 'said': OPENS})",
+    "cli.board_window = fake_board_window",
     `cli.cmd_run(${JSON.stringify(args)})`,
     "sys.stdout.flush()",
     "print('CALLS ' + json.dumps(CALLS))",
@@ -126,12 +136,19 @@ async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncov
 }
 
 const opened = calls => calls.filter(c => c[0] === "open");
+const asked = calls => calls.filter(c => c[0] === "board");
 
 test("a run with every lane covered says the board is up and nothing else", async () => {
   const done = await run(["run"], { board: "covered", config: { port: PORT, lanes: [LANES[0]] } });
   assert.deepEqual(done.said, UP, done.stderr);
-  assert.deepEqual(opened(done.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]]);
+  // the board opens its own window, and the command runs nothing for it
+  assert.deepEqual(asked(done.calls), [["board", PORT, "/window/open", BOARD]]);
+  assert.deepEqual(opened(done.calls), []);
   assert.equal(done.stderr, "");
+  // a board from before it opened its own window: the command opens it, as it always did
+  const older = await run(["run"], { board: "covered", opens: null, config: { port: PORT, lanes: [LANES[0]] } });
+  assert.deepEqual(older.said, UP, older.stderr);
+  assert.deepEqual(opened(older.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]]);
 });
 
 test("a run that has to start the board says the same two lines", async () => {
@@ -153,14 +170,22 @@ test("an app_url in the config changes the window, not the address the board is 
   const done = await run(["run"], { board: "covered", config: { port: PORT, app_url: "http://127.0.0.1:9/", lanes: [LANES[0]] } });
   assert.deepEqual(done.said, UP);
   assert.deepEqual(opened(done.calls), [["open", "-na", "Google Chrome", "--args", "--app=http://127.0.0.1:9/"]]);
+  assert.deepEqual(asked(done.calls), [], "the board was asked to open a page not its own");
 });
 
 test("app_fullscreen true starts the window in full screen, and no other value changes the launch", async () => {
-  const full = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
+  // the board reads app_fullscreen itself (board-lock.test.cjs), so the command's ask is the same either way
+  const board = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
+  assert.deepEqual(asked(board.calls), [["board", PORT, "/window/open", BOARD]]);
+  assert.deepEqual(opened(board.calls), []);
+  // and a board from before it did opens it here, full screen as it always did
+  const full = await run(["run"], { board: "covered", opens: null,
+                                    config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
   assert.deepEqual(full.said, UP, full.stderr);
   assert.deepEqual(opened(full.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`, "--start-fullscreen"]]);
   for (const value of [false, "true", 1, null]) {
-    const same = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: value, lanes: [LANES[0]] } });
+    const same = await run(["run"], { board: "covered", opens: null,
+                                      config: { port: PORT, app_fullscreen: value, lanes: [LANES[0]] } });
     assert.deepEqual(opened(same.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]],
       `app_fullscreen ${JSON.stringify(value)} changed the launch`);
   }
@@ -170,17 +195,23 @@ test("a dry run says when the window would be full screen", async () => {
   const full = await run(["run", "--dry-run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
   assert.ok(full.said.includes(`window: would open ${BOARD} as a chromeless full-screen app window`), full.said.join("\n"));
   assert.deepEqual(opened(full.calls), [], "a dry run opened a window");
+  assert.deepEqual(asked(full.calls), [], "a dry run asked the board to open a window");
 });
 
 test("a window that fails to open is one plain line, and is never reported as opened", async () => {
-  const done = await run(["run"], {
-    board: "covered", open: "Unable to find application named 'Google Chrome'", config: { port: PORT, lanes: [LANES[0]] },
-  });
-  assert.deepEqual(done.said, [
-    ...UP,
-    `could not open Chrome (Unable to find application named 'Google Chrome'); open ${BOARD} yourself`,
-  ]);
-  assert.ok(!done.said.some(line => /opened/.test(line)), "a window that failed was called opened");
+  // what open said comes back from the board, and from open run here for a board from before
+  const failed = "Unable to find application named 'Google Chrome'";
+  for (const options of [{ opens: failed }, { opens: null, open: failed }]) {
+    const done = await run(["run"], { board: "covered", config: { port: PORT, lanes: [LANES[0]] }, ...options });
+    assert.deepEqual(done.said, [
+      ...UP,
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open ${BOARD} yourself`,
+    ], JSON.stringify(options));
+    assert.ok(!done.said.some(line => /opened/.test(line)), "a window that failed was called opened");
+  }
+  // a board that could say nothing of what open printed is still the one line
+  const bare = await run(["run"], { board: "covered", opens: "", config: { port: PORT, lanes: [LANES[0]] } });
+  assert.deepEqual(bare.said, [...UP, `could not open Chrome; open ${BOARD} yourself`]);
 });
 
 test("--attach: one line per lane, whether the instruction typed or not", async () => {
