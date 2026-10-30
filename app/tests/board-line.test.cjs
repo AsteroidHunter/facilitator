@@ -36,7 +36,7 @@ const PAGE_LINE = block(PAGE, "// ---- the board's live line ----", "// ---- the
 
 // a clock and timers of the test's own, an EventSource and a SharedWorker it
 // drives, and a document that is on screen unless hidden says otherwise
-function world({ hidden = false, worker = null } = {}){
+function world({ hidden = false, worker = null, line = LINE } = {}){
   let t = 1_000_000;
   const timers = new Map();
   let seq = 0;
@@ -66,7 +66,7 @@ function world({ hidden = false, worker = null } = {}){
   };
   if (worker) ctx.SharedWorker = worker;
   vm.createContext(ctx);
-  vm.runInContext(LINE, ctx);
+  vm.runInContext(line, ctx);
   const flush = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
   return {
     ctx, sources, problems, document,
@@ -407,12 +407,21 @@ function fakeWorker(){
   return { made, FakeSharedWorker };
 }
 
+test("the worker's name carries a mark of the line's code, so other code never joins a worker left running", () => {
+  const named = line => { const fw = fakeWorker(); desk({ worker: fw.FakeSharedWorker, line }); return fw.made[0].opts.name; };
+  const first = named(LINE);
+  assert.equal(named(LINE), first, "the same code gave another name");
+  const changed = LINE.replace("const DEAD_MS = 40000;", "const DEAD_MS = 41000;");
+  assert.notEqual(changed, LINE);
+  assert.notEqual(named(changed), first, "a change to the worker's code kept the old worker's name");
+});
+
 test("a page with a SharedWorker joins the one line it holds and opens none of its own", async () => {
   const fw = fakeWorker();
   const d = desk({ worker: fw.FakeSharedWorker });
   assert.equal(fw.made.length, 1);
   assert.equal(fw.made[0].url, "/board-line-worker.js");
-  assert.equal(fw.made[0].opts.name, "facilitator-board-line");
+  assert.match(fw.made[0].opts.name, /^facilitator-board-line-[0-9a-z]+$/);
   assert.deepEqual(plain(fw.made[0].sent), [{ type: "hello" }]);
   assert.equal(d.sources.length, 0, "a page with a worker opened a line of its own");
   await d.answer(5);

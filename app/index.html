@@ -13572,10 +13572,9 @@ async function poll(timed = false){
     seedSeenOnce(state);
     // and the settings, which have a revision of their own: another window's
     // arrangement is read when it moves, and used at the next tab switch or
-    // reload, as it was when the browser kept them
+    // reload, as it was when the browser kept them. the new layout and the
+    // waiting order are drawn as soon as they are read (settingsStore.onChange)
     if (settingsStore.notice) settingsStore.notice(state.settingsRev);
-    // the new layout is the one setting taken at once, whichever window turned it
-    applyNewLayout();
     const caretBefore = focusedCaretContext();
     // a card this page has just put in the Bin stays out of the reading
     binHide(state);
@@ -14606,6 +14605,17 @@ function applyNewLayout(){
   if (shown && shown.tick) shown.tick();
   queueFatCaret();
 }
+// another window's turn of a setting, once this one has fetched it from the
+// board: the new layout and the order of the cards waiting on the reader are
+// the two taken at once, so they are drawn again with the new value
+if (settingsStore.onChange) settingsStore.onChange(keys => {
+  try {
+    if (keys.includes("newlayout")) applyNewLayout();
+    if (keys.includes("waitnewest") && lastState) renderCarousel(lastState);
+  } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("render", e);
+  }
+});
 let dragging = null;
 let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
 const mouse = { x: 0, y: 0 };   // the resize hotkey targets the box under the cursor

@@ -25,7 +25,7 @@
    runs its timed check exactly as it did before the line; when a line comes
    again it is told (up), stops the timer and reads once, as it does every time
    a line opens. The worst case is the page as it was. */
-(function (root) {
+(function boardLine(root) {
   "use strict";
   const FLOOR_MS = 1000;        // at most one reading a ring asks for in a second; a burst after one becomes one more
   const RING_WAIT_MS = 250;     // a ring that lands in a card's motion is tried again this much later
@@ -35,10 +35,20 @@
   const WORKER_DEAD_MS = 45000; // a page that hears nothing from its worker for this long joins it again
   const EVENTS_URL = "/events";
   const WORKER_URL = "/board-line-worker.js";
-  const WORKER_NAME = "facilitator-board-line";
+  // Chrome finds the worker by its address and name, and keeps the one running
+  // while any board window is open, through reloads and updates. The name
+  // carries a mark of this file's code, so a page with other code starts a
+  // worker of the new code and never joins one left running from before
+  const WORKER_NAME = "facilitator-board-line-" + codeMark(String(boardLine));
   const CLOSED = 2;             // EventSource.CLOSED: the browser will not open this one again by itself
 
   const now = () => root.Date.now();
+  // a short mark of a text (32-bit FNV-1a), the same for the same text
+  function codeMark(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+    return (h >>> 0).toString(36);
+  }
   function report(e) {
     try { if (typeof root.reportProblem === "function") root.reportProblem("error", e); } catch (_) {}
   }
