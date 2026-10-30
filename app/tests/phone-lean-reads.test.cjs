@@ -125,6 +125,7 @@ function page({ legacy = false, patches = [] } = {}){
     startupTrouble(){}, startupAnswered(){}, startupRendered: async () => {}, pageMended(){}, wakeOps(){},
     cardsMoving: () => false, stampText: () => "",
     remoteFaded: () => false, showRemoteFade(){},   // a server's projects fade while its link is down; none is here
+    sentCatchUp(){},   // no card is built here, so no sent panel waits on a send (phone-sent-catch-up.test.cjs)
     reportProblem(kind, e){ problems.push(e.message); },
     async fetch(url, opts = {}){
       const target = new URL(url, board.origin);
