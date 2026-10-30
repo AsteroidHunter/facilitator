@@ -235,6 +235,15 @@ class LinkDown(Exception):
     away."""
 
 
+class Blocked(LinkDown):
+    """The operating system or a sandbox did not let this process connect to
+    the board's door, which says nothing about whether the board is up, and
+    trying again in the same place does not help."""
+
+
+BLOCKED = "Access to the board on the owner's Mac was denied by the operating system or sandbox."
+
+
 # no proxy, ever: a proxy named in this account's settings would be handed
 # the lane's key with every call
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -269,6 +278,8 @@ def remote_request(rec, method, route, key, body=None, timeout=10, raw=None):
         with refused:
             raw, status = refused.read(), refused.code
     except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as problem:
+        if connection_status(problem) == "permission_denied":
+            raise Blocked(BLOCKED)
         reason = getattr(problem, "reason", problem)
         raise LinkDown(getattr(reason, "strerror", None) or type(reason).__name__)
     try:
@@ -352,6 +363,9 @@ def inspect_remote(args, rec):
         return
     try:
         status, answer = remote_request(rec, "POST", "/remote/join", server_key, asked)
+    except Blocked:
+        output("permission_denied", detail=BLOCKED, **common)
+        return
     except LinkDown as problem:
         output("link_down", detail=str(problem), **common)
         return
@@ -441,6 +455,8 @@ def listen_remote(args, rec):
                 cycle = min(remaining, WAIT_CYCLE)
                 query = urllib.parse.urlencode({"owner": owner, "timeout": cycle, "agent": args.agent})
                 status, claim = remote_request(rec, "GET", f"/wait?{query}", key, timeout=cycle + CLIENT_SLACK)
+        except Blocked:
+            return result("permission_denied", owner=owner, detail=BLOCKED)
         except LinkDown:
             dropped, look = True, True
             if time.monotonic() + LINK_RETRY >= deadline:
@@ -470,6 +486,9 @@ def listen_remote(args, rec):
             try:
                 status, confirmed = remote_request(rec, "POST", f"/ack?{receipt}", key)
                 break
+            except Blocked:
+                # never confirmed: the card goes back on the queue by itself
+                return result("permission_denied", owner=owner, detail=BLOCKED)
             except LinkDown:
                 if time.monotonic() + LINK_RETRY >= patience:
                     # never confirmed: the card goes back on the queue by itself
@@ -492,6 +511,8 @@ def reply_remote(args, rec, card, body):
         return result("key_refused", owner=owner, detail=NO_LANE_KEY)
     try:
         status, fresh = remote_request(rec, "GET", "/fresh?" + urllib.parse.urlencode({"owner": owner}), key)
+    except Blocked:
+        return result("permission_denied", owner=owner, detail=BLOCKED)
     except LinkDown as problem:
         return result("link_down", owner=owner, detail=str(problem))
     if status == 401:

@@ -210,6 +210,69 @@ test("this folder's board already up on another pair: run starts nothing and bri
   }
 });
 
+test("this folder's board turning its key away is said so, never taken for no board", async () => {
+  const base = await freeBlock(4);
+  const place = box.sandbox("ports-refused", { config: { port: base } });
+  try {
+    const run = box.launch(place);
+    await box.waitReady(run, base);
+    const config = path.join(place.data, "run.config.json");
+    const before = fs.readFileSync(config, "utf8");
+    // the key file goes while the board runs: the board still holds the old key
+    const keyFile = path.join(place.data, "agent.key");
+    fs.rmSync(keyFile);
+    const said = `the board on port ${base} is running but turned away this folder's key (${keyFile}), `
+      + "which was removed or changed while it ran; facilitator restart gives it a new one";
+    const status = await command(place, ["status"]);
+    assert.equal(status.code, 1);
+    assert.equal(status.stderr.trim(), `server: ${said}`);
+    // run stops there: no move, no second board, the config as it was
+    const ran = await cli(place, ["cli.cmd_run(['run'])"]);
+    assert.equal(ran.code, 1);
+    assert.equal(ran.stderr.trim(), said);
+    assert.deepEqual(ran.windows, [], "a window was opened");
+    assert.equal(fs.readFileSync(config, "utf8"), before, "run moved the board off its own pair");
+    assert.equal(held(place).pid, run.child.pid, "a second server was started");
+    assert.equal(await canBind(base + 2), true, "something was started on the next pair");
+    const home = path.join(place.outer, "home");
+    fs.mkdirSync(home);
+    const uninstall = await command(place, ["uninstall", "--keep-attachments"], { HOME: home });
+    assert.equal(uninstall.code, 1);
+    assert.match(uninstall.stderr, new RegExp(`Something is up on port ${base} and turned away this folder's key`));
+    // the restart the line names gives the board a new key, and it answers again
+    const restarted = await cli(place, ["cli.cmd_restart(['restart'])"]);
+    assert.equal(restarted.code, 0, restarted.stderr);
+    assert.deepEqual(restarted.said, ["Board restarted."]);
+    assert.ok(fs.existsSync(keyFile), "the restart made no new key");
+    const again = await command(place, ["status"]);
+    assert.equal(again.code, 0, again.stderr);
+    assert.match(again.stdout, /^server up, \d+ boxes, \d+ queued/);
+  } finally {
+    await box.cleanup(place);
+  }
+});
+
+test("another program turning the key away is still something else: run moves off it", async () => {
+  const base = await freeBlock(6);
+  const place = box.sandbox("ports-refused-other", { config: { port: base, app_url: "" } });
+  const other = http.createServer((req, res) => { res.statusCode = 401; res.end("{}"); });
+  await new Promise((resolve, reject) => { other.once("error", reject); other.listen(base, "127.0.0.1", resolve); });
+  try {
+    const status = await command(place, ["status"]);
+    assert.equal(status.code, 1);
+    assert.equal(status.stderr.trim(), `server: the program on port ${base} turned away this folder's key `
+      + `(${path.join(place.data, "agent.key")}) and is not this folder's board`);
+    const moved = await cli(place, ["cli.cmd_run(['run'])"]);
+    assert.equal(moved.code, 0, moved.stderr);
+    assert.equal(moved.said[0], `Board moved to port ${base + 2}: something else is using ${base} or ${base + 1}. `
+      + `It stays on ${base + 2}, and run.config.json now says so.`);
+    assert.equal(box.readConfig(place).port, base + 2);
+  } finally {
+    await box.closeServer(other);
+    await box.cleanup(place);
+  }
+});
+
 test("the pair picker steps by two past busy ports and Tailscale Serve targets", async () => {
   const base = await freeBlock(10);
   const place = box.sandbox("ports-picker", { config: { port: base } });

@@ -185,6 +185,7 @@ the checkout only hands over to this one.
 """
 
 import ctypes
+import errno
 import hashlib
 import http.client
 import json
@@ -442,14 +443,45 @@ def local_request(port, route, data=None, method=None):
     return request
 
 
+# what state() gives when the port answered but turned this folder's agent
+# key away: this folder's board after data/agent.key was removed or changed
+# while it ran, or something else, another folder's board most likely. It is
+# an answer, never read as no board at all (refused_line says which it is)
+REFUSED = object()
+
+
 def state(port, timeout=2):
     try:
         with LOCAL.open(local_request(port, "/state"), timeout=timeout) as f:
             return json.load(f)
+    except urllib.error.HTTPError as refused:
+        refused.close()
+        return REFUSED if refused.code == 401 else None
     # no answer, an answer that is not JSON, or something on the port that
     # does not speak HTTP at all
     except (OSError, ValueError, http.client.HTTPException):
         return None
+
+
+def refused_line(port):
+    """What is said when the port turned this folder's agent key away:
+    whether that is this folder's own board is read from the process
+    listening there, as restart reads it."""
+    if server_process(port)[0] is not None:
+        return (f"the board on port {port} is running but turned away this folder's key "
+                f"({AGENT_KEY}), which was removed or changed while it ran; "
+                "facilitator restart gives it a new one")
+    return (f"the program on port {port} turned away this folder's key ({AGENT_KEY}) "
+            "and is not this folder's board")
+
+
+def blocked(problem):
+    """Whether a call failed because the operating system or a sandbox did not
+    let this process connect, which says nothing about whether the board is
+    up. Read as the skill's onboard.py reads it."""
+    while isinstance(problem, urllib.error.URLError) and isinstance(problem.reason, BaseException):
+        problem = problem.reason
+    return isinstance(problem, PermissionError) or getattr(problem, "errno", None) in (errno.EPERM, errno.EACCES)
 
 
 VENV = DATA / ".venv"
@@ -522,7 +554,8 @@ def launch_server(port):
     child was gone before anything answered, "silent" when nothing did in time."""
     started = start_server()
     for _ in range(40):
-        if state(port):
+        st = state(port)
+        if st and st is not REFUSED:
             return "up"
         if started.poll() is not None:
             return "ended"
@@ -549,7 +582,9 @@ def said_why(port, started):
 # says so in one line; the board then stays on that pair, even once the old one
 # is free again, until that one is taken too. This folder's own board is never
 # "something else": it is found wherever it answers, by the folder its /state
-# names, and nothing is started beside it. restart never moves the board.
+# names, and nothing is started beside it. One that turns this folder's key
+# away names no folder, so it is known by the process listening on the port
+# instead, and run stops there and says so. restart never moves the board.
 DEFAULT_PORT = 8877
 PAIR_TRIES = 100        # pairs above a taken one that are looked at for a free one
 MOVE_TRIES = 3          # starts on a new pair before run stops trying
@@ -704,11 +739,14 @@ def place_board(port, dry):
     config changed under it): then that is where the board is, the config is
     brought to it, and nothing is started. When nothing holds the pair, the
     board starts there. Otherwise the pair is taken and the board moves."""
-    st = board_state(port)
+    answer = state(port)
+    st = board_shape(answer)
     if st and not other_board(st):
         if dry:
             print(f"server: already up on {port}")
         return port, None
+    if answer is REFUSED and server_process(port)[0] is not None:
+        sys.exit(refused_line(port))
     found = board_elsewhere(port)
     if found is not None:
         if dry:
@@ -1359,11 +1397,15 @@ def end_server(owner, port, wait=STOP_WAIT):
 def board_state(port):
     """The board's state when what answered is really a board: a JSON object
     with the parts this CLI reads, in the shapes it reads them in. None for no
-    answer, an answer that is not JSON, and an answer of the wrong shape
-    alike. All three mean the same thing to a restart, which is not ready yet,
-    and none of them is a reason to fall over: something else can be on a port
-    and answer anything at all."""
-    st = state(port)
+    answer, an answer that is not JSON, an answer of the wrong shape and a
+    refused key alike. All of them mean the same thing to a restart, which is
+    not ready yet, and none of them is a reason to fall over: something else
+    can be on a port and answer anything at all."""
+    return board_shape(state(port))
+
+
+def board_shape(st):
+    """st, what state() gave, when it is a board's state; else None."""
     if not isinstance(st, dict) or not isinstance(st.get("boxes"), list):
         return None
     for key in ("listening", "busy", "listenerGap"):
@@ -2092,6 +2134,8 @@ def cmd_stop(args):
 def cmd_status():
     cfg = load_config()
     st = state(cfg["port"])
+    if st is REFUSED:
+        sys.exit(f"server: {refused_line(cfg['port'])}")
     if st is None:
         said = idle_stop_note()
         if said:
@@ -2206,7 +2250,11 @@ def cmd_magic(args):
         except (ValueError, AttributeError, OSError):
             said = None
         sys.exit(f"magic: {said or f'the board answered {refused.code}'}")
-    except (OSError, ValueError):
+    except (OSError, ValueError) as problem:
+        if blocked(problem):
+            sys.exit(f"magic: the operating system or a sandbox blocked this call to the board on port {port}; "
+                     "that does not mean the board is down. Run the command again through the host's "
+                     "permission retry, as the facilitator skill says")
         sys.exit(f"server: DOWN (port {port})")
     print(json.dumps(answer, ensure_ascii=False))
 
@@ -2667,7 +2715,10 @@ def require_bridge_ready(status, name, port):
     if (not isinstance(certs, list) or
             name not in {domain.rstrip(".").lower() for domain in certs if isinstance(domain, str)}):
         sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
-    if state(port) is None:
+    answer = state(port)
+    if answer is REFUSED:
+        sys.exit(f"server: {refused_line(port)}")
+    if answer is None:
         sys.exit(f"server: DOWN (port {port}); run facilitator run first")
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port + 1}/auth/check", timeout=2) as response:
@@ -3526,7 +3577,11 @@ def cmd_uninstall(args):
 
     banner("uninstaller")
     port = board_port()
-    if board_running(port):
+    up = state(port)
+    if up is REFUSED:
+        sys.exit(problem(f"Something is up on port {port} and turned away this folder's key ({AGENT_KEY}).",
+                         "Stop that server first, then run uninstall again."))
+    if board_shape(up) is not None:
         sys.exit(problem(f"The board is up on port {port}.",
                          "Stop that server first, then run uninstall again."))
 

@@ -23,6 +23,9 @@ where it must never take a server lane's path for a folder there.
             message posts nothing and is given back; a refused or cut reply
             listens for nothing; an empty reply calls nothing
   proxy     a proxy in the account's settings is never used
+  blocked   a call the operating system or a sandbox blocks says
+            permission_denied at once, from inspect, wait and wait --reply,
+            and is never taken for link_down
   mac       on the Mac the helper resolves only lanes whose folders are here
 
     python3 -B -m unittest tests/test_onboard_remote.py
@@ -49,6 +52,15 @@ CLONE = HERE.parent.parent
 HELPER = CLONE / ".agents" / "skills" / "facilitator" / "scripts" / "onboard.py"
 KEY = "k-" + "x" * 40
 SERVER_KEY = "s-" + "y" * 40
+# the helper run as a sandbox would let it: every connect refused with EPERM,
+# as macOS and Linux refuse one the sandbox does not allow
+BLOCKED_RUN = (
+    "import errno, runpy, socket, sys\n"
+    "def refuse(self, *args):\n"
+    "    raise PermissionError(errno.EPERM, 'Operation not permitted')\n"
+    "socket.socket.connect = refuse\n"
+    "sys.argv = sys.argv[1:]\n"
+    "runpy.run_path(sys.argv[0], run_name='__main__')\n")
 
 
 class Board(http.server.ThreadingHTTPServer):
@@ -121,8 +133,9 @@ class OnAServer(unittest.TestCase):
         self.board = Board(("127.0.0.1", self.port), Handler)
         threading.Thread(target=self.board.serve_forever, daemon=True).start()
 
-    def run_helper(self, *words, timeout=60, stdin=None, **env):
-        r = subprocess.run([sys.executable, "-B", str(self.script), *words], cwd=self.project,
+    def run_helper(self, *words, timeout=60, stdin=None, blocked=False, **env):
+        start = [sys.executable, "-B", "-c", BLOCKED_RUN] if blocked else [sys.executable, "-B"]
+        r = subprocess.run([*start, str(self.script), *words], cwd=self.project,
                            env={**os.environ, "HOME": str(self.home), **env}, capture_output=True, text=True,
                            timeout=timeout, input=stdin)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -426,6 +439,23 @@ class OnAServer(unittest.TestCase):
         Handler.answers["/fresh"] = (401, {"error": "this key is not known: join again"})
         self.assertEqual(self.reply("Key gone.")[1]["status"], "key_refused")
         self.assertEqual(self.routes(), ["/fresh"])
+
+
+    # -- blocked
+    def test_a_call_the_sandbox_blocks_asks_for_permission_and_is_never_link_down(self):
+        self.serve()     # the board answers; only this process may not reach it
+        said = self.run_helper("inspect", blocked=True)[1]
+        self.assertEqual(said["status"], "permission_denied")
+        self.assertEqual(said["detail"], "Access to the board on the owner's Mac was denied by the "
+                                         "operating system or sandbox.")
+        self.give_key()
+        began = time.monotonic()
+        said = self.run_helper("wait", "--owner", "demo", "--timeout", "30", blocked=True)[1]
+        self.assertEqual(said["status"], "permission_denied")
+        self.assertLess(time.monotonic() - began, 10, "a blocked wait kept trying as through a drop")
+        said = self.run_helper("wait", "--reply", "m4", "--owner", "demo", stdin="Blocked.", blocked=True)[1]
+        self.assertEqual(said["status"], "permission_denied")
+        self.assertEqual(Handler.seen, [], "a blocked call reached the board")
 
 
 class OnTheMac(unittest.TestCase):

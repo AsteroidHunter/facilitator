@@ -166,6 +166,27 @@ test("a board that is down is said so, with exit 1", async () => {
   }
 });
 
+test("a call the operating system or a sandbox blocks is said as blocked, never as a board that is down", async () => {
+  // a sandbox's refusal to connect, as macOS gives it: EPERM on connect
+  const before = await body("0");
+  const run = spawnSync("python3", ["-c", [
+    "import errno, runpy, socket, sys",
+    "def refuse(self, *args):",
+    "    raise PermissionError(errno.EPERM, 'Operation not permitted')",
+    "socket.socket.connect = refuse",
+    "sys.argv = sys.argv[1:]",
+    "runpy.run_path(sys.argv[0], run_name='__main__')",
+  ].join("\n"), cli, "magic", "0", "text", "never sent"], {
+    encoding: "utf8", timeout: 60000,
+    env: { ...process.env, FACILITATOR_LOG_DIR: path.join(board.outer, "cli-logs") },
+  });
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(run.stderr.trim(), `magic: the operating system or a sandbox blocked this call to the board on port ${board.port}; `
+    + "that does not mean the board is down. Run the command again through the host's permission retry, as the facilitator skill says");
+  assert.doesNotMatch(run.stderr, /DOWN/);
+  assert.deepEqual(await body("0"), before);
+});
+
 test("the command's help names the subcommand", () => {
   const run = spawnSync("python3", [cli, "no-such-command"], { encoding: "utf8" });
   assert.match(run.stderr, /facilitator magic CARD KIND \(CONTENT \| --file PATH \| -\) \[--title TITLE\]/);

@@ -12,6 +12,7 @@ so the board is handed bytes and never a path. Prints the board's answer as
 one JSON line, or exits 1 with the board's words; never a key or the
 board's address. Runs on python3 3.7 and newer, standard library only."""
 
+import errno
 import http.client
 import io
 import json
@@ -56,6 +57,11 @@ words when it refuses."""
 class LinkDown(Exception):
     """The board's door does not answer: the tailnet, the Mac or the board is
     away."""
+
+
+class Blocked(LinkDown):
+    """The operating system or a sandbox did not let this process connect to
+    the board's door, which says nothing about whether the board is up."""
 
 
 def remote_record():
@@ -156,7 +162,9 @@ def ask(rec, method, route, key, body=None):
             raw, status = response.read(), response.status
         else:
             status, raw = early
-    except (OSError, ValueError, IndexError, http.client.HTTPException):
+    except (OSError, ValueError, IndexError, http.client.HTTPException) as problem:
+        if isinstance(problem, PermissionError) or getattr(problem, "errno", None) in (errno.EPERM, errno.EACCES):
+            raise Blocked()
         raise LinkDown()
     finally:
         conn.close()
@@ -259,6 +267,10 @@ def main(argv):
             sys.exit(refusal(*refused))
         if what != "show":
             status, answer = ask(rec, method, route + "?" + urllib.parse.urlencode(query), chosen, body)
+    except Blocked:
+        sys.exit("magic: the operating system or a sandbox blocked this call to the board; that does not "
+                 "mean the board is down. Run the command again through the host's permission retry, "
+                 "as the facilitator skill says")
     except LinkDown:
         sys.exit("magic: the board cannot be reached now (the Mac asleep, Tailscale or the board down); "
                  "try again in a minute")
