@@ -26,11 +26,13 @@
       process is stopped: the one holding the listening socket, read back as
       this folder's server.py first, by SIGTERM and never by SIGKILL, and the
       port is polled until it is really free before the replacement starts.
-      Every Chrome tab already showing the board then loads it again on a
-      launch link, in the tab it is in, so a window from before the board's
-      lock is let in too, and a new chromeless app window is opened only when
-      nothing is showing the board. When Chrome cannot be asked, a window is
-      opened only if the board has let no window in yet, and nothing is said.
+      Every Chrome tab already showing the board then loads it again, in the
+      tab it is in, and while the board has let no window in yet, as after an
+      update from before its lock, it does so on a launch link, so a window
+      from before the lock is let in too. A new chromeless app window is
+      opened only when nothing is showing the board. When Chrome cannot be
+      asked, a window is opened only if the board has let no window in yet,
+      and nothing is said.
       Touches no lane, no tmux session and no bridge, and never moves the
       board to another port. --dry-run says what it would do and does nothing.
   facilitator stop [--dry-run] [--force]
@@ -1492,13 +1494,14 @@ def start_and_confirm(port, wait=START_WAIT):
 
 # --- restart: Chrome's tabs, read here and sent on by the board ---------------
 # After a restart every Chrome tab showing the board is sent, where it is, to
-# its own page with a launch code (relaunch_board_tabs). The command reads the
-# tabs with the script below and hands the board the ones showing it; the
-# board sends each one on itself, with the same kind of script, so the code
-# goes from the board to Chrome and never through this command. The script
-# asks Chrome alone: whether Chrome is running is read by AppleScript itself,
-# which neither starts Chrome nor asks System Events, so the one permission it
-# can ever need is the one to control Chrome. macOS asks that for the app at
+# its own page again, with a launch code only while the board has let no
+# window in yet (relaunch_board_tabs). The command reads the tabs with the
+# script below and hands the board the ones showing it; the board sends each
+# one on itself, with the same kind of script, so any code goes from the
+# board to Chrome and never through this command. The script asks Chrome
+# alone: whether Chrome is running is read by AppleScript itself, which
+# neither starts Chrome nor asks System Events, so the one permission it can
+# ever need is the one to control Chrome. macOS asks that for the app at
 # the head of the process chain, and the board sending the tabs on is the one
 # this same restart has just started, so its sends use the permission this
 # reading has just used. Chrome opens each address in its tab as one typed
@@ -1600,15 +1603,17 @@ def board_tabs(cfg, windows):
 
 def relaunch_board_tabs(cfg):
     """After a restart, have the board send every Chrome tab showing it to
-    its own page with a launch code of its own. A window the board opened
-    before its lock came in (v0.3.37) carries no window cookie, and the board
-    started again refuses it; it gets the cookie this way, the way a window
-    the board opens for facilitator run gets it, and a tab that has the cookie
-    already just loads the board again, which is the reload a restart needs
-    anyway. The tabs are read here and sent on by the board, so no code ever
-    comes back to this command. Returns how many board tabs there were, or
-    None when Chrome could not be asked, or the board could not send any of
-    them."""
+    its own page again, which is the reload a restart needs. A window the
+    board opened before its lock came in (v0.3.37) carries no window cookie,
+    and the board started again refuses it; while the board has let no window
+    in yet, as on the first restart after an update from before the lock, the
+    board puts a launch code of its own in each tab's page, and the window
+    gets the cookie that way, the way a window the board opens for
+    facilitator run gets it. Once any window has been let in, the board makes
+    no code for a tab. The tabs are read here and sent on by the board, so no
+    code ever comes back to this command. Returns how many board tabs there
+    were, or None when Chrome could not be asked, or the board could not send
+    any of them."""
     windows = chrome_tabs()
     if windows is None:
         return None
@@ -2048,7 +2053,8 @@ def cmd_restart(args):
                   + ("nothing" if window_key_kept()
                      else "one app window, since the board has let no window in yet"))
         elif tabs:
-            print(f"window: {url} is open; would load it again on a launch link, in the tab it is in")
+            print(f"window: {url} is open; would load it again"
+                  + ("" if window_key_kept() else " on a launch link") + ", in the tab it is in")
         else:
             print(f"window: nothing is showing {url}; would open one app window")
         return
@@ -2077,10 +2083,11 @@ def cmd_restart(args):
         stop_here(refusal)
     print("Board restarted." if owner is not None else "Board started.")
 
-    # every tab showing the board loads it again on a launch link, so a window
-    # from before the lock is let in and needs nothing from the person. An
-    # update the board started asks Chrome only when macOS lets it without
-    # asking the person, who is at the board and not here
+    # every tab showing the board loads it again, on a launch link while the
+    # board has let no window in yet, so a window from before the lock is let
+    # in and needs nothing from the person. An update the board started asks
+    # Chrome only when macOS lets it without asking the person, who is at the
+    # board and not here
     global tabs_reloaded
     if FROM_BOARD and not chrome_allowed():
         found = None

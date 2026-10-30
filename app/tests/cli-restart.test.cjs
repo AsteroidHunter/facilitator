@@ -1306,6 +1306,11 @@ test("--dry-run signals nothing, starts nothing and opens nothing", async () => 
   assert.deepEqual(kinds(idle.events).filter(k => ["kill", "popen", "open_app", "run"].includes(k)), []);
   assert.match(idle.said[0], new RegExp(`^restart: nothing is listening on ${port}; would start `));
   assert.match(idle.said[1], /is open; would load it again on a launch link, in the tab it is in$/);
+  // once the board has let a window in, the tab only loads the board again
+  const kept = await restart({ listeners: [], chrome: [`http://127.0.0.1:${port}/`], keyKept: true },
+    "['restart', '--dry-run']");
+  assert.equal(kept.ok, true, kept.stderr);
+  assert.match(kept.said[1], /is open; would load it again, in the tab it is in$/);
 });
 
 test("run is untouched: still server, window, and no tmux without being asked", async () => {
@@ -1710,6 +1715,27 @@ test("a window from before the lock is let in after facilitator restart, in its 
   const result = await oldWindowThrough(world, "cli.cmd_restart(['restart'])");
   assertLetIn(result, "restart");
   assert.deepEqual(result.said, ["Board restarted."]);
+});
+
+test("a window once let in is only loaded again on the next restart, with no code", async t => {
+  const world = await oldWindowWorld(t);
+  // the first restart lets the window from before the lock in, as above; its
+  // cookie jar is kept for the next restart, which runs as a command of its
+  // own, as a restart typed later would
+  const jar = path.join(world.nest, "jar.json");
+  const first = await oldWindowThrough(world,
+    `cli.cmd_restart(['restart']); open(${JSON.stringify(jar)}, 'w').write(json.dumps(JAR))`);
+  assertLetIn(first, "first restart");
+  const later = await oldWindowThrough(world,
+    `JAR.update(json.loads(open(${JSON.stringify(jar)}).read())); cli.cmd_restart(['restart'])`);
+  assert.deepEqual(later.seen.map(e => e[0]), ["tabs", "send", "only reloaded", "sent"], JSON.stringify(later.seen));
+  assert.deepEqual(later.seen[1].slice(1), [7, 2, first.before.page.url, false], "the second restart sent the tab a code");
+  // the window has its cookie, so the plain reload it is given is the board
+  for (const shown of [later.seen[2][1], later.seen[3][1]])
+    assert.deepEqual(shown, { status: 200, url: first.before.page.url, board: true, locked: false });
+  assert.deepEqual(later.after, { page: { status: 200, url: first.before.page.url, board: true, locked: false },
+                                  read: 200, cookie: true });
+  assert.deepEqual(later.said, ["Board restarted."]);
 });
 
 test("a window from before the lock is let in after an update run in a terminal", async t => {

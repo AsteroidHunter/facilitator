@@ -442,7 +442,50 @@ test("a window Chrome would not open is passed back with what open said, for the
   }
 });
 
-test("a relaunch sends each board tab, where it is, to its own page with a code of its own", async () => {
+// the board as the first restart after an update from before the lock finds
+// it: no window let in yet, so window-keys.json holds nothing
+async function noWindowLetIn() {
+  await board.restart(() => rm(path.join(board.data, "window-keys.json"), { force: true }));
+}
+
+test("a relaunch once a window has been let in makes no code: each tab just loads its page again", async () => {
+  const cookie = await windowCookie();
+  const own = `${board.origin}/`;
+  const pulled = `${board.origin}/?project=pastureland&launch=SPENT&%6Caunch=SPENT2#box-3`;
+  // the reviewer's case: a window id nobody has, which the stand-in osascript
+  // says was SENT, as a Chrome the caller drives itself would, beside real tabs
+  const relaunch = async () => {
+    const codes = codesGiven().length;
+    const before = windowSends(board.windowDir).length;
+    const r = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [
+      [424242, 1, own], [7, 3, pulled], [8, 1, "https://example.com/"]] }) });
+    assert.deepEqual([r.status, json(r)], [200, { sent: ["SENT", "SENT", null] }]);
+    const sends = windowSends(board.windowDir).slice(before);
+    assert.deepEqual(sends, [["424242", "1", own, own],
+                             ["7", "3", pulled, `${board.origin}/?project=pastureland#box-3`]],
+      "a tab was sent on with a code, or an old code was kept");
+    assert.equal(codesGiven().length, codes, "a relaunch made a code once a window was let in");
+    return sends;
+  };
+  for (const [, , , goal] of await relaunch()) {
+    // opened as Chrome opens it, with no cookie, the page lets nobody in
+    const plain = await raw("GET", new URL(goal).pathname + new URL(goal).search, { headers: OPEN });
+    assert.deepEqual([plain.status, plain.headers["set-cookie"]], [401, undefined], goal);
+    assert.match(plain.text, /Open the board with facilitator run/);
+    // and a tab whose Chrome holds the cookie loads the board
+    const kept = await raw("GET", new URL(goal).pathname + new URL(goal).search, { headers: { ...OPEN, Cookie: cookie } });
+    assert.equal(kept.status, 200, goal);
+    assert.match(kept.text, /id="npversion"/);
+  }
+  // as often as it is asked, and after a restart, which reads the kept cookie back
+  await relaunch();
+  await board.restart();
+  await relaunch();
+  assert.equal((await raw("GET", "/state", { headers: { ...page(), Cookie: cookie } })).status, 200);
+});
+
+test("a relaunch before any window was let in, as after an update from before the lock, sends each board tab to its own page with a code of its own", async () => {
+  await noWindowLetIn();
   const before = windowSends(board.windowDir).length;
   const own = `${board.origin}/`;
   const pulled = `${board.origin}/?project=pastureland&launch=SPENT&%6Caunch=SPENT2#box-3`;
@@ -459,10 +502,19 @@ test("a relaunch sends each board tab, where it is, to its own page with a code 
     "the tab's own query and place were not kept, or an old code was kept");
   assert.notEqual(first.searchParams.get("launch"), second.searchParams.get("launch"), "two tabs shared a code");
   for (const goal of [first, second]) assert.equal(r.text.includes(goal.searchParams.get("launch")), false);
-  // each one lets its window in
+  // each one lets its window in, with nothing for the person to do
   const opened = await raw("GET", second.pathname + second.search, { headers: OPEN });
   assert.deepEqual([opened.status, opened.headers.location], [303, "/?project=pastureland"]);
   assert.ok(opened.headers["set-cookie"], "the code sent on set no cookie");
+  const cookie = opened.headers["set-cookie"][0].split(";")[0];
+  const landed = await raw("GET", opened.headers.location, { headers: { ...OPEN, Cookie: cookie } });
+  assert.equal(landed.status, 200);
+  assert.match(landed.text, /id="npversion"/);
+  // and from then on a relaunch makes no code
+  const sentBefore = windowSends(board.windowDir).length;
+  const next = await raw("POST", "/window/relaunch", { headers: key(), body: JSON.stringify({ tabs: [[7, 2, own]] }) });
+  assert.deepEqual(json(next), { sent: ["SENT"] });
+  assert.deepEqual(windowSends(board.windowDir).slice(sentBefore), [["7", "2", own, own]]);
   // what Chrome answers comes back as it is, and a body that is not tabs is refused
   const answer = path.join(board.windowDir, "send-answer");
   await writeFile(answer, "GONE\n");
@@ -477,6 +529,7 @@ test("a relaunch sends each board tab, where it is, to its own page with a code 
 });
 
 test("a send that does not end SENT cancels its code at once, and osascript is given no code", async () => {
+  await noWindowLetIn();
   const own = `${board.origin}/`;
   const answer = path.join(board.windowDir, "send-answer");
   const argsBefore = sendArguments(board.windowDir).length;
@@ -618,5 +671,6 @@ test("the command reads Chrome's tabs and the board sends the ones showing it on
   const sends = windowSends(board.windowDir).slice(before);
   assert.equal(sends.length, 1);
   assert.deepEqual(sends[0].slice(0, 3), ["7", "2", `${board.origin}/?project=pastureland`]);
-  assert.match(sends[0][3], new RegExp(`^${board.origin}/\\?project=pastureland&launch=[A-Za-z0-9_-]{32}$`));
+  // the board has let a window in by now, so the tab just loads its page again
+  assert.equal(sends[0][3], `${board.origin}/?project=pastureland`);
 });

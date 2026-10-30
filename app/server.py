@@ -56,12 +56,16 @@ Endpoints:
   POST /window/relaunch     -> {"tabs": [[window id, place, url], ...]}, the
                                Chrome tabs showing the board that `facilitator
                                restart` read: each one is sent, where it is,
-                               to its own page with a launch code of its own
-                               (the config's app_url page as it is; any other
-                               page is left alone). {sent: ["SENT", "GONE",
-                               "CHANGED" or null, one per tab]}; the code of
-                               every send that is not SENT is cancelled. With
-                               the agent key only
+                               to its own page, which loads it again (the
+                               config's app_url page as it is; any other
+                               page is left alone). Only while the board
+                               keeps no window cookie, as on the first
+                               restart after an update from before the lock,
+                               does each own page go with a launch code of
+                               its own. {sent: ["SENT", "GONE", "CHANGED" or
+                               null, one per tab]}; the code of every send
+                               that is not SENT is cancelled. With the agent
+                               key only
   POST /window/launch       -> 410: the board hands out no launch code. With
                                the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
@@ -2550,7 +2554,11 @@ def _lane_in_touch(ow: str) -> bool:
 # Chrome itself, on /?launch=CODE, full screen when run.config.json says
 # app_fullscreen. After a restart the command reads Chrome's tabs and hands the
 # board the ones showing it (POST /window/relaunch), and the board sends each
-# one, where it is, to its own page with a code of its own. A caller with the
+# one, where it is, to its own page again. Only while it keeps no window
+# cookie at all, the first restart after an update from before the lock, does
+# each tab get a code of its own there, which lets those windows in; once any
+# window has been let in, a relaunch makes no code, so a caller naming a tab
+# of a Chrome of its own gets a reload and nothing more. A caller with the
 # key gets a window on the screen and never the code. A code is good once, for
 # LAUNCH_LIFE seconds, and is held in memory alone, and one whose window did
 # not open, or whose send did not end SENT, is cancelled at once. Opening it
@@ -2927,17 +2935,29 @@ def _send_tab(wid: int, place: int, expected: str, goal: str):
 
 def _relaunch_tabs(tabs: list) -> list:
     """Send each tab the command read showing the board, where it is, to its
-    own page: this board's own page with a launch code of its own, so a
-    window from before the lock is let in, and one with its cookie already
-    just loads the board again; the page the config's app_url names, as it
-    is. Anything else is not the board's and is left alone (None). A code
+    own page: this board's own page, which loads the board again; the page
+    the config's app_url names, as it is. Anything else is not the board's
+    and is left alone (None).
+
+    A launch code goes with the board's own page only while the board keeps
+    no window cookie at all (window-keys.json missing or empty): that is the
+    first restart after an update from a version before the lock, whose
+    windows hold no cookie yet, and this lets them in where they are. It is
+    decided once for the whole relaunch, so every tab of that restart, in
+    any Chrome profile, gets a code of its own. Once any window has been let
+    in, a relaunch makes no code: each tab just loads its page again, so one
+    whose Chrome holds the cookie shows the board, and a tab of some other
+    Chrome a caller names gets a reload and nothing it can spend. A code
     whose send did not end SENT (a tab gone or changed, or Chrome not asked)
     is cancelled before the next tab, so it lets nothing in."""
     app_page = _page_key(_window_config().get("app_url") or "")
+    coded = not _window_keys
     answers = []
     for wid, place, url in tabs:
         own = _own_page(url)
-        if own is not None:
+        if own is not None and not coded:
+            answers.append(_send_tab(wid, place, url, own))
+        elif own is not None:
             goal, code = _with_launch(own)
             answer = _send_tab(wid, place, url, goal)
             if answer != "SENT":
@@ -12418,8 +12438,9 @@ class BoardLock(SiteGuard):
     settings asks for. The phone's door is the bridge gate's and passes
     through untouched. Here too are the window's routes (see _lock_up), for
     the key alone: POST /window/open opens the board's window in Chrome with
-    a launch code inside, POST /window/relaunch sends the board's tabs on to
-    one each, and neither answer holds a code. A page open of /?launch=CODE
+    a launch code inside, POST /window/relaunch loads the board's tabs again,
+    with one each only while no window has been let in, and neither answer
+    holds a code. A page open of /?launch=CODE
     spends one, sets the cookie and sends the window on to /. Refusals are
     written down as SiteGuard writes its own."""
 
