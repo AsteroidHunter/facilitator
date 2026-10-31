@@ -18,7 +18,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");        // app/ of this checkout
 const REPO = path.resolve(ROOT, "..");              // this checkout
 // the last commit that kept the board's files at the checkout's top
-const OLD_LAYOUT = "89b439e";
+const OLD_LAYOUT = "fd2a4aa4";
 // one Python, with the server's packages, for the old board, the new one and
 // both commands; the fake uv's .venv hands over to it
 const OWN_VENV = path.join(REPO, "data", ".venv", "bin", "python3");

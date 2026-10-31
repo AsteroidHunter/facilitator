@@ -6,7 +6,7 @@ October 30, 2026
 
 <img src="https://raw.githubusercontent.com/AsteroidHunter/facilitator/main/docs/images/person.svg" width="14" height="14" alt="Person icon"> `The section below is human-written`
 
-### Notes from the dev
+## Notes from the dev
 
 Minor update with one feature worth checking out and a range of security updates and bug fixes. 
 

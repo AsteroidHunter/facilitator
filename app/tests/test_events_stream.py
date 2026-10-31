@@ -406,9 +406,11 @@ class Clock(Board):
             passes[0] += 1
             raise RuntimeError("the sweep broke")
 
+        # the clock runs until it has made six passes, with up to 3 s to do it,
+        # so a slow machine that fits fewer passes into a set time still passes
         with mock.patch.object(S, "_sweep_clocks", broken), \
                 mock.patch.object(S, "_error", lambda kind, *a, **f: lines.append((kind, f))):
-            self.run_clock(0.4)
+            self.run_clock(3, lambda: passes[0] > 5)
         self.assertGreater(passes[0], 5, "the clock stopped after a failing pass")
         self.assertEqual([kind for kind, _ in lines], ["boardclock"])
         self.assertEqual(lines[0][1]["error"], "RuntimeError")

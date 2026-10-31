@@ -7,16 +7,36 @@
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const fs = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 const { once } = require("node:events");
 const box = require("./board-sandbox.cjs");
 
 let place, port, run;
 const url = route => `http://127.0.0.1:${port}${route}`;
+// Each call goes out on node:http, and its whole answer is read before it is
+// handed back. Node's own fetch can throw an error no test can catch when an
+// answer over 64 KiB is still arriving as the board closes the connection,
+// which the board does after every answer (undici issue 5360).
+function request(where, { method = "GET", headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(where, { method, headers }, res => {
+      const chunks = [];
+      res.on("data", chunk => chunks.push(chunk));
+      res.on("error", reject);
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve({ status: res.statusCode, text: async () => text, json: async () => JSON.parse(text) });
+      });
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
 // the board is locked as a real one is, so each call carries its agent key
-const fetch = (where, init = {}) => globalThis.fetch(where, { ...init, headers: { ...box.keyed(place), ...init.headers } });
-const read = async () => (await fetch(url("/settings"))).json();
-const write = (body, query = "") => fetch(url("/settings" + query), { method: "POST", body: JSON.stringify(body) });
+const call = (where, init = {}) => request(where, { ...init, headers: { ...box.keyed(place), ...init.headers } });
+const read = async () => (await call(url("/settings"))).json();
+const write = (body, query = "") => call(url("/settings" + query), { method: "POST", body: JSON.stringify(body) });
 
 before(async () => {
   port = await box.freePortPair();
@@ -53,7 +73,7 @@ test("unknown keys and long values are refused whole, with nothing stored", asyn
     assert.equal(res.status, 400, JSON.stringify(body).slice(0, 80));
   }
   assert.equal((await write([])).status, 400);
-  assert.equal((await fetch(url("/settings"), { method: "POST", body: "not json" })).status, 400);
+  assert.equal((await call(url("/settings"), { method: "POST", body: "not json" })).status, 400);
   assert.deepEqual(await read(), before, "a refused write changed the store");
   // the longest value allowed, and a lane id with letters of its own, are fine
   assert.equal((await write({ "doc.tasks.facilitator": "x".repeat(65536) })).status, 200);
@@ -81,14 +101,14 @@ test("two windows writing different keys both keep theirs, and the last write to
 });
 
 test("a settings write moves settingsRev and never the board's revision", async () => {
-  const board = await (await fetch(url("/state"))).json();
-  const phone = await (await fetch(url("/m/state"))).json();
+  const board = await (await call(url("/state"))).json();
+  const phone = await (await call(url("/m/state"))).json();
   const answer = await (await write({ composeformat: "1" })).json();
-  const after = await (await fetch(url("/state"))).json();
+  const after = await (await call(url("/state"))).json();
   assert.equal(after.rev, board.rev, "a settings write moved the board's revision");
   assert.equal(after.settingsRev, answer.rev);
   assert.ok(after.settingsRev > board.settingsRev);
-  const phoneAfter = await (await fetch(url(`/m/state?since=${phone.rev}`))).json();
+  const phoneAfter = await (await call(url(`/m/state?since=${phone.rev}`))).json();
   assert.equal(phoneAfter.rev, phone.rev);
   assert.equal(phoneAfter.changed, false, "the phone was sent the board again for a settings write");
 });
@@ -98,7 +118,7 @@ test("the usage counts switch is kept with the board's settings: off is 0, and o
   const off = await write({ usagecounts: "0" });
   assert.equal(off.status, 200);
   assert.equal((await read()).values.usagecounts, "0");
-  const js = await (await fetch(url("/board-settings.js"))).text();
+  const js = await (await call(url("/board-settings.js"))).text();
   assert.match(js, /"usagecounts": "0"/, "the Mac page is not handed the switch before it draws");
   await write({ usagecounts: null });
   assert.equal("usagecounts" in (await read()).values, false);

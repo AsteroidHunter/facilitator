@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
-const { createServer } = require("node:http");
+const { createServer, request: httpRequest } = require("node:http");
 const { appendFile, copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
@@ -27,13 +27,31 @@ async function freePort() {
   return picked;
 }
 
+// One call on node:http, its whole answer read before it is handed back.
+// Node's own fetch can throw an error no test can catch when an answer over
+// 64 KiB is still arriving as the board closes the connection, which the
+// board does after every answer (undici issue 5360).
+function request(where, { method = "GET", body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(where, { method }, res => {
+      const chunks = [];
+      res.on("data", chunk => chunks.push(chunk));
+      res.on("error", reject);
+      res.on("end", () => resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300,
+                                    headers: res.headers, text: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 async function api(route, options = {}) {
-  const response = await fetch(origin + route, options);
-  const contentType = response.headers.get("content-type") || "";
+  const response = await request(origin + route, options);
+  const contentType = response.headers["content-type"] || "";
   return {
     status: response.status,
     contentType,
-    body: contentType.includes("json") ? await response.json() : await response.text(),
+    body: contentType.includes("json") ? JSON.parse(response.text) : response.text,
   };
 }
 
@@ -52,7 +70,7 @@ async function startServer() {
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`fixture server exited:\n${serverOutput}`);
     try {
-      if ((await fetch(origin + "/state")).ok) return;
+      if ((await request(origin + "/state")).ok) return;
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 25));
   }
