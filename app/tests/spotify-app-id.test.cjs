@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
-const { createServer } = require("node:http");
+const { createServer, request: httpRequest } = require("node:http");
 const { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
@@ -30,6 +30,27 @@ async function freePort() {
   const port = probe.address().port;
   await new Promise(resolve => probe.close(resolve));
   return port;
+}
+
+// A GET on node:http, its whole answer read before it is handed back. Node's
+// own fetch can throw an error no test can catch when an answer over 64 KiB,
+// such as the page, is still arriving as the board closes the connection,
+// which the board does after every answer (undici issue 5360).
+function request(where) {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(where, res => {
+      const chunks = [];
+      res.on("data", chunk => chunks.push(chunk));
+      res.on("error", reject);
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300,
+                  text: async () => text, json: async () => JSON.parse(text) });
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 // A server of its own in a scratch directory, on a free port, given only the
@@ -67,7 +88,7 @@ async function startServer(config) {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error("server exited early:\n" + output);
-    try { if ((await fetch(origin + "/state")).ok) return { origin, child }; } catch (error) {}
+    try { if ((await request(origin + "/state")).ok) return { origin, child }; } catch (error) {}
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   child.kill("SIGKILL");
@@ -90,24 +111,24 @@ after(async () => {
 
 test("a configured id reaches the page on the board state", async () => {
   const { origin } = await startServer({ spotify_client_id: INVENTED });
-  const state = await (await fetch(origin + "/state")).json();
+  const state = await (await request(origin + "/state")).json();
   assert.equal(state.spotifyClientId, INVENTED,
     "the board state did not carry the configured Spotify id");
-  const page = await (await fetch(origin + "/")).text();
+  const page = await (await request(origin + "/")).text();
   assert.ok(!page.includes(INVENTED),
     "the configured Spotify id leaked into the served page");
 });
 
 test("no configured id leaves the state id empty", async () => {
   const { origin } = await startServer({});
-  const state = await (await fetch(origin + "/state")).json();
+  const state = await (await request(origin + "/state")).json();
   assert.equal(state.spotifyClientId, "",
     "an unset Spotify id should read as empty on the state");
 });
 
 test("the served page inlines no Spotify id literal", async () => {
   const { origin } = await startServer({ spotify_client_id: INVENTED });
-  const page = await (await fetch(origin + "/")).text();
+  const page = await (await request(origin + "/")).text();
   assert.ok(/SPOT_ID/.test(page), "the served page no longer names SPOT_ID");
   assert.ok(!/SPOT_ID\s*=\s*["'][^"']+["']/.test(page),
     "the served page still assigns SPOT_ID a literal id");
