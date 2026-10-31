@@ -12,7 +12,7 @@ const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
-const LEGACY_COMMIT = "143ee72";
+const LEGACY_COMMIT = "3e69e18e";
 
 async function freePort() {
   const probe = createServer();
