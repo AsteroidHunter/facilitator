@@ -813,3 +813,101 @@ test("a schema-4 receiver is sent the history without the new fields and parts",
   stuck.now(21000); await stuck.run();
   assert.deepEqual(stuck.calls.map(c => [c.reports[0].v, c.reports[0].reason]), [[5, "no-scroll"]]);
 });
+
+// ---- v7: the phone's live line (m.html's line probe) ------------------------------------
+const streamOf = report => report.events.filter(e => e.event === "beat" || /^stream-/.test(e.lifecycle || ""));
+
+test("v7 keeps the live line's entries for 15 minutes, past the 120 seconds the rest keep", async () => {
+  const f = fixture(); f.history.capability(7);
+  f.now(1000); f.history.note("lifecycle", { lifecycle: "stream-open", ms: 40 });
+  f.history.note("input", { action: "card", part: "touch", box: "m12" });
+  for (let i = 1; i <= 50; i++) { f.now(1000 + 20000 * i); f.history.note("beat", { rev: 9, ms: 20000, changed: false }); }
+  f.now(1005000); f.history.note("lifecycle", { lifecycle: "stream-lost", why: "dead", ms: 4000 });
+  const pending = f.history.mark("settings");
+  f.now(1025000); await f.run();
+  assert.equal((await pending).status, "saved");
+  const report = latest(f);
+  assert.equal(report.v, 7);
+  const stream = streamOf(report);
+  // the open and the first five beats fell past 15 minutes before the mark;
+  // everything after them is there
+  assert.equal(stream[0].event, "beat");
+  assert.equal(stream[0].at, 1000 + 20000 * 6 - 1005000);
+  assert.equal(stream.filter(e => e.event === "beat").length, 45);
+  assert.deepEqual(stream.at(-1), { lifecycle: "stream-lost", why: "dead", ms: 4000, event: "lifecycle",
+    visible: true, online: true, resume: 0, at: 0 });
+  assert.equal(report.events.some(e => e.event === "input"), false, "an old touch reached past 120 seconds");
+  assert.ok(report.events.filter(e => e.at < -120000).every(e => stream.includes(e)));
+  assert.ok(Buffer.byteLength(JSON.stringify(f.calls[0])) <= 12 * 1024);
+});
+
+test("the line's lane keeps 64 entries, and a line that only rang goes before a repeat, an open or a loss", async () => {
+  const f = fixture(); f.history.capability(7);
+  f.now(0); f.history.note("lifecycle", { lifecycle: "stream-open", ms: 30 });
+  for (let i = 1; i <= 50; i++) {
+    f.now(i * 12000); f.history.note("beat", { rev: i, ms: 6000, changed: true });
+    f.now(i * 12000 + 6000); f.history.note("beat", { rev: i, ms: 6000, changed: false });
+  }
+  f.now(700000); f.history.note("lifecycle", { lifecycle: "stream-lost", why: "hidden", ms: 100 });
+  const pending = f.history.mark("settings");
+  f.now(720000); await f.run();
+  assert.equal((await pending).status, "saved");
+  const stream = streamOf(latest(f));
+  assert.equal(stream.length, 64);
+  assert.equal(stream.filter(e => e.event === "beat" && !e.changed).length, 50, "a repeat was dropped before the rings");
+  assert.deepEqual(stream.filter(e => e.changed).map(e => e.rev), Array.from({ length: 12 }, (_, i) => 39 + i),
+    "the rings kept are not the latest");
+  assert.deepEqual(stream.filter(e => e.event === "lifecycle").map(e => e.lifecycle), ["stream-open", "stream-lost"]);
+  assert.ok(latest(f).lost >= 38);
+});
+
+test("the line's entries made before the board says its schema are kept, and switching the recorder off clears them", async () => {
+  const f = fixture();   // schema 1 until the first reading says otherwise
+  f.now(500); f.history.note("lifecycle", { lifecycle: "stream-open", ms: 200 });
+  f.now(600); f.history.note("beat", { rev: 3, ms: 100, changed: false });
+  f.history.capability(7);
+  f.now(2000);
+  let pending = f.history.mark("settings");
+  f.now(22000); await f.run();
+  assert.equal((await pending).status, "saved");
+  assert.deepEqual(streamOf(latest(f)).map(e => [e.event, e.at]), [["lifecycle", -1500], ["beat", -1400]]);
+  f.history.setEnabled(false); f.history.setEnabled(true);
+  f.now(60000);
+  pending = f.history.mark("settings");
+  f.now(80000); await f.run();
+  assert.equal((await pending).status, "saved");
+  assert.equal(streamOf(latest(f)).length, 0, "switching the recorder off kept the line's entries");
+});
+
+test("a schema-6 board is never sent the line's entries, and a v7 save it refuses steps down without them", async () => {
+  const play = f => {
+    f.now(1000); f.history.note("lifecycle", { lifecycle: "stream-open", ms: 50 });
+    for (let i = 1; i <= 20; i++) { f.now(1000 + 15000 * i); f.history.note("beat", { rev: 4, ms: 15000, changed: false }); }
+    f.now(302000); f.history.note("lifecycle", { lifecycle: "stream-lost", why: "error", ms: 1000 });
+    f.history.note("render", { phase: "end", rev: 4, ms: 80 });
+  };
+  const older = fixture(); older.history.capability(6);
+  play(older);
+  older.now(310000);
+  const saved = older.history.mark("settings");
+  older.now(330000); await older.run();
+  assert.equal((await saved).status, "saved-legacy");
+  assert.deepEqual(older.calls.map(c => c.reports[0].v), [6]);
+  assert.equal(streamOf(latest(older)).length, 0);
+
+  const rolled = fixture(); rolled.history.capability(7);
+  rolled.answer((url, init, batch) => batch.reports[0].v === 7 ? { ok: false, status: 400 }
+    : { ok: true, json: async () => ({ ok: true, written: 1, dropped: 0 }) });
+  play(rolled);
+  rolled.now(310000);
+  const pending = rolled.history.mark("settings");
+  rolled.now(330000); await rolled.run();
+  assert.equal((await pending).status, "saved-legacy");
+  assert.deepEqual(rolled.calls.map(c => c.reports[0].v), [7, 6]);
+  assert.ok(streamOf(rolled.calls[0].reports[0]).length >= 20, "the v7 attempt did not carry the line");
+  const stepped = latest(rolled);
+  assert.equal(streamOf(stepped).length, 0);
+  assert.ok(stepped.events.every(e => e.at >= -120000));
+  assert.ok(stepped.events.some(e => e.event === "render"), "the step down dropped more than the line");
+  assert.ok("timing" in stepped, "the step down to 6 dropped the keyboard timing");
+});

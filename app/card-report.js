@@ -316,6 +316,28 @@
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
     const POST_MS = 20000, SPARSE_AGE = 120000, FRAME_WATCH = 5000;
     const TIMING_ENTRIES = 240, TIMING_BYTES = 6144;
+    // v7: the phone's live line (m.html, the line probe). Its own lane reaches
+    // back further than the rest, so a save after ten minutes on screen still
+    // holds the whole time; at most STREAM_ENTRIES, and past that a line that
+    // only rang for a change goes first, so the 15 second repeats, the opens
+    // and the losses the check reads are kept
+    const STREAM_AGE = 900000, STREAM_ENTRIES = 64;
+    const streamWords = new Set(["stream-open", "stream-lost"]);
+    // The line's report (lineReport, asked for by m.html's probe every 5 minutes
+    // on screen and once when the app is put away): one short linereport line in
+    // the board's client log, summed up from the same entries the stream lane
+    // keeps and never cut short by its cap. How many lines came and how many of
+    // them were the board's 15 second repeats, the longest silence between two
+    // lines and each one over LINE_GAP, and each open and loss with why. A send
+    // that fails is not tried again; the next report's unsent says how many
+    // before it went missing, and n numbers them on this page load
+    const LINE_GAP = 20000, LINE_LIST = 16, LINE_DAY = 86400000;
+    const lineReasons = new Set(["period", "hidden", "pagehide"]);
+    const nets = new Set(["bluetooth", "cellular", "ethernet", "mixed", "none", "other", "unknown", "wifi", "wimax"]);
+    // the stretch being counted; when the line last said anything (null once the
+    // app is put away); whether the next line is the first since the line opened
+    let tally = lineTally(performance.now()), lineSince = null, lineFirst = false;
+    let lineN = 0, lineUnsent = 0;
     const timingRows = [], scrollWindows = [];
     const timingJobs = new Set(["board", "json", "list", "reply", "glass"]);
     let timingLost = 0, timingSerial = 0, activeScroll = null, longObserver = null;
@@ -323,7 +345,7 @@
     const STUCK_COOLDOWN = 120000;   // one no-scroll save per card in this long
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
-      "input", "scroll", "frame", "timer", "phase", "poll", "enter"]);
+      "input", "scroll", "frame", "timer", "phase", "poll", "enter", "beat"]);
     const v3Events = new Set(["input", "scroll", "frame", "timer", "phase", "poll"]);
     const reasons = new Set(["manual", "slow-ui", "slow-request", "invariant", "problem", "freeze", "no-scroll"]);
     const numbers = { ms: 600000, seq: 1000000000, status: 599, serverMs: 600000,
@@ -344,7 +366,9 @@
       edge: ["top", "bottom", "middle", "none"], dir: ["up", "down"],
       by: ["drawer", "cardswipe", "focus", "scrim", "curtain", "panel"],
       outcome: ["minted", "applied", "retry", "unsure", "failed"],
-      lifecycle: ["start", "hidden", "visible", "pageshow", "pagehide", "online", "offline"],
+      lifecycle: ["start", "hidden", "visible", "pageshow", "pagehide", "online", "offline",
+        "stream-open", "stream-lost"],
+      why: ["error", "refused", "dead", "hidden", "pagehide"],
       problem: ["error", "rejection", "render", "fetch"],
       stage: ["create-response", "card-insertion", "editor-init", "selected-ready", "title-input"],
       observer: ["loop-limit", "undelivered"], reason: [...reasons],
@@ -378,7 +402,7 @@
     const boxPattern = /^(?:[mt]?\d+(?:\.\d+)*|q)$/;
     const opPattern = /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
     let ring = [], lost = 0, sparseLost = 0, suppressed = 0, seq = 0, generation = 0;
-    const important = [], work = [], life = [], pollBuckets = [], observerBuckets = [];
+    const important = [], work = [], life = [], pollBuckets = [], observerBuckets = [], stream = [];
     const collecting = new Set();   // saves still recording their 20 seconds of recovery
     let worker = "unknown", activeRequest = null;
     const session = windowId;
@@ -408,7 +432,8 @@
       timingRows.length = scrollWindows.length = 0;
       timingLost = 0; activeScroll = null;
       configureLongTasks();
-      for (const lane of [important, work, life, pollBuckets, observerBuckets]) lane.length = 0;
+      for (const lane of [important, work, life, pollBuckets, observerBuckets, stream]) lane.length = 0;
+      tally = lineTally(performance.now()); lineSince = null; lineFirst = false;
       lost = sparseLost = suppressed = 0;
       activeRequest = viewport = held = beaconed = null;
       clearTimeout(viewportTimer); viewportTimer = null;
@@ -552,6 +577,87 @@
         target.shift(); sparseLost = cap(sparseLost + 1, 1000000000);
       }
     }
+    const isStream = e => e.event === "beat" || (e.event === "lifecycle" && streamWords.has(e.lifecycle));
+    // The line's entries are kept whatever schema the board has offered so
+    // far (the line opens before the first reading says), and only a v7 save
+    // carries them
+    function streamKeep(entry) {
+      stream.push(entry);
+      let from = entry.time;
+      for (const current of collecting) from = Math.min(from, current.markAt);
+      while (stream.length && stream[0].time < from - STREAM_AGE) {
+        stream.shift(); sparseLost = cap(sparseLost + 1, 1000000000);
+      }
+      if (stream.length > STREAM_ENTRIES) {
+        const rang = stream.findIndex(e => e.event === "beat" && e.changed);
+        stream.splice(rang >= 0 ? rang : 0, 1); sparseLost = cap(sparseLost + 1, 1000000000);
+      }
+    }
+    function lineTally(now) {
+      return { from: now, start: Date.now(), entries: 0, lines: 0, beats: 0, gapMax: 0,
+        gaps: [], stream: [], omitted: 0 };
+    }
+    function lineList(list, item) {
+      if (list.length < LINE_LIST) list.push(item);
+      else tally.omitted = cap(tally.omitted + 1, 1000000000);
+    }
+    // One of the line's entries, counted into the stretch. A gap is the time
+    // the phone went without a line while it wanted one: from the line before,
+    // or from asking for the line when none has come since the app was shown,
+    // through any losses and reopenings between
+    function lineCount(entry) {
+      const t = tally, at = cap(entry.time - t.from, LINE_DAY);
+      t.entries++;
+      if (lineSince === null) lineSince = entry.time - (entry.ms || 0);
+      if (entry.event === "beat") {
+        const gap = cap(entry.time - lineSince, LINE_DAY);
+        lineSince = entry.time;
+        t.lines = cap(t.lines + 1, 1000000);
+        if (!entry.changed && !lineFirst) t.beats = cap(t.beats + 1, 1000000);
+        lineFirst = false;
+        t.gapMax = Math.max(t.gapMax, gap);
+        if (gap > LINE_GAP) lineList(t.gaps, { at, ms: gap });
+        return;
+      }
+      if (entry.lifecycle === "stream-open") lineFirst = true;
+      if (entry.lifecycle === "stream-lost" && !entry.why) { t.omitted = cap(t.omitted + 1, 1000000000); return; }
+      const item = { at, event: entry.lifecycle, ms: cap(entry.ms || 0, 600000), online: entry.online };
+      if (entry.why) item.why = entry.why;
+      lineList(t.stream, item);
+      if (entry.why === "hidden" || entry.why === "pagehide") lineSince = null;
+    }
+    // The stretch so far as one report, and a new stretch from now. A stretch
+    // the line said nothing in is reported too, with nothing in it: that is
+    // what a line that never reaches the phone looks like. Put away, it goes by
+    // beacon, the one send that survives the page going; on screen, by fetch,
+    // so a refusal is known
+    function lineReport(reason) {
+      if (!enabled || !lineReasons.has(reason)) return false;
+      const t = tally, now = performance.now();
+      tally = lineTally(now);
+      lineN = cap(lineN + 1, 1000000000);
+      let net = "unknown";
+      try { if (nets.has(navigator.connection?.type)) net = navigator.connection.type; } catch (_) {}
+      const report = { kind: "linereport", v: 7, build, n: lineN, unsent: lineUnsent, reason,
+        start: t.start, ms: cap(now - t.from, LINE_DAY), net, lines: t.lines, beats: t.beats,
+        gapMax: t.gapMax, gaps: t.gaps, stream: t.stream, omitted: t.omitted };
+      const missed = () => { lineUnsent = cap(lineUnsent + 1, 1000000000); };
+      // a board that has not offered schema 7 has no name for the line
+      if (schema < 7 || navigator.onLine === false) { missed(); return false; }
+      const body = batchOf([report]);
+      if (reason !== "period") {
+        let queued = false;
+        try { queued = !!navigator.sendBeacon?.("/clientlog", new Blob([body], { type: "application/json" })); } catch (_) {}
+        if (!queued) missed();
+        return queued;
+      }
+      realFetch.call(window, "/clientlog", { method: "POST", headers: { "content-type": "application/json" },
+        body, keepalive: true })
+        .then(response => response.ok ? response.json() : null)
+        .then(answer => { if (!(answer?.ok === true && answer.written === 1)) missed(); }, missed)
+        .catch(() => {});
+      return true;
+    }
     function append(event, detail, time = performance.now()) {
       evict(time);
       const entry = { ...detail, event, time, visible: !document.hidden,
@@ -571,6 +677,13 @@
       if (!enabled) return;
       if (!events.has(event) || (schema < 3 && v3Events.has(event))) return;
       const fields = clean(detail), now = performance.now();
+      if (isStream({ ...fields, event })) {
+        const entry = { ...fields, event, time: now, visible: !document.hidden,
+          online: navigator.onLine !== false, resume: generation };
+        streamKeep(entry);
+        lineCount(entry);
+        return;
+      }
       if (event === "viewport") {
         const key = [fields.kb, fields.lifting, fields.vh, fields.vt].join("|");
         if (key === viewportKey) return;
@@ -684,6 +797,7 @@
         .filter(e => e.time >= earliest && e.time <= markAt + POST_MS &&
           (e.event !== "mark" || e.time === markAt && e.reason === reason))
         .sort((a, b) => a.time - b.time);
+      if (schema >= 7) recent.push(...stream.filter(e => e.time >= markAt - STREAM_AGE && e.time <= markAt + POST_MS));
       if (activeRequest && activeRequest.time >= earliest && activeRequest.time <= markAt)
         recent.push({ ...activeRequest.detail, event: "request", phase: "start", seq: activeRequest.seq,
           time: activeRequest.time, visible: activeRequest.visible,
@@ -700,10 +814,11 @@
       if (schema < 4) recent = recent.filter(e => e.event !== "enter");
       let scrollOmitted = false;
       if (schema < 5) ({ kept: recent, omitted: scrollOmitted } = withoutV5(recent));
+      const reach = schema >= 7 ? STREAM_AGE : SPARSE_AGE;
       const report = { kind: "incident", v: schema, reason, marked,
         box: [...recent].reverse().find(e => e.box)?.box || "", lost: sparseLost, suppressed,
         build, worker, session, events: recent.map(({ time, ...e }) =>
-          ({ ...e, at: Math.max(-SPARSE_AGE, Math.min(POST_MS, Math.round(time - markAt))) })) };
+          ({ ...e, at: Math.max(-reach, Math.min(POST_MS, Math.round(time - markAt))) })) };
       if (schema >= 6) {
         report.timing = { lost: timingLost, longtasks: longTasksSupported, rows: timingSnapshot(markAt) };
         fitTiming(report.timing);
@@ -713,13 +828,15 @@
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       Object.defineProperty(report, "_scrollOmitted", { value: scrollOmitted });
       Object.defineProperty(report, "_timingOmitted", { value: schema < 6 && timingRows.length > 0 });
+      Object.defineProperty(report, "_streamOmitted", { value: schema < 7 && stream.length > 0 });
       // Reserve room for recovery before a busy page can fill the post window.
       fitReport(report, BYTES - 2048, 112);
       return report;
     }
     function finishCollection(initial) {
       const markAt = initial._markAt;
-      const post = [...important, ...work, ...life, ...pollBuckets, ...observerBuckets]
+      const post = [...important, ...work, ...life, ...pollBuckets, ...observerBuckets,
+        ...(initial.v >= 7 ? stream : [])]
         .filter(e => e.time > markAt && e.time <= markAt + POST_MS && e.event !== "mark");
       if (activeRequest && activeRequest.time > markAt && activeRequest.time <= markAt + POST_MS)
         post.push({ ...activeRequest.detail, event: "request", phase: "start", seq: activeRequest.seq,
@@ -742,6 +859,7 @@
         fitTiming(report.timing);
       }
       Object.defineProperty(report, "_timingOmitted", { value: !!initial._timingOmitted });
+      Object.defineProperty(report, "_streamOmitted", { value: !!initial._streamOmitted });
       Object.defineProperty(report, "_markAt", { value: markAt });
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       Object.defineProperty(report, "_scrollOmitted", { value: scrollOmitted });
@@ -777,12 +895,24 @@
       // retained retry, after any worker identity added during recovery.
       return fitReport(report, BYTES, report.v >= 3 ? 128 : 40);
     }
+    // A receiver on schema 6 has no name for the live line's entries; they go,
+    // and so do the ones older than its 120 seconds, which only they can be
+    function compatibleV6(report) {
+      const events = report.events.filter(e => !isStream(e) && e.at >= -SPARSE_AGE);
+      const older = { ...report, v: 6, events };
+      Object.defineProperty(older, "_streamOmitted", { value: events.length < report.events.length || !!report._streamOmitted });
+      Object.defineProperty(older, "_timingOmitted", { value: !!report._timingOmitted });
+      Object.defineProperty(older, "_enterOmitted", { value: !!report._enterOmitted });
+      Object.defineProperty(older, "_scrollOmitted", { value: !!report._scrollOmitted });
+      return older;
+    }
     function compatibleV5(report) {
       const { timing, ...older } = report;
       older.v = 5;
       Object.defineProperty(older, "_timingOmitted", { value: !!timing?.rows.length || !!report._timingOmitted });
       Object.defineProperty(older, "_enterOmitted", { value: !!report._enterOmitted });
       Object.defineProperty(older, "_scrollOmitted", { value: !!report._scrollOmitted });
+      Object.defineProperty(older, "_streamOmitted", { value: !!report._streamOmitted });
       return older;
     }
     function compatibleV3(report) {
@@ -799,6 +929,7 @@
       Object.defineProperty(compatible, "_enterOmitted", { value: omitted || !!report._enterOmitted });
       Object.defineProperty(compatible, "_scrollOmitted", { value: !!report._scrollOmitted });
       Object.defineProperty(compatible, "_timingOmitted", { value: !!report._timingOmitted });
+      Object.defineProperty(compatible, "_streamOmitted", { value: !!report._streamOmitted });
       return compatible;
     }
     // Events as a schema 3 or 4 receiver reads them: the gesture parts it has
@@ -829,6 +960,7 @@
       Object.defineProperty(compatible, "_enterOmitted", { value: !!report._enterOmitted });
       Object.defineProperty(compatible, "_scrollOmitted", { value: omitted || !!report._scrollOmitted });
       Object.defineProperty(compatible, "_timingOmitted", { value: !!report._timingOmitted });
+      Object.defineProperty(compatible, "_streamOmitted", { value: !!report._streamOmitted });
       return compatible;
     }
     function permit() {
@@ -864,7 +996,8 @@
               signal: job.controller.signal, keepalive: true });
             // A refusal steps down one schema at a time, within the same budget.
             while (current() && response.status === 400 && submitted.v >= 4) {
-              const older = submitted.v === 6 ? compatibleV5(submitted)
+              const older = submitted.v === 7 ? compatibleV6(submitted)
+                : submitted.v === 6 ? compatibleV5(submitted)
                 : submitted.v === 5 ? compatibleV4(submitted) : compatibleV3(submitted);
               if (!older) break;
               // Compatibility writes share the same four-per-minute budget.
@@ -879,7 +1012,8 @@
             if (!current()) { resolve({ status: "disabled" }); return; }
             if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
               if (held === report) held = null;
-              resolve({ status: submitted._enterOmitted || submitted._scrollOmitted || submitted._timingOmitted ? "saved-legacy" : "saved" });
+              resolve({ status: submitted._enterOmitted || submitted._scrollOmitted || submitted._timingOmitted ||
+                submitted._streamOmitted ? "saved-legacy" : "saved" });
             } else resolve({ status: "failed" });
           } catch (_) { resolve({ status: current() ? "failed" : "disabled" }); }
           finally {
@@ -948,6 +1082,10 @@
       }
       generation = cap(generation + 1, 1000000000);
       lastResume = performance.now();
+      // the line's stretch: put away, the next line's gap starts afresh; shown
+      // again after a report, the next stretch starts now and not at the hide
+      if (value === "hidden" || value === "pagehide") lineSince = null;
+      if ((value === "visible" || value === "pageshow") && !tally.entries) tally = lineTally(lastResume);
       if (schema >= 3 || value !== "pagehide")
         note("lifecycle", schema >= 3 ? { lifecycle: value, ...detail } : { lifecycle: value });
     }
@@ -1015,10 +1153,11 @@
       // page omits the capability, so that page must return to strict v1 too.
       capability: safe(value => {
         const offered = Number(value);
-        schema = offered >= 6 ? 6 : offered >= 5 ? 5 : offered >= 4 ? 4 : offered >= 3 ? 3 : offered >= 2 ? 2 : 1;
+        schema = offered >= 7 ? 7 : offered >= 6 ? 6 : offered >= 5 ? 5 : offered >= 4 ? 4 : offered >= 3 ? 3 : offered >= 2 ? 2 : 1;
       }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
       noScroll: safe(noScroll, false),
+      lineReport: safe(lineReport, false),
       problem: safe((kind, message) => {
         if (!choices.problem.includes(kind)) return;
         // Browsers may emit these while settling a normal responsive layout.

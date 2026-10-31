@@ -171,7 +171,7 @@ test("update, uninstall, bridge, status and help never move to .venv, and uninst
     assert.deepEqual(res.execs, [], words.join(" "));
   }
   const bare = await checkout();
-  const gone = await dispatch(bare, ["uninstall", "--keep-attachments"]);
+  const gone = await dispatch(bare, ["uninstall", "--keep-data"]);
   assert.equal(gone.code, null, gone.out);
   assert.deepEqual(gone.execs, []);
   assert.match(gone.out, /Uninstall finished\./);

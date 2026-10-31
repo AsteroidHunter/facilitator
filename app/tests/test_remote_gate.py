@@ -410,7 +410,7 @@ class Gate(unittest.TestCase):
         log.addHandler(handler)
         log.setLevel(logging.DEBUG)
         server._remote.note = lambda kind, **fields: server._info(kind, **fields)
-        code = server._remote.new_code()
+        code = server._remote.new_code("x")
         try:
             said = self.join({"path": "/home/you/demo"})[1]
             call(self.gate, "GET", "/wait", "owner=notes", key=said["key"])

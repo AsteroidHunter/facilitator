@@ -49,11 +49,37 @@ function compare(a, b) {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
   return 0;
 }
+// a selector list split at its own commas, never at those inside :is( ) or :not( )
+function topLevel(list) {
+  const out = [];
+  let depth = 0, from = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === "(") depth++;
+    else if (list[i] === ")") depth--;
+    else if (list[i] === "," && depth === 0) { out.push(list.slice(from, i).trim()); from = i + 1; }
+  }
+  out.push(list.slice(from).trim());
+  return out;
+}
+// :is(a, b) matches what a or b matches, so it is read as one selector for each.
+// its weight is its heaviest argument's, which each copy keeps while the
+// arguments weigh the same, as the sheets' do (one class each)
+function expandIs(selector) {
+  const at = selector.indexOf(":is(");
+  if (at < 0) return [selector];
+  let end = at + 3;
+  for (let depth = 0; end < selector.length; end++) {
+    if (selector[end] === "(") depth++;
+    else if (selector[end] === ")" && --depth === 0) break;
+  }
+  return topLevel(selector.slice(at + 4, end))
+    .flatMap(arg => expandIs(selector.slice(0, at) + arg + selector.slice(end + 1)));
+}
 const rules = [];
 for (const [, selectors, body] of sheets.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
   const declared = [...body.matchAll(/(?:^|;)\s*(-webkit-user-select|user-select|-webkit-touch-callout)\s*:\s*([\w-]+)/g)];
   if (!declared.length) continue;
-  for (const selector of selectors.trim().split(/\s*,\s*/)) {
+  for (const selector of topLevel(selectors.trim()).flatMap(expandIs)) {
     // a state or a generated box does not change what its element can pick
     if (/:|::/.test(selector.replace(/\[[^\]]*\]/g, ""))) continue;
     const parts = selector.match(/(?:\[[^\]]*\]|[^\s])+/g);

@@ -150,3 +150,16 @@ constant, a base64 WOFF2 file taken unchanged from Google Fonts (version 20,
 picture are drawn in Inter without the network. Inter is Copyright (c) 2016 The
 Inter Project Authors (`https://github.com/rsms/inter`) and is licensed under the
 SIL Open Font License, Version 1.1, `https://openfontlicense.org`.
+
+## List of Dirty, Naughty, Obscene, and Otherwise Bad Words
+
+The swear words and slurs in `app/expletives.txt`, the word list behind the
+"Replace curse words" setting, are taken from the English list (`en`, as of
+its 2020-07-13 commit) of "List of Dirty, Naughty, Obscene, and Otherwise Bad
+Words" by Shutterstock and its contributors,
+`https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words`.
+It is licensed under the Creative Commons Attribution 4.0 International
+licence, `https://creativecommons.org/licenses/by/4.0/`. The list was changed:
+only its swear words and slurs are kept, multi-word entries are cut to the root
+they hold, the words are sorted under the file's three headings, and other
+words were added. The file's header says the same.

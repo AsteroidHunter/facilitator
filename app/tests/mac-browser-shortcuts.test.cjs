@@ -18,7 +18,7 @@ function world({ platform = "MacIntel", userAgentData, board = true } = {}) {
   document.body = body; document.activeElement = body;
   const nodes = [window, document, body], timers = new Map(); let next = 1;
   const state = { live: true, unselected: 0, saved: 0, calls: [] };
-  const context = vm.createContext({ window, document, navigator: { platform, userAgentData }, Date,
+  const context = vm.createContext({ window, document, navigator: { platform, userAgentData }, Date, performance,
     addEventListener: window.addEventListener.bind(window),
     setTimeout(fn) { const id = next++; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
     setInterval() {}, clearInterval() {},
@@ -30,11 +30,16 @@ function world({ platform = "MacIntel", userAgentData, board = true } = {}) {
     nav: (...args) => state.calls.push(["navigate", ...args]),
     histStep: (...args) => state.calls.push(["history", ...args]),
     fileNavSave: () => state.saved++,
+    closeProjMenu() {},   // the project pill's list, which a project key shuts
   });
   vm.runInContext(logic, context);
   // The actual desktop dispatch and Escape/create/project actions run before
   // the guard, just as they are installed before it in index.html.
   if (board) {
+    // Command+T's own new card, which the create action calls
+    const here = html.indexOf("function newCardHere(){");
+    assert.ok(here >= 0, "the board's new card");
+    vm.runInContext(html.slice(here, html.indexOf("\n}\n", here) + 3), context);
     const start = html.indexOf("const boardShortcutTyping =");
     const end = html.indexOf("listenResponseScroll();", start) + "listenResponseScroll();".length;
     vm.runInContext(html.slice(start, end), context);
@@ -249,7 +254,9 @@ test("the Mac browser guard lets Home dispatch project keys and keeps card keys 
   f.install();
   assert.equal(f.send(f.body, cmd("2", "Digit2")).defaultPrevented, true);
   assert.deepEqual(f.state.calls, [["tab", "two"]]);
-  assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, false);
+  // Command+T makes no card on Home; the guard still holds Chrome's new tab,
+  // as on every inactive board
+  assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, true);
   // Command+0 is the home key (home-project-hotkeys); Command+` is the Mac's alone
   assert.equal(f.send(f.body, cmd("`", "Backquote")).defaultPrevented, false);
   assert.deepEqual(f.state.calls, [["tab", "two"]]);

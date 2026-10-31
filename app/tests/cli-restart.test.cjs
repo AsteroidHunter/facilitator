@@ -95,9 +95,15 @@ function harness({
   stateShape = "GOOD",        // GOOD, NOT_DICT or WRONG_KEYS
   newListener = 5150,         // which pid ends up on the port after the launch
   newListenerOurs = true,     // and whether it reads back as this folder's server
-  chrome = [],                // URLs Chrome is showing, or null for unknown
+  chrome = [],                // URLs Chrome is showing, in one window's tabs, or null for unknown
   openApp = "STUB",           // STUB records the call; REAL runs the real function
   openFails = null,           // what `open` says to stderr, when it exits non-zero
+  send = "SENT",              // what the board says Chrome answered when it sent a tab on, null for no answer
+  boardOpens = null,          // the board's answer to opening its window: null for none (a board from
+                              // before it opened its own), "OPENED", or what open said when it failed
+  allowed = true,             // whether macOS lets the command script Chrome without asking
+  keyKept = false,            // whether the board keeps any window's cookie
+  fromBoard = false,          // an update the board started
 } = {}) {
   return [
     "EVENTS = []",
@@ -234,8 +240,32 @@ function harness({
     "",
     "def fake_chrome():",
     "    EVENTS.append(['chrome'])",
-    "    return CHROME",
-    "cli.chrome_page_urls = fake_chrome",
+    "    return None if CHROME is None else [(1, list(CHROME))]",
+    "cli.chrome_tabs = fake_chrome",
+    // the board, which sends the tabs on and opens its window itself; what it
+    // was handed is written down, and no code ever comes back
+    `SEND = ${send === null ? "None" : JSON.stringify(send)}`,
+    `BOARD_OPENS = ${boardOpens === null ? "None" : JSON.stringify(boardOpens)}`,
+    "def fake_board_window(port, route, body, timeout):",
+    "    if route == '/window/relaunch':",
+    "        tabs = json.loads(body)['tabs']",
+    "        for wid, place, url in tabs:",
+    "            EVENTS.append(['send', wid, place, url])",
+    "        return 200, {'sent': [SEND for _ in tabs]}",
+    "    EVENTS.append(['board_open', route, body.decode()])",
+    "    if BOARD_OPENS is None:",
+    "        return None",
+    "    if BOARD_OPENS == 'OPENED':",
+    "        return 200, {'opened': True}",
+    "    return 502, {'error': 'could not open Chrome', 'said': BOARD_OPENS}",
+    "cli.board_window = fake_board_window",
+    `ALLOWED = ${allowed ? "True" : "False"}`,
+    "def fake_allowed():",
+    "    EVENTS.append(['allowed'])",
+    "    return ALLOWED",
+    "cli.chrome_allowed = fake_allowed",
+    `cli.window_key_kept = lambda: ${keyKept ? "True" : "False"}`,
+    `cli.FROM_BOARD = ${fromBoard ? "True" : "False"}`,
     "",
     openApp === "STUB"
       ? "cli.open_app = lambda cfg, dry: EVENTS.append(['open_app', dry])"
@@ -723,8 +753,7 @@ test("an answer that is not JSON is no answer, and raises nothing", async () => 
     "    def __exit__(self, *rest):",
     "        return False",
     "def serve(body):",
-    "    cli.urllib = types.SimpleNamespace(",
-    "        request=types.SimpleNamespace(urlopen=lambda *a, **kw: Answer(body)))",
+    "    cli.LOCAL = types.SimpleNamespace(open=lambda *a, **kw: Answer(body))",
     "out = {}",
     "serve('<html>not this board at all</html>')",
     `out['html'] = cli.state(${port})`,
@@ -956,21 +985,106 @@ test("a replacement that never answers times out, and nothing is opened or start
   assert.ok(waited > 19.5 && waited < 20.6, `the start deadline was ${waited}s, not twenty`);
 });
 
-test("a page that is already there is left alone and named for reloading", async () => {
-  // NOTE: these URLs stand in for what Chrome reports. A tab-shaped URL is not
-  // proof that a native chromeless --app window appears in the inventory; that
-  // check is the coordinator's and is not made here. What is proved here is
-  // the decision made once the URLs are in.
-  for (const url of [`http://127.0.0.1:${port}/?card=12`, `http://localhost:${port}`]) {
+test("a page that is already there is handed to the board, which sends it on to a launch link in its own tab", async () => {
+  // NOTE: these URLs stand in for what Chrome reports. Chrome's scripting
+  // lists every browser window, chromeless app windows among them
+  // (appleScriptWindows in Chromium); that is read from its source and not
+  // run here. What is proved here is the decision made once the URLs are in.
+  for (const url of [`http://127.0.0.1:${port}/`, `http://localhost:${port}`]) {
     const run = await restart({ chrome: ["chrome://newtab/", "https://example.com/", url] });
     assert.equal(run.ok, true, run.stderr);
     assert.equal(kinds(run.events).includes("open_app"), false, `a second window was opened over ${url}`);
-    assert.deepEqual(run.said, ["Board restarted.", "Reload the board (command + R)."]);
-    assert.deepEqual(run.events.filter(e => e[0] === "run"), [], "something was said to the page itself");
+    assert.deepEqual(run.said, ["Board restarted."], "the person was asked to reload by hand");
+    assert.deepEqual(run.events.filter(e => e[0] === "send"), [["send", 1, 3, url]],
+      "the board's tab was not handed to the board, in its place, once");
+    assert.deepEqual(run.events.filter(e => e[0] === "run"), [], "something else was run against Chrome");
+    assert.equal(kinds(run.events).includes("allowed"), false, "a restart from the terminal checked first");
   }
 });
 
-test("no page anywhere means exactly one new app window, through the usual opening", async () => {
+test("the command hands the board the tabs it read, as they are, and is handed no code", async () => {
+  // the board's own answer to a relaunch; what it does with the tabs is the
+  // board's (board-lock.test.cjs), and the command only reads how it went
+  const { stdout } = await probe([
+    "import io",
+    "class Answer(io.BytesIO):",
+    "    status = 200",
+    "    def __enter__(self): return self",
+    "    def __exit__(self, *a): return False",
+    "ASKED = []",
+    "def fake_open(request, timeout=None):",
+    "    ASKED.append([request.get_method(), request.full_url, json.loads(request.data)])",
+    "    return Answer(b'{\"sent\": [\"SENT\", \"CHANGED\"]}')",
+    "cli.LOCAL = types.SimpleNamespace(open=fake_open)",
+    `pulled = 'http://127.0.0.1:${port}/?project=pastureland&launch=SPENT#box-3'`,
+    `cli.chrome_tabs = lambda: [(4, ['chrome://newtab/', pulled]), (9, ['http://localhost:${port}'])]`,
+    `found = cli.relaunch_board_tabs({'port': ${port}})`,
+    "print(json.dumps({'found': found, 'asked': ASKED}))",
+  ].join("\n"));
+  const got = lastJson(stdout);
+  assert.equal(got.found, 2);
+  assert.deepEqual(got.asked, [["POST", `http://127.0.0.1:${port}/window/relaunch`, { tabs: [
+    [4, 2, `http://127.0.0.1:${port}/?project=pastureland&launch=SPENT#box-3`], [9, 1, `http://localhost:${port}`]] }]],
+    "the tabs were not handed to the board as they were read, in one ask");
+});
+
+test("a board that sends no tab on, or does not answer, is Chrome not asked", async () => {
+  for (const answer of ['{"sent": [null]}', '{"error": "nope"}', null]) {
+    const { stdout } = await probe([
+      "import io",
+      "class Answer(io.BytesIO):",
+      "    status = 200",
+      "    def __enter__(self): return self",
+      "    def __exit__(self, *a): return False",
+      "def fake_open(request, timeout=None):",
+      answer === null ? "    raise OSError('connection refused')" : `    return Answer(${JSON.stringify(answer)}.encode())`,
+      "cli.LOCAL = types.SimpleNamespace(open=fake_open)",
+      `cli.chrome_tabs = lambda: [(4, ['http://127.0.0.1:${port}/'])]`,
+      `print(json.dumps({'found': cli.relaunch_board_tabs({'port': ${port}})}))`,
+    ].join("\n"));
+    assert.equal(lastJson(stdout).found, null, String(answer));
+  }
+});
+
+test("a tab that moved on or went before it was sent leaves no window to open", async () => {
+  for (const send of ["CHANGED", "GONE"]) {
+    const run = await restart({ chrome: [`http://127.0.0.1:${port}/`], send });
+    assert.equal(run.ok, true, run.stderr);
+    assert.equal(kinds(run.events).includes("open_app"), false, `a window opened after ${send}`);
+    assert.deepEqual(run.said, ["Board restarted."]);
+  }
+});
+
+test("Chrome that read but would not send is an unknown, and a board that let no window in opens one", async () => {
+  const kept = await restart({ chrome: [`http://127.0.0.1:${port}/`], send: null, keyKept: true });
+  assert.equal(kept.ok, true, kept.stderr);
+  assert.equal(kinds(kept.events).includes("open_app"), false, "a window opened beside one that may be let in");
+  const none = await restart({ chrome: [`http://127.0.0.1:${port}/`], send: null, keyKept: false });
+  assert.equal(none.ok, true, none.stderr);
+  assert.deepEqual(none.events.filter(e => e[0] === "open_app"), [["open_app", false]]);
+  assert.deepEqual(none.said, ["Board restarted."]);
+});
+
+test("no page anywhere means exactly one new app window, which the board opens", async () => {
+  const chrome = [`http://127.0.0.1:${port + 1}/`, "https://example.com/"];
+  const run = await restart({ chrome, openApp: "REAL", boardOpens: "OPENED" });
+  assert.equal(run.ok, true, run.stderr);
+  assert.deepEqual(run.events.filter(e => e[0] === "board_open"),
+    [["board_open", "/window/open", `http://127.0.0.1:${port}`]], "the board was not asked once to open its window");
+  // the command opens nothing itself; once the board says it opened the
+  // window, it brings Chrome forward, with no page and no code
+  const ran = run.events.filter(e => e[0] === "run" || e[0] === "board_open").map(e => e[0] === "run" ? e[1] : e[0]);
+  assert.deepEqual(ran, ["board_open", ["/usr/bin/osascript", "-e",
+    'if application "Google Chrome" is running then\n  tell application "Google Chrome" to activate\nend if']],
+    "the command opened a window itself as well, or did not bring Chrome forward once after the board");
+  assert.deepEqual(run.said, ["Board restarted."], "a window that opened was announced");
+  // when macOS would have to ask first, Chrome is left as the board's open left it
+  const asks = await restart({ chrome, openApp: "REAL", boardOpens: "OPENED", allowed: false });
+  assert.equal(asks.ok, true, asks.stderr);
+  assert.deepEqual(asks.events.filter(e => e[0] === "run"), []);
+});
+
+test("a board from before it opened its own window gets one opened by the command, as before", async () => {
   const run = await restart({
     chrome: [`http://127.0.0.1:${port + 1}/`, "https://example.com/"], openApp: "REAL",
   });
@@ -982,22 +1096,69 @@ test("no page anywhere means exactly one new app window, through the usual openi
 });
 
 test("a window that fails to open is said in one line, never reported as opened", async () => {
-  const run = await restart({
-    chrome: [], openApp: "REAL", openFails: "Unable to find application named 'Google Chrome'",
-  });
-  assert.equal(run.ok, true, run.stderr);
-  assert.deepEqual(run.said, [
-    "Board restarted.",
-    `could not open Chrome (Unable to find application named 'Google Chrome'); open http://127.0.0.1:${port} yourself`,
-  ]);
+  // the board passes back what open said, and so does open run here for a board from before
+  for (const options of [{ boardOpens: "Unable to find application named 'Google Chrome'" },
+                         { openFails: "Unable to find application named 'Google Chrome'" }]) {
+    const run = await restart({ chrome: [], openApp: "REAL", ...options });
+    assert.equal(run.ok, true, run.stderr);
+    assert.deepEqual(run.said, [
+      "Board restarted.",
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`,
+    ], JSON.stringify(options));
+    assert.equal(run.events.filter(e => e[0] === "run").length, options.openFails ? 1 : 0);
+  }
 });
 
 test("a browser that could not be asked is an unknown: no window and nothing said about it", async () => {
-  const run = await restart({ chrome: null });
+  const run = await restart({ chrome: null, keyKept: true });
   assert.equal(run.ok, true, run.stderr);
   assert.equal(kinds(run.events).includes("open_app"), false,
     "a browser that could not be read was treated as a browser with nothing open");
   assert.deepEqual(run.said, ["Board restarted."]);
+});
+
+test("a browser that could not be asked, on a board that has let no window in, gets one window", async () => {
+  // every window open on such a board is one it refuses, so a second one,
+  // opened on a launch link, is the only way the person sees the board
+  const run = await restart({ chrome: null, keyKept: false });
+  assert.equal(run.ok, true, run.stderr);
+  assert.deepEqual(run.events.filter(e => e[0] === "open_app"), [["open_app", false]]);
+  assert.deepEqual(run.said, ["Board restarted."]);
+});
+
+// --- an update the board started -------------------------------------------
+
+test("an update the board started sends the board's tab on when macOS lets it ask Chrome without asking", async () => {
+  const url = `http://127.0.0.1:${port}/`;
+  const run = await restart({ fromBoard: true, allowed: true, chrome: [url] });
+  assert.equal(run.ok, true, run.stderr);
+  const order = kinds(run.events).filter(k => ["allowed", "chrome", "send", "open_app"].includes(k));
+  assert.deepEqual(order, ["allowed", "chrome", "send"], "Chrome was asked before macOS said it could be");
+  assert.deepEqual(run.events.filter(e => e[0] === "send"), [["send", 1, 1, url]]);
+  assert.deepEqual(run.said, ["Board restarted."]);
+});
+
+test("an update the board started never asks Chrome when macOS would ask the person first", async () => {
+  for (const keyKept of [true, false]) {
+    const run = await restart({ fromBoard: true, allowed: false, chrome: [`http://127.0.0.1:${port}/`], keyKept });
+    assert.equal(run.ok, true, run.stderr);
+    assert.equal(kinds(run.events).includes("chrome"), false, "Chrome was asked, which could put up a prompt");
+    assert.equal(kinds(run.events).includes("send"), false);
+    // a board that has let no window in refuses the page that said yes, so a
+    // window opened on a launch link is the one that shows the board
+    assert.deepEqual(run.events.filter(e => e[0] === "open_app"), keyKept ? [] : [["open_app", false]],
+      `keyKept ${keyKept}`);
+    assert.deepEqual(run.said, ["Board restarted."]);
+  }
+});
+
+test("an update the board started opens a window for a board shown nowhere only when it let no window in", async () => {
+  for (const keyKept of [true, false]) {
+    const run = await restart({ fromBoard: true, allowed: true, chrome: ["https://example.com/"], keyKept });
+    assert.equal(run.ok, true, run.stderr);
+    assert.deepEqual(run.events.filter(e => e[0] === "open_app"), keyKept ? [] : [["open_app", false]],
+      `keyKept ${keyKept}`);
+  }
 });
 
 test("the matching rule: loopback spellings and cards yes, other ports and sites no", async () => {
@@ -1032,38 +1193,63 @@ test("the matching rule: loopback spellings and cards yes, other ports and sites
   }
 });
 
-test("the browser is only ever read: nothing in the script drives it", async () => {
+// one top-level constant's text, from its name to the line that closes it
+const pyConstant = (source, name) => {
+  const found = source.match(new RegExp(`^${name} = "\\\\n"\\.join\\(\\[[\\s\\S]*?\\n\\]\\)`, "m"));
+  assert.ok(found, `${name} is not in the CLI`);
+  return found[0];
+};
+
+test("restart reads Chrome without driving it, and the board sends a tab on in one script alone", async () => {
   const source = await readFile(cliPath, "utf8");
-  const start = source.indexOf('tell application "System Events"');
-  const end = source.indexOf("return found as text");
-  assert.ok(start !== -1 && end > start, "the browser script is not where it was");
-  const script = source.slice(start, end);
-  for (const verb of ["activate", "reload", "close", "delete", "set URL", "make new", "open location"]) {
-    assert.ok(!script.includes(verb), `the browser script can ${verb} a page: ${script}`);
+  const verbs = ["activate", "reload", "close", "delete", "set URL", "make new", "open location"];
+  const reader = pyConstant(source, "CHROME_TABS_SCRIPT");
+  for (const verb of verbs) {
+    assert.ok(!reader.includes(verb), `the tab reader can ${verb} a page: ${reader}`);
   }
-  assert.ok(script.includes("every window") && script.includes("every tab of w"),
-    "the browser script no longer walks every window's tabs, so app windows can be missed");
-  assert.ok(script.includes('exists process "Google Chrome"'),
-    "Chrome is spoken to before it is known to be running, which can start it");
+  assert.ok(reader.includes("every window") && reader.includes("every tab of w"),
+    "the tab reader no longer walks every window's tabs, so app windows can be missed");
+  // the command only reads; the board sends the tabs on, with the code only it and Chrome see
+  assert.equal(source.split("set URL of").length - 1, 0, "the command sends a tab on itself");
+  const server = await readFile(path.join(ROOT, "server.py"), "utf8");
+  const sender = pyConstant(server, "SEND_TAB_SCRIPT");
+  for (const verb of verbs.filter(v => v !== "set URL")) {
+    assert.ok(!sender.includes(verb), `the tab sender can ${verb} a page: ${sender}`);
+  }
+  // Chrome is never started to be read or sent to, and nothing but Chrome is
+  // asked: whether it runs is read by AppleScript itself, before its block
+  for (const script of [reader, sender]) {
+    const running = script.indexOf('if not (application "Google Chrome" is running) then return');
+    assert.ok(running !== -1 && running < script.indexOf('tell application "Google Chrome"'),
+      "Chrome is spoken to before it is known to be running, which can start it");
+    assert.ok(!script.includes("System Events"), "a restart script asks System Events, a second permission");
+  }
+  // the one URL set is after the tab is read again and found unchanged
+  assert.equal(server.split("set URL of").length - 1, 1, "more than one place sends a tab on");
+  const agreed = sender.indexOf("if not agreed then return");
+  assert.ok(agreed !== -1 && agreed < sender.indexOf("set URL of"), "a tab is sent on without being read again");
+  assert.ok(pySource(server, "_send_tab_script").includes("SEND_TAB_SCRIPT"));
+  assert.equal(server.split("SEND_TAB_SCRIPT").length - 1, 2, "the send script is used somewhere else");
+  // the script, with the address and its code in it, goes on osascript's
+  // standard input, and osascript is given no argument but the "-" naming it
+  assert.match(pySource(server, "_send_tab"),
+    /subprocess\.run\(\[OSASCRIPT_PROGRAM, "-"\], input=_send_tab_script\(wid, place, expected, goal\),/);
+  assert.equal(server.split("OSASCRIPT_PROGRAM").length - 1, 2, "osascript is run somewhere else");
 
   // stop's window walk reads in the same way, and only the close script closes
   const walk = pySource(source, "chrome_windows");
-  for (const verb of ["activate", "reload", "close", "delete", "set URL", "make new", "open location"]) {
+  for (const verb of verbs) {
     assert.ok(!walk.includes(verb), `the window walk can ${verb} a page: ${walk}`);
   }
   assert.ok(walk.includes("every window") && walk.includes("every tab of w"),
     "the window walk no longer reads every window's tabs");
   assert.ok(walk.includes('exists process "Google Chrome"'),
     "the window walk speaks to Chrome before it is known to be running");
-
-  // the one script that closes sits after both reading scripts, in a constant of its own
-  const closer = source.indexOf("CLOSE_WINDOW_SCRIPT = ");
-  assert.ok(closer > end, "the close script is inside the reading slice");
   assert.equal(source.split("close win").length - 1, 1, "more than one place closes a window");
-  assert.ok(source.indexOf("close win") > closer, "a window is closed outside the close script");
-  for (const reader of ["chrome_page_urls", "chrome_windows", "board_page_open"]) {
-    assert.ok(!pySource(source, reader).includes("CLOSE_WINDOW_SCRIPT"),
-      `${reader} can reach the close script`);
+  assert.ok(source.indexOf("close win") > source.indexOf("CLOSE_WINDOW_SCRIPT = "),
+    "a window is closed outside the close script");
+  for (const reader of ["chrome_tabs", "chrome_windows", "board_tabs", "relaunch_board_tabs"]) {
+    assert.ok(!pySource(source, reader).includes("CLOSE_WINDOW_SCRIPT"), `${reader} can reach the close script`);
   }
 });
 
@@ -1119,20 +1305,21 @@ test("--dry-run signals nothing, starts nothing and opens nothing", async () => 
   assert.equal(idle.ok, true, idle.stderr);
   assert.deepEqual(kinds(idle.events).filter(k => ["kill", "popen", "open_app", "run"].includes(k)), []);
   assert.match(idle.said[0], new RegExp(`^restart: nothing is listening on ${port}; would start `));
-  assert.match(idle.said[1], /is already open; would leave it alone$/);
+  assert.match(idle.said[1], /is open; would load it again on a launch link, in the tab it is in$/);
+  // once the board has let a window in, the tab only loads the board again
+  const kept = await restart({ listeners: [], chrome: [`http://127.0.0.1:${port}/`], keyKept: true },
+    "['restart', '--dry-run']");
+  assert.equal(kept.ok, true, kept.stderr);
+  assert.match(kept.said[1], /is open; would load it again, in the tab it is in$/);
 });
 
-test("run is untouched: still server, window, and no tmux without being asked", async () => {
+test("run is untouched: still server and window, and nothing else", async () => {
   const laneConfig = JSON.stringify({
     port, lanes: [{ owner: "facilitator", instruction: "go and listen" }],
   });
   const { stdout } = await probe([
     harness({ listeners: [], chrome: null }),
     `cli.load_config = lambda: json.loads(${JSON.stringify(laneConfig)})`,
-    "def boom(*a, **kw):",
-    "    raise AssertionError('run touched tmux on its own')",
-    "cli.instruct = boom",
-    "cli.spawn = boom",
     "cli.cmd_run(['run'])",
     "say()",
   ].join("\n"));
@@ -1170,6 +1357,8 @@ async function liveProbe(code) {
     env: {
       ...process.env,
       FACILITATOR_TEST_PORT: String(livePort),
+      // locked as a real board is: the command's calls carry the agent key
+      FACILITATOR_TEST_LOCK: "1",
       FACILITATOR_LOG_DIR: path.join(liveNest, "logs"),
     },
     timeout: 90000,
@@ -1237,10 +1426,12 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       owned.add(first.pid);
       assert.ok(first.pid > 0);
 
-      const before = await (await fetch(`http://127.0.0.1:${livePort}/state`)).json();
+      const key = { Authorization: `Bearer ${(await readFile(path.join(dataOf(board), "agent.key"), "utf8")).trim()}` };
+      assert.equal((await fetch(`http://127.0.0.1:${livePort}/state`)).status, 401, "the live board is not locked");
+      const before = await (await fetch(`http://127.0.0.1:${livePort}/state`, { headers: key })).json();
       assert.equal(before.title, "cli restart fixture");
       assert.equal((await fetch(`http://127.0.0.1:${livePort}/send?box=0`,
-        { method: "POST", body: "kept across the restart" })).status, 200);
+        { method: "POST", body: "kept across the restart", headers: key })).status, 200);
 
       // the real reader against a real process: the vector the fixture server
       // is actually running, and the board state readiness will look for
@@ -1268,7 +1459,7 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       // happens, the last line says which pid is on the port now, so the
       // cleanup below owns the replacement even when an assertion fails.
       const restarted = await liveProbe([
-        "cli.chrome_page_urls = lambda: []",
+        "cli.chrome_tabs = lambda: []",
         "opened = []",
         "cli.open_app = lambda cfg, dry: opened.append(dry)",
         "def owner_pid():",
@@ -1302,7 +1493,7 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       try { process.kill(first.pid, 0); } catch { oldStillThere = false; }
       assert.equal(oldStillThere, false, "the old server is still running after the restart");
 
-      const back = await (await fetch(`http://127.0.0.1:${livePort}/state`)).json();
+      const back = await (await fetch(`http://127.0.0.1:${livePort}/state`, { headers: key })).json();
       assert.equal(back.title, "cli restart fixture");
       assert.deepEqual(back.boxes.find(b => b.id === "0").pendingTexts, ["kept across the restart"],
         "the restart lost the queued message");
@@ -1328,3 +1519,253 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       }
     }
   });
+
+// ---------------------------------------------------------------------------
+// The window from before the lock. A board of its own on a free pair, started
+// with its lock off as a board from before v0.3.37 ran, and a window that
+// reads it with no cookie at all; then the board started again with the lock
+// on, through facilitator restart, through the update's restart from a
+// terminal and through the update's restart the board itself started. Chrome
+// is stood in for by a model of that one window: the tab reader returns its
+// address, and what the board sent the tab on to, or opened a new window on,
+// through its stand-in osascript and open, is opened the way Chrome opens an
+// address typed into a tab (a navigation from no site, the 303 followed, the
+// cookie kept in the window's jar). Everything else is real: the server and
+// its lock, the restart, the board sending the tab on with a launch code only
+// it and Chrome see, and the cookie. Every pid this touches is one it started.
+const { freePortPair, stubWindow } = require("./fixture-auth.cjs");
+
+// the window, in Python, beside the CLI: open_page is an address typed into
+// the tab, page_read is the board page's own reading of /state
+const WINDOW_MODEL = `
+import http.client
+from urllib.parse import urlparse
+PORT = cli.board_port()
+ORIGIN = f"http://127.0.0.1:{PORT}"
+JAR = {}
+SEEN = []
+WINDOW = {"url": ORIGIN + "/"}
+def ask(url, headers):
+    bits = urlparse(url)
+    conn = http.client.HTTPConnection(bits.hostname, bits.port, timeout=10)
+    sent = dict(headers)
+    if JAR:
+        sent["Cookie"] = "; ".join(f"{k}={v}" for k, v in JAR.items())
+    conn.request("GET", (bits.path or "/") + ("?" + bits.query if bits.query else ""), headers=sent)
+    answer = conn.getresponse()
+    body = answer.read().decode("utf-8", "replace")
+    for name, value in answer.getheaders():
+        if name.lower() == "set-cookie":
+            k, _, v = value.split(";", 1)[0].partition("=")
+            JAR[k.strip()] = v.strip()
+    where = answer.getheader("Location")
+    conn.close()
+    return answer.status, where, body
+def open_page(url):
+    for _ in range(5):
+        status, where, body = ask(url, {"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate",
+                                        "Sec-Fetch-Dest": "document"})
+        if status in (301, 302, 303, 307, 308):
+            url = ORIGIN + where
+            continue
+        return {"status": status, "url": url, "board": 'id="npversion"' in body,
+                "locked": "Open the board with facilitator run" in body}
+    return {"status": "loop", "url": url, "board": False, "locked": False}
+def page_read():
+    return ask(ORIGIN + "/state?since=", {"Origin": ORIGIN, "Sec-Fetch-Site": "same-origin",
+                                          "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"})[0]
+def fake_tabs():
+    SEEN.append(["tabs"])
+    return [(7, ["chrome://newtab/", WINDOW["url"]])]
+def board_did(name):
+    try:
+        with open(os.path.join(os.environ["WINDOW_DIR"], name)) as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except OSError:
+        return []
+real_relaunch = cli.relaunch_board_tabs
+def relaunch(cfg):
+    before = len(board_did("sent.jsonl"))
+    found = real_relaunch(cfg)
+    for wid, place, expected, goal in board_did("sent.jsonl")[before:]:
+        SEEN.append(["send", int(wid), int(place), expected, "launch=" in goal])
+        SEEN.append(["only reloaded", open_page(expected)])
+        shown = open_page(goal)
+        WINDOW["url"] = shown["url"]
+        SEEN.append(["sent", shown])
+    return found
+real_open_app = cli.open_app
+def fake_open(cfg, dry):
+    before = len(board_did("opened.jsonl"))
+    real_open_app(cfg, dry)
+    for argv in board_did("opened.jsonl")[before:]:
+        shown = open_page(next(a for a in argv if a.startswith("--app="))[len("--app="):])
+        SEEN.append(["new window", shown])
+cli.chrome_tabs = fake_tabs
+cli.relaunch_board_tabs = relaunch
+cli.open_app = fake_open
+cli.ensure_uv = lambda quiet=False: "/fake/uv"
+cli.ensure_env = lambda uv, quiet=False: False
+def owner_pid():
+    owner = cli.server_process(PORT)[0]
+    return owner[0] if owner else None
+`;
+
+async function oldWindowWorld(t) {
+  await access(path.join(ROOT, "..", "data", ".venv", "bin", "python3"), constants.X_OK);
+  const nest = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-old-window-")));
+  const board = path.join(nest, "board");
+  await mkdir(board);
+  const boardPort = await freePortPair();
+  await copyFile(path.join(ROOT, "facilitator"), path.join(board, "facilitator"));
+  await copyFile(path.join(ROOT, "index.html"), path.join(board, "index.html"));
+  const source = await readFile(path.join(ROOT, "server.py"), "utf8");
+  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  assert.notEqual(patched, source, "test server port was not patched");
+  // the board's window goes to stand-ins in window/, never to the real Chrome
+  const windowDir = path.join(nest, "window");
+  await writeFile(path.join(board, "server.py"), stubWindow(patched, windowDir));
+  require("./fixture-auth.cjs").copyBridgeFiles(board);
+  await writeFile(path.join(dataOf(board), "run.config.json"), JSON.stringify({ port: boardPort, lanes: [] }));
+  await writeFile(path.join(dataOf(board), "seed.json"), JSON.stringify({
+    title: "old window fixture",
+    items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
+  }));
+  await symlink(path.join(ROOT, "..", "data", ".venv"), path.join(dataOf(board), ".venv"));
+  const mine = new Set();
+  const run = (code, env = {}) => execFileAsync("python3", ["-c", `${loadCli(path.join(board, "facilitator"))}\n${code}`], {
+    cwd: board,
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(boardPort), FACILITATOR_LOG_DIR: path.join(nest, "logs"),
+           WINDOW_DIR: windowDir, ...env },
+    timeout: 90000,
+  });
+  t.after(async () => {
+    for (const pid of mine) await stopOwned(pid);
+    await rm(nest, { recursive: true, force: true });
+  });
+  // the board from before the lock: started with no FACILITATOR_TEST_LOCK
+  const unlocked = { ...process.env };
+  delete unlocked.FACILITATOR_TEST_LOCK;
+  const started = await execFileAsync("python3", ["-c", [
+    loadCli(path.join(board, "facilitator")),
+    "real_popen = cli.subprocess.Popen",
+    "started = {}",
+    "def popen(argv, **kw):",
+    "    child = real_popen(argv, **kw)",
+    "    started['pid'] = child.pid",
+    "    return child",
+    "cli.subprocess.Popen = popen",
+    `cli.ensure_server(${boardPort}, False)`,
+    "print(json.dumps(started))",
+  ].join("\n")], { cwd: board, timeout: 90000,
+    env: { ...unlocked, FACILITATOR_TEST_PORT: String(boardPort), FACILITATOR_LOG_DIR: path.join(nest, "logs") } });
+  mine.add(lastJson(started.stdout).pid);
+  return { nest, board, boardPort, mine, run };
+}
+
+// one path, start to end: the window before, the path with the lock on, the
+// window after; the last line names the server now on the port
+async function oldWindowThrough(world, step, { allowed = true, fromBoard = false } = {}) {
+  const done = await world.run([
+    WINDOW_MODEL,
+    `cli.chrome_allowed = lambda: ${allowed ? "True" : "False"}`,
+    "out = {'before': {'page': open_page(ORIGIN + '/'), 'read': page_read(), 'cookie': bool(JAR)}}",
+    "try:",
+    `    ${step}`,
+    "finally:",
+    "    out['after'] = {'page': open_page(WINDOW['url']), 'read': page_read(), 'cookie': bool(JAR)}",
+    "    out['seen'] = SEEN",
+    "    out['pid'] = owner_pid()",
+    "    out['keys'] = cli.window_key_kept()",
+    "    print('RESULT ' + json.dumps(out))",
+  ].join("\n"), { FACILITATOR_TEST_LOCK: "1", ...(fromBoard ? { FACILITATOR_UPDATE_FROM_BOARD: "1" } : {}) })
+    .then(ok => ok, error => error);
+  const line = String(done.stdout || "").split("\n").find(l => l.startsWith("RESULT "));
+  assert.ok(line, `no result: ${done.stdout}\n${done.stderr}`);
+  const result = JSON.parse(line.slice("RESULT ".length));
+  if (result.pid) world.mine.add(result.pid);
+  assert.ok(!(done instanceof Error), `the path failed: ${done.stderr}`);
+  return { ...result, said: String(done.stdout).split("\n").filter(l => l && !l.startsWith("RESULT ")) };
+}
+
+function assertLetIn(result, how) {
+  assert.deepEqual(result.before, { page: { status: 200, url: result.before.page.url, board: true, locked: false },
+                                    read: 200, cookie: false }, `${how}: the window before the lock`);
+  const kinds = result.seen.map(e => e[0]);
+  assert.deepEqual(kinds, ["tabs", "send", "only reloaded", "sent"], `${how}: ${JSON.stringify(result.seen)}`);
+  assert.deepEqual(result.seen[1].slice(1), [7, 2, result.before.page.url, true],
+    `${how}: the board's own tab was not the one sent on`);
+  // what the same window would show after a plain reload: the lock's page
+  assert.equal(result.seen[2][1].status, 401, `${how}: the lock let a window with no cookie in`);
+  assert.equal(result.seen[2][1].locked, true, `${how}: the refused window was not shown the lock's page`);
+  // and what it shows sent on: the board, back on its own page
+  assert.deepEqual(result.seen[3][1], { status: 200, url: result.before.page.url, board: true, locked: false },
+    `${how}: the window sent on did not land on the board`);
+  assert.deepEqual(result.after, { page: { status: 200, url: result.before.page.url, board: true, locked: false },
+                                   read: 200, cookie: true }, `${how}: the window after`);
+  assert.equal(result.keys, true, `${how}: the board kept no cookie for the window`);
+}
+
+test("a window from before the lock is let in after facilitator restart, in its own tab", async t => {
+  const world = await oldWindowWorld(t);
+  const result = await oldWindowThrough(world, "cli.cmd_restart(['restart'])");
+  assertLetIn(result, "restart");
+  assert.deepEqual(result.said, ["Board restarted."]);
+});
+
+test("a window once let in is only loaded again on the next restart, with no code", async t => {
+  const world = await oldWindowWorld(t);
+  // the first restart lets the window from before the lock in, as above; its
+  // cookie jar is kept for the next restart, which runs as a command of its
+  // own, as a restart typed later would
+  const jar = path.join(world.nest, "jar.json");
+  const first = await oldWindowThrough(world,
+    `cli.cmd_restart(['restart']); open(${JSON.stringify(jar)}, 'w').write(json.dumps(JAR))`);
+  assertLetIn(first, "first restart");
+  const later = await oldWindowThrough(world,
+    `JAR.update(json.loads(open(${JSON.stringify(jar)}).read())); cli.cmd_restart(['restart'])`);
+  assert.deepEqual(later.seen.map(e => e[0]), ["tabs", "send", "only reloaded", "sent"], JSON.stringify(later.seen));
+  assert.deepEqual(later.seen[1].slice(1), [7, 2, first.before.page.url, false], "the second restart sent the tab a code");
+  // the window has its cookie, so the plain reload it is given is the board
+  for (const shown of [later.seen[2][1], later.seen[3][1]])
+    assert.deepEqual(shown, { status: 200, url: first.before.page.url, board: true, locked: false });
+  assert.deepEqual(later.after, { page: { status: 200, url: first.before.page.url, board: true, locked: false },
+                                  read: 200, cookie: true });
+  assert.deepEqual(later.said, ["Board restarted."]);
+});
+
+test("a window from before the lock is let in after an update run in a terminal", async t => {
+  const world = await oldWindowWorld(t);
+  const result = await oldWindowThrough(world,
+    "cli.cmd_update_steps(['_update-steps', '--from-version', 'v0.3.36', '--pulled'])");
+  assertLetIn(result, "update from a terminal");
+  assert.ok(result.said.includes("Board restarted."), result.said.join("\n"));
+  // the window has reloaded already, so the last lines ask only for the phone
+  assert.ok(result.said.includes("The board has reloaded in Chrome. Reopen the phone app."), result.said.join("\n"));
+  assert.ok(!result.said.some(l => /^Reload the board/.test(l)), "the update still asks for a reload by hand");
+  assert.ok(!result.said.some(l => l.startsWith("@stage")), "a terminal update wrote the board's stage lines");
+});
+
+test("a window from before the lock is let in after an update the board started, when macOS lets Chrome be asked", async t => {
+  const world = await oldWindowWorld(t);
+  const result = await oldWindowThrough(world,
+    "cli.cmd_update_steps(['_update-steps', '--from-version', 'v0.3.36', '--pulled'])", { fromBoard: true });
+  assertLetIn(result, "update the board started");
+  assert.ok(result.said.includes("@stage restarting"), result.said.join("\n"));
+});
+
+test("an update the board started that may not ask Chrome opens one window on a launch link, which lets the old one in too", async t => {
+  const world = await oldWindowWorld(t);
+  const result = await oldWindowThrough(world,
+    "cli.cmd_update_steps(['_update-steps', '--from-version', 'v0.3.36', '--pulled'])",
+    { fromBoard: true, allowed: false });
+  assert.equal(result.before.page.board, true);
+  assert.equal(result.before.cookie, false);
+  assert.deepEqual(result.seen.map(e => e[0]), ["new window"], "Chrome was read or a tab sent on without leave");
+  assert.deepEqual(result.seen[0][1], { status: 200, url: result.before.page.url, board: true, locked: false },
+    "the new window did not show the board");
+  // the old window shares the new one's cookie jar, as two windows of one
+  // Chrome profile do, so its next open of the board is let in as well
+  assert.deepEqual(result.after, { page: { status: 200, url: result.before.page.url, board: true, locked: false },
+                                   read: 200, cookie: true });
+});

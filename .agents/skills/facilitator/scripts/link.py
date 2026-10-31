@@ -554,7 +554,7 @@ def main(argv):
         return 2
     rec = record()
     if rec is None:
-        print("This skill is not set up on a server: pair it first (facilitator remote pair, on the Mac).")
+        print("This skill is not set up on a server: pair it first (facilitator remote pair --name NAME, on the Mac).")
         return 1
     if words[0] == "run":
         try:

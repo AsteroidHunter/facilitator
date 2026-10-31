@@ -774,7 +774,7 @@ test("a subscription the push service reports gone is logged as removed, with th
   assert.equal(new Set(pushed.map(line => line.rec)).size, pushed.length, "two subscriptions shared a name");
 });
 
-test("a subscription whose sign-in has ended is skipped and said so, and is not removed", async () => {
+test("a subscription whose sign-in has ended is skipped, said so once, and removed", async () => {
   const login = await fetch(bridgeOrigin + "/auth/login", {
     method: "POST", headers: { Origin: bridgeOrigin, "Content-Type": "application/json" },
     body: JSON.stringify({ password: "FixturePush7!" }),
@@ -798,10 +798,19 @@ test("a subscription whose sign-in has ended is skipped and said so, and is not 
   assert.ok(skipped, "the skipped phone was not written down");
   assert.deepEqual([skipped.rec, skipped.reason, skipped.count], [recOf(endpoint), "no live session", 3]);
   assert.ok(!pushes.slice(beforePushes).some(push => push.path === "/ok/seven"), "a push went to a signed-out phone");
-  assert.ok((await heldPaths()).includes("/ok/seven"), "the signed-out phone's subscription was removed, which nothing does today");
+  // dropped on the push's own thread once its sends are done
+  const deadline = Date.now() + 3000;
+  while ((await heldPaths()).includes("/ok/seven") && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.deepEqual(await heldPaths(), ["/ok/one", "/nobody/home"], "the signed-out phone's subscription was kept");
 
-  assert.equal((await post("/push/unsubscribe", JSON.stringify({ endpoint }))).status, 200);
-  assert.deepEqual(await heldPaths(), ["/ok/one", "/nobody/home"]);
+  // the next turn neither tries it nor writes it down again
+  const beforeNext = pushes.length;
+  const next = await create("Push after the signed-out phone was dropped");
+  assert.equal((await post(`/reply?box=${next}`, "answer")).status, 200);
+  await pushesAfter(beforeNext + 1);
+  await linesOfKind("push", 2, line => line.box === next);
+  assert.deepEqual((await events()).filter(line => line.kind === "pushsession" && line.rec === recOf(endpoint)).length, 1,
+    "the dropped subscription was written down again");
 });
 
 test("the subscription lines carry only their listed fields, and no endpoint, key, cookie or title is in any line", async () => {
@@ -826,7 +835,7 @@ test("the subscription lines carry only their listed fields, and no endpoint, ke
     ...["/ok/one", "/ok/five", "/ok/seven", "/gone/two", "/gone/six", "/refused/three", "/nobody/home"],
     pushOrigin, receiverKeys.p256dh, receiverKeys.auth, bridgeCookie, bridgeCookie.split("=")[1], publicKey,
     ...["Push on reply", "Push to a gone phone", "Push to a phone that has gone", "Push after one phone signed out",
-        "First distinct notification", "A push the service refuses"],
+        "First distinct notification", "A push the service refuses", "Push after the signed-out phone was dropped"],
   ];
   for (const word of forbidden) assert.ok(!everything.includes(word), `${word} reached the log`);
 });

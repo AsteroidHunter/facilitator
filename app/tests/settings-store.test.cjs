@@ -13,6 +13,8 @@ const box = require("./board-sandbox.cjs");
 
 let place, port, run;
 const url = route => `http://127.0.0.1:${port}${route}`;
+// the board is locked as a real one is, so each call carries its agent key
+const fetch = (where, init = {}) => globalThis.fetch(where, { ...init, headers: { ...box.keyed(place), ...init.headers } });
 const read = async () => (await fetch(url("/settings"))).json();
 const write = (body, query = "") => fetch(url("/settings" + query), { method: "POST", body: JSON.stringify(body) });
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """facilitator: board CLI.
 
-  facilitator run [--attach] [--spawn] [--force] [--dry-run]
-      start the server and the app window. That is all it touches by default:
+  facilitator run [--dry-run]
+      start the server and the app window. That is all it touches:
       it says the board is up and nothing more. The board listens on the port
       in run.config.json and the one above it; when something else holds that
       pair, run moves the board to the next free pair, writes the new port
@@ -14,20 +14,24 @@
       or when it already was; when it cannot (Tailscale not connected, say) it
       prints one line saying the phone link is off and why, and the board is
       up all the same. With no password set it does nothing about the bridge.
-      --attach types the attach
-      instruction into the lane's existing tmux claude (send-keys), and
-      --spawn additionally creates a fresh session
-      for lanes with no reachable one. --force ignores the lane-covered guard.
-      --dry-run names the bridge step too.
+      When the board stopped itself after three days unused, run says so
+      first, in one line, once (see stop below). It never touches a lane or
+      an agent; a lane's tmux, instruction and prompt in run.config.json,
+      left from older versions, are not read.
+      --dry-run says what it would do, the bridge step included, and does
+      nothing.
   facilitator restart [--dry-run]
       stop this board's server and start it again on the same port. One
       process is stopped: the one holding the listening socket, read back as
       this folder's server.py first, by SIGTERM and never by SIGKILL, and the
       port is polled until it is really free before the replacement starts.
-      The browser is read, never driven: a window or tab already showing the
-      board is left exactly as it is and a line asks for a reload, and a new
-      chromeless app window is opened only when nothing is showing the board.
-      When the browser cannot be read nothing is opened and nothing is said.
+      Every Chrome tab already showing the board then loads it again, in the
+      tab it is in, and while the board has let no window in yet, as after an
+      update from before its lock, it does so on a launch link, so a window
+      from before the lock is let in too. A new chromeless app window is
+      opened only when nothing is showing the board. When Chrome cannot be
+      asked, a window is opened only if the board has let no window in yet,
+      and nothing is said.
       Touches no lane, no tmux session and no bridge, and never moves the
       board to another port. --dry-run says what it would do and does nothing.
   facilitator stop [--dry-run] [--force]
@@ -50,28 +54,41 @@
       that leaves the server running leaves the bridge as it is. With no
       password set it only notes an active bridge. Touches no lane, no tmux
       session and no saved file. --dry-run says what it would do and does
-      nothing.
+      nothing. The board also starts this command itself after three days
+      with no activity, with the from-board mark, and that stop asks Chrome
+      nothing and prints nothing anyone reads; the next run or status says
+      "The board stopped itself after three days unused." once. That
+      three-day timer is a temporary fix for the Chrome-window version and
+      will not be in the native Mac app.
   facilitator status
-      one-line board state
-  facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+      one-line board state; on a board that is down after stopping itself,
+      the line saying so first, once
+  facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE] [--widget NAME]
   facilitator magic CARD close|reopen|show
+  facilitator magic CARD answer ABOUT (TEXT | --file PATH | -) [--agent NAME]
+  facilitator magic CARD widget
       fill a card's magic box, the box beside the card on the Mac
       board and above it on the phone, and open it in place of what it held,
-      so an agent can show the owner what words carry badly without being
+      so an agent can show the person what words carry badly without being
       asked. It waits on its card and never takes the keys. KIND is text
       (shown as typed), markdown, html (a page of its own, run sealed off
       with no network), image (a picture file, or one https address the
       board downloads once) or url (one https website: shown live when it
       allows that, as a square holding the site's name, which opens it in a
       new page, when it does not). The box shows the content beside a short
-      bar whose cross lets the owner close it; --title is kept with it.
+      bar whose cross lets the person close it; --title is kept with it.
       CONTENT is
       the words or the address; --file sends a file's contents and - reads
       standard input. close hides the box and keeps it, reopen shows it
-      again, show prints what the board says it holds. Prints the board's
-      answer as one JSON line; exits 1 with the board's own words when it
-      refuses, and with the status line when the board is down.
-  facilitator remote pair [--name NAME]
+      again, show prints what the board says it holds. --widget makes an
+      html page a widget, which sends the person's messages typed in it to
+      the card's agent beside the card's own; answer puts the agent's answer
+      about ABOUT, one of the page's own ids, into the widget and never on
+      the card, and widget prints the widget's messages, answers and memory.
+      Prints the board's answer as one JSON line; exits 1 with the board's
+      own words when it refuses, and with the status line when the board is
+      down.
+  facilitator remote pair --name NAME
   facilitator remote list
   facilitator remote remove NAME
       connect one of the owner's own servers to this board, so an agent
@@ -83,13 +100,13 @@
       hand, and the code it asks for: that puts the skill, the runbook and
       the docs in ~/.facilitator on the server, trades the code for the
       server's own key and starts the server's link, which keeps connecting
-      out to the board from then on. --name names the server; otherwise it
-      takes the server's host name, and pairing a name again pairs that
-      server afresh. The server's folders are then on the board's folder
-      picker. list shows each server and whether its link is connected;
-      remove forgets a server on this Mac, with its projects' keys, and
-      leaves the server's own files for the owner to delete. add is retired:
-      the board no longer logs in to servers.
+      out to the board from then on. --name is needed and names the
+      server; the name is never taken from the server itself. Pairing a name
+      already paired pairs that server again. The server's folders are then
+      on the board's folder picker. list shows each server and whether its
+      link is connected; remove forgets a server on this Mac, with its
+      projects' keys, and leaves the server's own files for the owner to
+      delete. add is retired: the board no longer logs in to servers.
   facilitator bridge [on|off] [--dry-run]
       switch the persistent phone bridge on or off. With no on/off word it
       toggles the current Tailscale Serve state. Turning it on prints a QR
@@ -97,7 +114,9 @@
       board's root handler and leaves unrelated Serve configuration alone.
       The server keeps listening on 127.0.0.1 only; Tailscale does the
       proxying to a password-gated listener. A saved phone session lasts until
-      sign-out. Set or reset the app password with `facilitator password set`.
+      sign-out. It also ends by itself after 30 days without the app being
+      opened, and when the app password is changed. Set or reset the app
+      password with `facilitator password set`.
       Needs HTTPS certificates switched on once for the tailnet, in the
       Tailscale admin console; says so and stops when they are off. run and
       stop make the same change themselves once a password is set, so this
@@ -114,16 +133,19 @@
       without a terminal it asks nothing and says so. It does not switch
       the link on; `facilitator run` does once a password is set, or
       `facilitator bridge on`.
-  facilitator uninstall [--keep-attachments | --remove-attachments]
+  facilitator uninstall [--keep-data | --delete-data]
       remove what install made: the .venv, app/tests/node_modules and the
       generated config files, owned shell command, owned agent-skill links, and
-      the Claude Code status line entry install added. Keeps the
-      board's data in data/ (state.json, transcript.jsonl, settings.json, logs,
-      bridge credentials, vapid-key.pem and the backups).
-      After its banner it asks whether to keep the card
-      attachments; Enter, an unclear answer or no terminal keeps them, and the
-      two flags answer without asking.
-      Never removes this folder or stops a running server.
+      the Claude Code status line entry install added. After its banner it
+      asks whether to keep the board's data in data/ (state.json,
+      transcript.jsonl, settings.json, profile.json, run.config.json,
+      attachments, magic boxes, logs, the phone sign-in, vapid-key.pem and
+      the backups). Only a no and then a yes to "Are you sure?" deletes
+      everything in data/ but the board's own Python; Enter, any other
+      answer or no terminal keeps it all. --keep-data keeps it all
+      without asking; --delete-data answers the first question with
+      no, so only "Are you sure?" is asked, and with no terminal it keeps
+      it all. Never removes this folder or stops a running server.
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
       phone immediately. Passwords are never accepted on the command line.
@@ -132,10 +154,14 @@
       ./install.sh first.
   facilitator update
       bring this checkout up to date without running git yourself. Stops and
-      changes nothing when the checkout has uncommitted changes. Pulls the
-      current branch's upstream forward only (git pull --ff-only: never a merge
-      or a rewrite), then hands over to the freshly pulled code. On a checkout
-      from before data/, that code first moves the board's files into data/,
+      changes nothing when the checkout has uncommitted changes. Fetches the
+      current branch's upstream and moves forward only (a fast-forward: never
+      a merge or a rewrite), and only as far as the newest commit on its
+      first-parent line signed by a key in app/update-signers as the
+      installed version has it; with a newer version upstream and nothing
+      newer signed, it stops and changes nothing. Then it hands over to the
+      freshly pulled code. On a checkout from before data/, that code first
+      moves the board's files into data/,
       once: everything is backed up, copied and checked, and the old copies
       are removed only after the board shows the same cards from data/. It
       then syncs the .venv to requirements.txt and runs the numbered steps in
@@ -152,7 +178,7 @@
 
 The program lives in app/ inside the checkout, and everything the board writes
 lives in data/ beside it, which git ignores. Reads data/run.config.json:
-machine-local, since lanes name real directories and tmux sessions;
+machine-local, since lanes name real directories;
 ./install.sh writes it from app/run.config.example.json for you to fill in.
 This script is Python stdlib only and runs on the python3 macOS ships (3.9 or
 newer); ./install.sh builds the server's data/.venv on a Python 3.14 that uv
@@ -164,6 +190,7 @@ the checkout only hands over to this one.
 """
 
 import ctypes
+import errno
 import hashlib
 import http.client
 import json
@@ -190,6 +217,12 @@ if str(HERE) not in sys.path:
 CLONE = HERE.parent
 DATA = CLONE / "data"
 CONFIG = DATA / "run.config.json"
+# the board's agent key, which it makes at its first start: every call this
+# command makes to the board's own port carries it, as an agent's calls do,
+# and never through a proxy
+AGENT_KEY = DATA / "agent.key"
+AGENT_KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
+LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -200,7 +233,9 @@ LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 # set by the board on an update it starts when the person says yes to its
 # pop-up (server.py, the update): the update then writes the stage it has
 # reached on lines of their own for the page's progress bar, and its restart
-# opens no window
+# asks Chrome only when macOS lets it without asking the person (cmd_restart).
+# The board sets it too on the stop it starts after three days unused
+# (server.py, the idle stop), which then asks Chrome nothing (cmd_stop)
 FROM_BOARD_VARIABLE = "FACILITATOR_UPDATE_FROM_BOARD"
 FROM_BOARD = os.environ.get(FROM_BOARD_VARIABLE) == "1"
 TAILSCALE_STATUS_TIMEOUT = 30
@@ -382,7 +417,8 @@ def json_kind(value):
 
 
 def check_lanes(cfg):
-    """Lanes must be objects with an owner; other keys are read where used."""
+    """Lanes must be objects with an owner. The server reads a lane's dir;
+    the tmux, instruction and prompt older lanes carry are not read."""
     if "lanes" not in cfg:
         sys.exit(f'{CONFIG.name} has no "lanes"; copy run.config.example.json and fill in real lanes')
     for index, lane in enumerate(cfg["lanes"], 1):
@@ -392,20 +428,65 @@ def check_lanes(cfg):
             sys.exit(f'{CONFIG.name}: lane {index} has no "owner"')
 
 
-def lane_value(lane, key):
-    if key not in lane:
-        sys.exit(f'{CONFIG.name}: lane {lane["owner"]} has no "{key}"')
-    return lane[key]
+def agent_key():
+    """The board's agent key from data/agent.key, or None when there is no
+    such file or it holds something else."""
+    try:
+        key = AGENT_KEY.read_text().strip()
+    except OSError:
+        return None
+    return key if AGENT_KEY_SHAPE.fullmatch(key) else None
+
+
+def local_request(port, route, data=None, method=None):
+    """A request for the board's own port carrying its agent key, for LOCAL
+    to open."""
+    request = urllib.request.Request(f"http://127.0.0.1:{port}{route}", data=data, method=method)
+    key = agent_key()
+    if key:
+        request.add_header("Authorization", "Bearer " + key)
+    return request
+
+
+# what state() gives when the port answered but turned this folder's agent
+# key away: this folder's board after data/agent.key was removed or changed
+# while it ran, or something else, another folder's board most likely. It is
+# an answer, never read as no board at all (refused_line says which it is)
+REFUSED = object()
 
 
 def state(port, timeout=2):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=timeout) as f:
+        with LOCAL.open(local_request(port, "/state"), timeout=timeout) as f:
             return json.load(f)
+    except urllib.error.HTTPError as refused:
+        refused.close()
+        return REFUSED if refused.code == 401 else None
     # no answer, an answer that is not JSON, or something on the port that
     # does not speak HTTP at all
     except (OSError, ValueError, http.client.HTTPException):
         return None
+
+
+def refused_line(port):
+    """What is said when the port turned this folder's agent key away:
+    whether that is this folder's own board is read from the process
+    listening there, as restart reads it."""
+    if server_process(port)[0] is not None:
+        return (f"the board on port {port} is running but turned away this folder's key "
+                f"({AGENT_KEY}), which was removed or changed while it ran; "
+                "facilitator restart gives it a new one")
+    return (f"the program on port {port} turned away this folder's key ({AGENT_KEY}) "
+            "and is not this folder's board")
+
+
+def blocked(problem):
+    """Whether a call failed because the operating system or a sandbox did not
+    let this process connect, which says nothing about whether the board is
+    up. Read as the skill's onboard.py reads it."""
+    while isinstance(problem, urllib.error.URLError) and isinstance(problem.reason, BaseException):
+        problem = problem.reason
+    return isinstance(problem, PermissionError) or getattr(problem, "errno", None) in (errno.EPERM, errno.EACCES)
 
 
 VENV = DATA / ".venv"
@@ -478,7 +559,8 @@ def launch_server(port):
     child was gone before anything answered, "silent" when nothing did in time."""
     started = start_server()
     for _ in range(40):
-        if state(port):
+        st = state(port)
+        if st and st is not REFUSED:
             return "up"
         if started.poll() is not None:
             return "ended"
@@ -505,7 +587,9 @@ def said_why(port, started):
 # says so in one line; the board then stays on that pair, even once the old one
 # is free again, until that one is taken too. This folder's own board is never
 # "something else": it is found wherever it answers, by the folder its /state
-# names, and nothing is started beside it. restart never moves the board.
+# names, and nothing is started beside it. One that turns this folder's key
+# away names no folder, so it is known by the process listening on the port
+# instead, and run stops there and says so. restart never moves the board.
 DEFAULT_PORT = 8877
 PAIR_TRIES = 100        # pairs above a taken one that are looked at for a free one
 MOVE_TRIES = 3          # starts on a new pair before run stops trying
@@ -660,11 +744,14 @@ def place_board(port, dry):
     config changed under it): then that is where the board is, the config is
     brought to it, and nothing is started. When nothing holds the pair, the
     board starts there. Otherwise the pair is taken and the board moves."""
-    st = board_state(port)
+    answer = state(port)
+    st = board_shape(answer)
     if st and not other_board(st):
         if dry:
             print(f"server: already up on {port}")
         return port, None
+    if answer is REFUSED and server_process(port)[0] is not None:
+        sys.exit(refused_line(port))
     found = board_elsewhere(port)
     if found is not None:
         if dry:
@@ -722,6 +809,25 @@ def window_url(cfg):
     return cfg.get("app_url") or f"http://127.0.0.1:{cfg['port']}"
 
 
+def board_window(port, route, body, timeout):
+    """One of the board's window routes, asked with the agent key: (status,
+    answer) for any answer the board gives, None when no board answered. The
+    board opens its window and sends its tabs on itself, with the launch code
+    inside, and its answer never holds one."""
+    try:
+        with LOCAL.open(local_request(port, route, body, "POST"), timeout=timeout) as answer:
+            status, raw = answer.status, answer.read()
+    except urllib.error.HTTPError as refused:
+        status, raw = refused.code, refused.read()
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    try:
+        said = json.loads(raw)
+    except ValueError:
+        said = None
+    return status, said if isinstance(said, dict) else {}
+
+
 def open_app(cfg, dry):
     url = window_url(cfg)
     # a config without the app_fullscreen key launches exactly as it always did
@@ -730,24 +836,67 @@ def open_app(cfg, dry):
         kind = "a chromeless full-screen app window" if full else "a chromeless app window"
         print(f"window: would open {url} as {kind}")
         return
+    if same_board_page(url, f"http://127.0.0.1:{cfg['port']}"):
+        # this board's own page: the board opens it in Chrome itself, with
+        # the window's launch code inside, full screen as the config says,
+        # and says whether Chrome opened. A board from before it did that
+        # answers 404, and the window is opened here as it always was
+        answer = board_window(cfg["port"], "/window/open", url.encode(), 45)
+        if answer is not None and answer[0] == 200:
+            bring_chrome_forward()
+            return
+        if answer is not None and answer[0] == 502:
+            print(chrome_failed(str(answer[1].get("said") or "").strip()))
+            return
     command = ["open", "-na", "Google Chrome", "--args", f"--app={url}"]
     if full:
         command.append("--start-fullscreen")
     opened = subprocess.run(command, capture_output=True, text=True, check=False)
     if opened.returncode != 0:
         said = (opened.stderr or "").strip().splitlines()
-        detail = f" ({said[0]})" if said else ""
-        print(f"could not open Chrome{detail}; open {url} yourself")
+        print(chrome_failed(said[0] if said else ""))
 
 
-def lane_covered(st, owner):
-    """True when some agent has this lane: attached right now, mid-claim, or
-    heard from within 30 min (between long-poll cycles listening reads false)."""
-    if st is None:
-        return False
-    if st["listening"].get(owner) or st["busy"].get(owner):
-        return True
-    return st["listenerGap"].get(owner, 9e9) < 1800
+def chrome_failed(said):
+    """The one line a window that did not open gets: that Chrome could not be
+    opened, with the first line open printed, and what to do. No address: the
+    board's plain address shows only its lock page, and a launch code printed
+    here would reach whatever ran the command."""
+    return f"could not open Chrome{f' ({said})' if said else ''}; open Chrome, then run facilitator run"
+
+
+# Chrome brought to the front, and nothing more, once the board has opened its
+# window: no address, no code, no window. The board's open of Chrome is asked
+# for by the app that started the board, and since macOS 14 that app may not
+# be let bring Chrome in front of the one being typed in; this is asked from
+# the app this command runs in, as the command's own open was. Not `open -a`:
+# on a running Chrome that is a click on its Dock icon, which leaves app
+# windows such as the board's out, so Chrome opens a new ordinary window, or
+# lifts its other windows over the board's (and `open -na` with no page opens
+# a new window outright). AppleScript's activate is not that reopen and opens
+# nothing, and the script never starts Chrome.
+CHROME_FORWARD_SCRIPT = "\n".join([
+    'if application "Google Chrome" is running then',
+    '  tell application "Google Chrome" to activate',
+    'end if',
+])
+
+
+def bring_chrome_forward():
+    """Bring Chrome to the front after the board has opened its window. Only
+    when macOS already lets this app control Chrome without asking
+    (chrome_allowed), so it never brings up a question of its own; otherwise,
+    and on any failure, nothing is done and nothing is said."""
+    if not chrome_allowed():
+        return
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return
+    try:
+        subprocess.run([osascript, "-e", CHROME_FORWARD_SCRIPT],
+                       capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 # --- restart: finding, stopping and starting this board's own server -------
@@ -1306,11 +1455,15 @@ def end_server(owner, port, wait=STOP_WAIT):
 def board_state(port):
     """The board's state when what answered is really a board: a JSON object
     with the parts this CLI reads, in the shapes it reads them in. None for no
-    answer, an answer that is not JSON, and an answer of the wrong shape
-    alike. All three mean the same thing to a restart, which is not ready yet,
-    and none of them is a reason to fall over: something else can be on a port
-    and answer anything at all."""
-    st = state(port)
+    answer, an answer that is not JSON, an answer of the wrong shape and a
+    refused key alike. All of them mean the same thing to a restart, which is
+    not ready yet, and none of them is a reason to fall over: something else
+    can be on a port and answer anything at all."""
+    return board_shape(state(port))
+
+
+def board_shape(st):
+    """st, what state() gave, when it is a board's state; else None."""
     if not isinstance(st, dict) or not isinstance(st.get("boxes"), list):
         return None
     for key in ("listening", "busy", "listenerGap"):
@@ -1376,35 +1529,49 @@ def start_and_confirm(port, wait=START_WAIT):
         time.sleep(POLL_EVERY)
 
 
-def chrome_page_urls():
-    """Every URL Chrome is showing right now, ordinary tabs and chromeless app
-    windows alike, or None when that could not be established.
-
-    This only reads. Nothing is activated, navigated, reloaded or closed, and
-    Chrome is not started either: System Events is asked whether it is running
-    first, and when it is not the answer is an empty list, which is a real
-    absence. A refusal (no automation permission) comes back as None, which is
-    an unknown and not an absence."""
+# --- restart: Chrome's tabs, read here and sent on by the board ---------------
+# After a restart every Chrome tab showing the board is sent, where it is, to
+# its own page again, with a launch code only while the board has let no
+# window in yet (relaunch_board_tabs). The command reads the tabs with the
+# script below and hands the board the ones showing it; the board sends each
+# one on itself, with the same kind of script, so any code goes from the
+# board to Chrome and never through this command. The script asks Chrome
+# alone: whether Chrome is running is read by AppleScript itself, which
+# neither starts Chrome nor asks System Events, so the one permission it can
+# ever need is the one to control Chrome. macOS asks that for the app at
+# the head of the process chain, and the board sending the tabs on is the one
+# this same restart has just started, so its sends use the permission this
+# reading has just used. Chrome opens each address in its tab as one typed
+# there: the window is not brought to the front.
+CHROME_TABS_SCRIPT = "\n".join([
+    'if not (application "Google Chrome" is running) then return "NOTRUNNING"',
+    # inside Chrome's block the bare word tab means Chrome's tab class, so the
+    # separator is made out here
+    'set sep to character id 9',
+    'set listed to {}',
+    'tell application "Google Chrome"',
+    '  repeat with w in every window',
+    '    set entry to ((id of w) as text)',
+    '    repeat with t in every tab of w',
+    '      set entry to entry & sep & (URL of t as text)',
+    '    end repeat',
+    '    set end of listed to entry',
+    '  end repeat',
+    'end tell',
+    "set AppleScript's text item delimiters to linefeed",
+    'return listed as text',
+])
+def chrome_tabs():
+    """Every Chrome window as (id, [tab URLs]), ordinary windows and chromeless
+    app windows alike, or None when that could not be established. An empty
+    list is a real absence: Chrome is not running, which is read without
+    starting it. A refusal (no automation permission) is None, an unknown and
+    not an absence. This only reads."""
     osascript = shutil.which("osascript")
     if not osascript:
         return None
-    script = "\n".join([
-        'tell application "System Events"',
-        '  if not (exists process "Google Chrome") then return "NOTRUNNING"',
-        'end tell',
-        'set found to {}',
-        'tell application "Google Chrome"',
-        '  repeat with w in every window',
-        '    repeat with t in every tab of w',
-        '      set end of found to (URL of t as text)',
-        '    end repeat',
-        '  end repeat',
-        'end tell',
-        "set AppleScript's text item delimiters to linefeed",
-        'return found as text',
-    ])
     try:
-        seen = subprocess.run([osascript, "-e", script],
+        seen = subprocess.run([osascript, "-e", CHROME_TABS_SCRIPT],
                               capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1413,7 +1580,12 @@ def chrome_page_urls():
     out = seen.stdout.strip()
     if out == "NOTRUNNING":
         return []
-    return [line.strip() for line in out.splitlines() if line.strip()]
+    windows = []
+    for line in out.splitlines():
+        first, *urls = line.strip("\r\n").split("\t")
+        if first.strip().isdigit():
+            windows.append((int(first), [u.strip() for u in urls]))
+    return windows
 
 
 def loopback_host(host):
@@ -1458,16 +1630,105 @@ def same_board_page(url, board):
     return here is not None and here == there
 
 
-def board_page_open(cfg):
-    """True when Chrome is already showing this board, False when it is
-    certainly showing it nowhere, None when Chrome could not be asked. A
-    refusal is never read as absence: reading it that way is exactly how a
-    second window gets opened on top of the first."""
-    urls = chrome_page_urls()
-    if urls is None:
+def board_tabs(cfg, windows):
+    """Every tab of those windows that shows this board, as (window id, place
+    counted from 1, URL)."""
+    boards = board_addresses(cfg, cfg["port"])
+    return [(wid, place, url) for wid, urls in windows for place, url in enumerate(urls, 1)
+            if any(same_board_page(url, board) for board in boards)]
+
+
+def relaunch_board_tabs(cfg):
+    """After a restart, have the board send every Chrome tab showing it to
+    its own page again, which is the reload a restart needs. A window the
+    board opened before its lock came in (v0.3.37) carries no window cookie,
+    and the board started again refuses it; while the board has let no window
+    in yet, as on the first restart after an update from before the lock, the
+    board puts a launch code of its own in each tab's page, and the window
+    gets the cookie that way, the way a window the board opens for
+    facilitator run gets it. Once any window has been let in, the board makes
+    no code for a tab. The tabs are read here and sent on by the board, so no
+    code ever comes back to this command. Returns how many board tabs there
+    were, or None when Chrome could not be asked, or the board could not send
+    any of them."""
+    windows = chrome_tabs()
+    if windows is None:
         return None
-    board = window_url(cfg)
-    return any(same_board_page(url, board) for url in urls)
+    tabs = board_tabs(cfg, windows)
+    if not tabs:
+        return 0
+    body = json.dumps({"tabs": [[wid, place, url] for wid, place, url in tabs]}).encode()
+    answer = board_window(cfg["port"], "/window/relaunch", body, 15 + 12 * len(tabs))
+    sent = answer[1].get("sent") if answer is not None and answer[0] == 200 else None
+    if not isinstance(sent, list) or not any(isinstance(one, str) for one in sent):
+        return None
+    return len(tabs)
+
+
+# macOS's own check of whether one app may send another Apple Events, asked
+# with asking turned off: the numbers and the bundle id it takes
+CHROME_BUNDLE = "com.google.Chrome"
+AE_BUNDLE_TYPE = int.from_bytes(b"bund", "big")   # typeApplicationBundleID
+AE_ANY = int.from_bytes(b"****", "big")           # typeWildCard: every event
+
+
+def chrome_allowed():
+    """True when this command may script Chrome without macOS asking the
+    person first: Chrome is running and the app this command runs under was
+    already allowed to control it. macOS answers for the app at the head of
+    the process chain, so for an update the board started that is the app
+    that started the board (Terminal, for a board facilitator run started
+    there). Nothing is sent to Chrome and nothing comes up on the screen.
+    False for every other answer (not allowed, never asked, Chrome not
+    running) and when the check cannot be made."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        services = ctypes.CDLL("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+        create, dispose = services.AECreateDesc, services.AEDisposeDesc
+        check = services.AEDeterminePermissionToAutomateTarget
+    except (OSError, AttributeError):
+        return False
+
+    class Desc(ctypes.Structure):
+        _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
+
+    create.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_long, ctypes.POINTER(Desc)]
+    create.restype = ctypes.c_int16
+    dispose.argtypes = [ctypes.POINTER(Desc)]
+    dispose.restype = ctypes.c_int16
+    check.argtypes = [ctypes.POINTER(Desc), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_bool]
+    check.restype = ctypes.c_int32
+    target = Desc()
+    bundle = CHROME_BUNDLE.encode()
+    try:
+        if create(AE_BUNDLE_TYPE, bundle, len(bundle), ctypes.byref(target)) != 0:
+            return False
+        try:
+            return check(ctypes.byref(target), AE_ANY, AE_ANY, False) == 0
+        finally:
+            dispose(ctypes.byref(target))
+    except (OSError, ValueError, ctypes.ArgumentError):
+        return False
+
+
+# the hashes of the window cookies the board keeps (server.py, _lock_up), read
+# as the server reads them
+WINDOW_KEYS = DATA / "window-keys.json"
+WINDOW_HASH_SHAPE = re.compile(r"[0-9a-f]{64}")
+
+
+def window_key_kept():
+    """Whether the board keeps any window's cookie. None kept means no window
+    was ever let in, so the board refuses every window open on it."""
+    try:
+        raw = json.loads(WINDOW_KEYS.read_text())
+    except (OSError, ValueError):
+        return False
+    keys = raw.get("keys") if isinstance(raw, dict) else None
+    return isinstance(keys, list) and any(
+        isinstance(k, dict) and isinstance(k.get("hash"), str) and WINDOW_HASH_SHAPE.fullmatch(k["hash"])
+        for k in keys)
 
 
 # --- stop: closing the board's own window ------------------------------------
@@ -1615,91 +1876,43 @@ def close_board_windows(cfg, port):
     return lines
 
 
-def claude_pane(name):
-    """Pane id of the claude running anywhere inside tmux session `name`.
-    None = no such session; "" = session exists but no claude pane."""
-    if not shutil.which("tmux"):
+# --- the idle stop: TEMPORARY, the Chrome-window version only ---------------
+# The board stops itself after three days with no activity (server.py, the
+# idle stop) and writes this marker before it starts the stop; run and status
+# say so once and take it away, and every start of the board takes away one
+# still there. The three-day timer is a temporary fix for the Chrome-window
+# version and will not be in the native Mac app.
+IDLE_STOP_MARK = DATA / "idle-stop.json"
+IDLE_STOP_LINE = "The board stopped itself after three days unused."
+
+
+def idle_stop_note():
+    """The line saying the board stopped itself, when it did, and never twice:
+    the marker is taken away as it is read, and one that cannot be taken away
+    is not said, since it would then be said every time."""
+    try:
+        IDLE_STOP_MARK.unlink()
+    except OSError:
         return None
-    r = subprocess.run(["tmux", "list-panes", "-s", "-t", name,
-                        "-F", "#{pane_id} #{pane_current_command}"],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    for line in r.stdout.splitlines():
-        pid, _, cmd = line.partition(" ")
-        if cmd.startswith("claude") or cmd == "node":
-            return pid
-    return ""
-
-
-def instruct(lane, dry):
-    """Type the attach instruction into the claude PANE of the lane's tmux
-    session (a session's active pane may be a bare shell; the claude can live
-    in any pane). Verifies the text landed before pressing Enter. Never types
-    into a shell. Returns (delivered, why); why says what is missing, or None."""
-    name, text = lane.get("tmux"), lane_value(lane, "instruction")
-    if not name:
-        return False, None
-    pane = claude_pane(name)
-    if pane is None:
-        return False, f"tmux session {name} not found"
-    if not pane:
-        return False, f"no claude pane inside tmux {name}; not typing into shells"
-    if dry:
-        print(f"listener {lane['owner']}: would send the attach instruction to tmux {name} pane {pane}")
-        return True, None
-    subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], check=True)
-    time.sleep(1)
-    seen = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
-                          capture_output=True, text=True).stdout
-    if text[:40] not in seen:
-        print(f"lane {lane['owner']}: instruction did not land in pane {pane}; Enter NOT pressed")
-        return False, None
-    subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], check=True)
-    print(f"lane {lane['owner']}: instructed the claude in tmux {name} (pane {pane})")
-    return True, None
-
-
-def spawn(lane, dry):
-    """Create a FRESH claude session for the lane (only ever on --spawn)."""
-    owner = lane["owner"]
-    d, prompt = str(Path(lane_value(lane, "dir")).expanduser()), lane_value(lane, "prompt")
-    if dry:
-        print(f"listener {owner}: would spawn a NEW claude session in {d}")
-        return
-    if shutil.which("tmux"):
-        name = f"facil-{owner}"
-        if subprocess.run(["tmux", "has-session", "-t", name], capture_output=True).returncode == 0:
-            print(f"lane {owner}: tmux session {name} already exists; attach with: tmux attach -t {name}")
-            return
-        subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", d, "claude", prompt], check=True)
-        term_cmd = f"tmux attach -t {name}"
-        how = f"tmux {name}"
-    else:
-        term_cmd = f"cd {shlex.quote(d)} && claude {shlex.quote(prompt)}"
-        how = "terminal window"
-    esc = term_cmd.replace("\\", "\\\\").replace('"', '\\"')
-    subprocess.run(["osascript",
-                    "-e", f'tell application "Terminal" to do script "{esc}"',
-                    "-e", 'tell application "Terminal" to activate'], check=False)
-    print(f"lane {owner}: spawned NEW session ({how})")
+    return IDLE_STOP_LINE
 
 
 def cmd_run(args):
-    """Server and window only, by default. The CLI never touches tmux unless
-    asked: --attach types the instruction into existing lane sessions, --spawn
-    creates fresh ones. A real run says the board is up and nothing more, and
-    those two options add one line per lane they act on; --dry-run keeps its
-    longer account. A board that had to move to a free pair gets one line more
-    saying so, and the phone's link is pointed at the new pair with it. On a
-    checkout with a phone password the link is then left on, silently when it
-    is, and in one line when it cannot be."""
+    """Server and window, and nothing about any lane or agent. A real run says
+    the board is up and nothing more; --dry-run keeps its longer account. A
+    board that had to move to a free pair gets one line more saying so, and
+    the phone's link is pointed at the new pair with it. On a checkout with a
+    phone password the link is then left on, silently when it is, and in one
+    line when it cannot be. A board that stopped itself after three days
+    unused is said first, once, before the board starts."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
-    force = "--force" in args
-    do_spawn = "--spawn" in args
-    do_attach = "--attach" in args or do_spawn
+    if not dry:
+        # read before the board starts, since a start takes the marker away
+        said = idle_stop_note()
+        if said:
+            print(said)
     port, moved_from = place_board(int(cfg["port"]), dry)
     link_said = False
     if not dry:
@@ -1721,47 +1934,20 @@ def cmd_run(args):
             said = follow_bridge("on", port)
             if said:
                 print(said)
-    st = state(port)
-    for lane in cfg["lanes"]:
-        ow = lane["owner"]
-        if not force and lane_covered(st, ow):
-            if dry:
-                if st["busy"].get(ow):
-                    why = f"mid-claim on box {st['busy'][ow]}"
-                elif st["listening"].get(ow):
-                    why = "attached right now"
-                else:
-                    why = f"heard {round(st['listenerGap'].get(ow, 0) / 60)} min ago"
-                print(f"listener {ow}: lane covered ({why})")
-            continue
-        if not do_attach:
-            if dry:
-                print(f"listener {ow}: not attached. Tell that agent to start listening, or\n"
-                      f"  rerun with --attach to type the instruction into its tmux session:\n"
-                      f"  {lane_value(lane, 'instruction')}")
-            continue
-        delivered, why = instruct(lane, dry)
-        if delivered:
-            continue
-        if dry and why:
-            print(f"listener {ow}: {why}")
-        if do_spawn:
-            spawn(lane, dry)
-        elif dry:
-            print(f"listener {ow}: no reachable session. Paste this into the right claude yourself,\n"
-                  f"  or rerun with --spawn to create a fresh session:\n"
-                  f"  {lane['instruction']}")
-        else:
-            print(f"lane {ow}: {why or 'no reachable session'}; paste this into its claude, "
-                  f"or rerun with --spawn: {lane['instruction']}")
+
+
+# set once a restart has sent the board's own tabs on (cmd_restart), so an
+# update's last lines do not ask for a reload that has already happened
+tabs_reloaded = False
 
 
 def cmd_restart(args):
-    """Stop this board's server, start it again, and leave the browser as it
-    is. Nothing here touches a lane, a tmux session or the bridge: restart is
-    about the server and, at most, one new window. Unknown words are refused
-    rather than ignored, so a run flag typed here cannot quietly turn into
-    attaching, spawning or forcing anything."""
+    """Stop this board's server, start it again, and load the board again in
+    every Chrome tab showing it (relaunch_board_tabs). Nothing here touches a
+    lane, a tmux session or the bridge: restart is about the server, the
+    board's own tabs and, at most, one new window. Unknown words are refused
+    rather than ignored, so a flag meant for another command, such as stop's
+    --force, cannot quietly pass as part of a restart."""
     extra = [a for a in args[1:] if a != "--dry-run"]
     if extra:
         sys.exit("restart takes --dry-run and nothing else; got " + " ".join(extra))
@@ -1789,12 +1975,15 @@ def cmd_restart(args):
             print(f"restart: would SIGTERM pid {owner[0]} on {port}, wait up to "
                   f"{STOP_WAIT:.0f}s for the port to be free, then start "
                   f"{HERE / 'server.py'} again")
-        showing = board_page_open(cfg)
-        if showing is None:
-            print("window: cannot read Chrome's pages, so a real run would open "
-                  f"nothing and say to open or reload {url} by hand")
-        elif showing:
-            print(f"window: {url} is already open; would leave it alone")
+        windows = chrome_tabs()
+        tabs = None if windows is None else board_tabs(cfg, windows)
+        if tabs is None:
+            print("window: cannot read Chrome's tabs, so a real run would open "
+                  + ("nothing" if window_key_kept()
+                     else "one app window, since the board has let no window in yet"))
+        elif tabs:
+            print(f"window: {url} is open; would load it again"
+                  + ("" if window_key_kept() else " on a launch link") + ", in the tab it is in")
         else:
             print(f"window: nothing is showing {url}; would open one app window")
         return
@@ -1823,15 +2012,25 @@ def cmd_restart(args):
         stop_here(refusal)
     print("Board restarted." if owner is not None else "Board started.")
 
-    # an update the board started opens no window and asks Chrome nothing: the
-    # page that said yes reloads itself, and a window opened here would come up
-    # on the Mac's screen whoever said yes and wherever
-    if FROM_BOARD:
-        return
-    showing = board_page_open(cfg)
-    if showing:
-        print("Reload the board (command + R).")
-    elif showing is False:
+    # every tab showing the board loads it again, on a launch link while the
+    # board has let no window in yet, so a window from before the lock is let
+    # in and needs nothing from the person. An update the board started asks
+    # Chrome only when macOS lets it without asking the person, who is at the
+    # board and not here
+    global tabs_reloaded
+    if FROM_BOARD and not chrome_allowed():
+        found = None
+    else:
+        found = relaunch_board_tabs(cfg)
+    tabs_reloaded = bool(found)
+    # a window opens when Chrome shows the board nowhere, and, when no tab
+    # could be reached, only if the board has let no window in yet: then every
+    # window open on it is one it refuses. An update the board started opens
+    # one only in that second case, since the page that said yes is open
+    # somewhere, in Chrome or not
+    if found == 0 and not FROM_BOARD:
+        open_app(cfg, False)
+    elif not found and not window_key_kept():
         open_app(cfg, False)
 
 
@@ -1907,8 +2106,10 @@ def cmd_stop(args):
     window is touched, and a Chrome permission prompt cannot delay the stop.
     Nothing here touches a lane, a tmux session or a saved file. On a checkout
     with a phone password the phone link is taken off last, once the server is
-    gone, and left alone when the stop was refused. Unknown words are refused
-    rather than ignored."""
+    gone, and left alone when the stop was refused. The stop the board starts
+    itself after three days unused, with the from-board mark, asks Chrome
+    nothing and leaves out the phone-link note, which nobody would read.
+    Unknown words are refused rather than ignored."""
     extra = [a for a in args[1:] if a not in ("--dry-run", "--force")]
     if extra:
         sys.exit("stop takes --dry-run, --force and nothing else; got " + " ".join(extra))
@@ -1927,14 +2128,18 @@ def cmd_stop(args):
         if refusal:
             sys.exit(f"stop: {refusal}")
         print("Board stopped.")
-    for line in close_board_windows(cfg, port):
-        print(line)
+    # the board's own stop after three days unused asks Chrome nothing: a
+    # board window still open would have kept the board in use, and nobody is
+    # at the Mac to answer a permission prompt
+    if not FROM_BOARD:
+        for line in close_board_windows(cfg, port):
+            print(line)
     # last, because it can be slow, and it must never change the outcome
     if bridge_set_up():
         said = follow_bridge("off", port)
         if said:
             print(said)
-    elif owner is not None:
+    elif owner is not None and not FROM_BOARD:
         try:
             note = bridge_note(port)
         except Exception:
@@ -1946,7 +2151,12 @@ def cmd_stop(args):
 def cmd_status():
     cfg = load_config()
     st = state(cfg["port"])
+    if st is REFUSED:
+        sys.exit(f"server: {refused_line(cfg['port'])}")
     if st is None:
+        said = idle_stop_note()
+        if said:
+            print(said, flush=True)
         sys.exit(f"server: DOWN (port {cfg['port']})")
     lanes = ", ".join(
         f"{ow}: " + ("attached" if st["listening"][ow]
@@ -1956,16 +2166,25 @@ def cmd_status():
 
 
 MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
-MAGIC_ACTIONS = ("close", "reopen", "show")
-MAGIC_HELP = """usage: facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+MAGIC_ACTIONS = ("close", "reopen", "show", "widget")
+MAGIC_HELP = """usage: facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE] [--widget NAME]
        facilitator magic CARD close|reopen|show
+       facilitator magic CARD answer ABOUT (TEXT | --file PATH | -) [--agent NAME]
+       facilitator magic CARD widget
 
 Fill a card's magic box on the Mac board and open it, in place of what it
 held. KIND is text, markdown, html, image or url. CONTENT is the words, or one
 https address for url and image; --file sends a file's contents (a picture's
 bytes for image) and - reads standard input. close hides the box and keeps
-it, reopen shows it again, show prints what it holds. Prints the board's
-answer as one JSON line; exits 1 with the board's words when it refuses."""
+it, reopen shows it again, show prints what it holds.
+
+--widget NAME (lowercase letters, digits and -) makes an html page a widget:
+the person's messages typed in it reach you in /wait and /fresh as
+widget_messages, and never on the card. answer puts your answer about ABOUT,
+one of the page's own ids ("" for none), into the open widget, never on the
+card; --agent names you. widget prints the widget's messages, answers and
+memory. Prints the board's answer as one JSON line; exits 1 with the board's
+words when it refuses."""
 
 
 def cmd_magic(args):
@@ -1978,54 +2197,69 @@ def cmd_magic(args):
             print(MAGIC_HELP)
             return
         sys.exit(MAGIC_HELP)
-    title, path, rest = None, None, []
+    named, rest = {"--title": None, "--file": None, "--widget": None, "--agent": None}, []
     at = 0
     while at < len(words):
         word = words[at]
-        if word in ("--title", "--file"):
+        if word in named:
             if at + 1 == len(words):
                 sys.exit(f"magic: {word} needs a value")
-            if word == "--title":
-                title = words[at + 1]
-            else:
-                path = words[at + 1]
+            named[word] = words[at + 1]
             at += 2
             continue
         rest.append(word)
         at += 1
+    title, path, widget, agent = named["--title"], named["--file"], named["--widget"], named["--agent"]
     if len(rest) < 2:
         sys.exit(MAGIC_HELP)
     card, what, content = rest[0], rest[1], rest[2:]
-    if what in MAGIC_ACTIONS:
-        if content or path is not None or title is not None:
-            sys.exit(f"magic: {what} takes only the card")
-        method, route, body, query = ("GET" if what == "show" else "POST",
-                                      "/magic" if what == "show" else "/magic/" + what,
-                                      None if what == "show" else b"", {"box": card})
-    elif what in MAGIC_KINDS:
+
+    def given(content):
+        """The content, given once: one argument, --file PATH or - for
+        standard input."""
         if len(content) + (path is not None) != 1:
             sys.exit("magic: give the content once: as one argument, as --file PATH, or as - to read standard input")
         if path is not None:
             try:
-                body = Path(path).expanduser().read_bytes()
+                return Path(path).expanduser().read_bytes()
             except OSError as error:
                 sys.exit(f"magic: {path} cannot be read: {error.strerror or error}")
-        elif content[0] == "-":
-            body = sys.stdin.buffer.read()
-        else:
-            body = content[0].encode("utf-8")
+        if content[0] == "-":
+            return sys.stdin.buffer.read()
+        return content[0].encode("utf-8")
+
+    if what == "answer":
+        if title is not None or widget is not None:
+            sys.exit("magic: answer takes the card, the id it is about, the answer and --agent")
+        if not content:
+            sys.exit("magic: answer needs the id it is about (\"\" for none), then the answer")
+        body = given(content[1:])
+        method, route, query = "POST", "/magic/answer", {"box": card, "about": content[0]}
+        if agent is not None:
+            query["agent"] = agent
+    elif what in MAGIC_ACTIONS:
+        if content or path is not None or title is not None or widget is not None or agent is not None:
+            sys.exit(f"magic: {what} takes only the card")
+        method, route, body, query = ("GET" if what in ("show", "widget") else "POST",
+                                      {"show": "/magic", "widget": "/magic/widget"}.get(what, "/magic/" + what),
+                                      None if what in ("show", "widget") else b"", {"box": card})
+    elif what in MAGIC_KINDS:
+        if agent is not None:
+            sys.exit("magic: --agent goes with answer")
+        body = given(content)
         method, route, query = "POST", "/magic", {"box": card, "kind": what}
         if title is not None:
             query["title"] = title
+        if widget is not None:
+            query["widget"] = widget
     else:
-        sys.exit(f"magic: {what} is not one of {', '.join(MAGIC_KINDS)}, {', '.join(MAGIC_ACTIONS)}")
+        sys.exit(f"magic: {what} is not one of {', '.join(MAGIC_KINDS)}, {', '.join(MAGIC_ACTIONS)}, answer")
     port = board_port()
-    request = urllib.request.Request(f"http://127.0.0.1:{port}{route}?{urlencode(query)}",
-                                     data=body, method=method)
+    request = local_request(port, f"{route}?{urlencode(query)}", body, method)
     try:
         # a website or a web picture is fetched by the board before it answers,
         # within its own 15 seconds, so this waits a little longer than that
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with LOCAL.open(request, timeout=60) as response:
             answer = json.load(response)
     except urllib.error.HTTPError as refused:
         try:
@@ -2033,29 +2267,34 @@ def cmd_magic(args):
         except (ValueError, AttributeError, OSError):
             said = None
         sys.exit(f"magic: {said or f'the board answered {refused.code}'}")
-    except (OSError, ValueError):
+    except (OSError, ValueError) as problem:
+        if blocked(problem):
+            sys.exit(f"magic: the operating system or a sandbox blocked this call to the board on port {port}; "
+                     "that does not mean the board is down. Run the command again through the host's "
+                     "permission retry, as the facilitator skill says")
         sys.exit(f"server: DOWN (port {port})")
     print(json.dumps(answer, ensure_ascii=False))
 
 
-REMOTE_HELP = """usage: facilitator remote pair [--name NAME]
+REMOTE_HELP = """usage: facilitator remote pair --name NAME
        facilitator remote list
        facilitator remote remove NAME
 
 Connect one of your own servers to this board, so an agent running there can
 work a project's cards. Nothing logs in to the server: the server connects out
 to the board over Tailscale. pair prints one line to run on the server, logged
-in there yourself, and the pairing code it asks for. list shows each server and
-whether it is connected; remove forgets a server on this Mac."""
+in there yourself, and the pairing code it asks for. --name is needed and is
+what the board calls that server; pairing with a name already paired pairs
+that server again, with a newer skill. list shows each server and whether it
+is connected; remove forgets a server on this Mac."""
 
 
 def board_call(method, route, timeout=5):
     """One local call to the board's own port: (status, answer), or (None,
     None) when nothing answers there."""
-    request = urllib.request.Request(f"http://127.0.0.1:{board_port()}{route}",
-                                     data=b"" if method == "POST" else None, method=method)
+    request = local_request(board_port(), route, b"" if method == "POST" else None, method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with LOCAL.open(request, timeout=timeout) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as refused:
         try:
@@ -2067,12 +2306,15 @@ def board_call(method, route, timeout=5):
 
 
 def remote_pair(words):
-    name = None
-    if words:
-        if len(words) != 2 or words[0] != "--name" or not words[1].strip():
-            sys.exit(REMOTE_HELP)
-        name = words[1].strip()
-    status, said = board_call("POST", "/remote/pair/new" + ("?" + urlencode({"name": name}) if name else ""))
+    # the name is always the owner's, given here: a server that named itself
+    # could take the name of one already paired, and that server's record
+    if not words:
+        sys.exit(problem("Pairing needs the server's name: run facilitator remote pair --name NAME, "
+                         "for example --name lab.", blank=False))
+    if len(words) != 2 or words[0] != "--name" or not words[1].strip():
+        sys.exit(REMOTE_HELP)
+    name = words[1].strip()
+    status, said = board_call("POST", "/remote/pair/new?" + urlencode({"name": name}))
     if status is None:
         sys.exit(problem("The board is not running.",
                          "Start it with facilitator run, then pair again: the server connects to the running board.",
@@ -2120,7 +2362,7 @@ def remote_list():
         # the board is down, or older than pairing and in need of a restart
         servers, door = [{"name": s["name"]} for s in remote_link.Store(DATA).servers()], None
     if not servers:
-        print("No servers. Pair one with: facilitator remote pair")
+        print("No servers. Pair one with: facilitator remote pair --name NAME")
     for s in servers:
         if not running:
             state = "not connected (" + ("board not running" if status is None else "restart the board") + ")"
@@ -2175,7 +2417,7 @@ def cmd_remote(args):
         remote_remove(rest[0])
     elif action == "add":
         sys.exit(problem("facilitator remote add is retired: the board no longer logs in to servers.",
-                         "Run facilitator remote pair, then run the line it prints on the server,",
+                         "Run facilitator remote pair --name NAME, then run the line it prints on the server,",
                          "logged in there yourself.", blank=False))
     else:
         sys.exit(REMOTE_HELP)
@@ -2490,7 +2732,10 @@ def require_bridge_ready(status, name, port):
     if (not isinstance(certs, list) or
             name not in {domain.rstrip(".").lower() for domain in certs if isinstance(domain, str)}):
         sys.exit("Tailscale HTTPS is off for this tailnet: switch on HTTPS certificates under DNS in the Tailscale admin console, then run facilitator bridge again.")
-    if state(port) is None:
+    answer = state(port)
+    if answer is REFUSED:
+        sys.exit(f"server: {refused_line(port)}")
+    if answer is None:
         sys.exit(f"server: DOWN (port {port}); run facilitator run first")
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port + 1}/auth/check", timeout=2) as response:
@@ -2760,8 +3005,9 @@ def follow_bridge(requested, port):
 #
 # install makes a fresh checkout runnable with one command and is safe to run
 # again: every step reports either what it did or that it was already done.
-# uninstall takes away exactly what install made, always keeping the board's
-# data. Neither ever removes this folder, and uninstall never
+# uninstall takes away exactly what install made, and keeps the board's data
+# unless the person says no to keeping it and then yes to "Are you sure?".
+# Neither ever removes this folder, and uninstall never
 # stops a running server: it refuses while one is up and says so.
 MIN_PYTHON = (3, 9)     # the floor this command runs on: the python3 macOS ships
 APP_PYTHON = "3.14"     # the one Python .venv is built on, which the board is tested on;
@@ -2790,20 +3036,27 @@ INSTALL_HELP = """usage: ./install.sh [--dev]
 Installs Facilitator on this Mac.
 
   --dev   also install what the test suite needs (needs node and npm)"""
-UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
+UNINSTALL_HELP = """usage: facilitator uninstall [--keep-data | --delete-data]
 
 Remove what install made: data/.venv, app/tests/node_modules, generated
 config, owned command and agent-skill links, and the Claude Code status line
-entry install added. Keeps the board's data in data/ and the bridge
-credentials. Never removes this folder or stops a running server.
-Card attachments are asked about after the banner and kept unless the
-answer is a clear no; with no terminal they are kept.
---keep-attachments and --remove-attachments answer without asking."""
-# card attachments, worked out exactly as server.py works them out: new ones
-# save in data/uploads, and data/uploads-old serves the ones saved in the repo
-# before attachments left it
-ATTACHMENT_DIRS = (DATA / "uploads", DATA / "uploads-old")
-ATTACHMENT_QUESTION = "Keep your card attachments (pictures and files you attached to cards)? [Y/n] "
+entry install added. Never removes this folder or stops a running server.
+
+After the banner it asks whether to keep the board's data in data/: cards
+and their history, attachments, settings, profile, run config, magic boxes,
+logs, the phone sign-in, the push key and the backups. Only a no and then a
+yes to "Are you sure?" deletes everything in data/ but the board's own
+Python. Enter, any other answer or no terminal keeps it all.
+
+  --keep-data     keep it all without asking
+  --delete-data   answer the first question with no, so only "Are you
+                  sure?" is asked; with no terminal it keeps it all"""
+# the board's data is everything in data/. What install and update keep there
+# for themselves, these and their records named .facilitator-*, uninstall
+# deals with by its own rules, so they alone are no reason to ask
+INSTALL_DATA_NAMES = (".venv", "run.config.json", "seed.json")
+DATA_QUESTION = "Keep your board's data (cards, attachments, settings, logs, phone sign-in and backups)? [Y/n] "
+SURE_QUESTION = "Are you sure? Your cards, attachments, settings, logs, phone sign-in and backups will be deleted for good. [y/N] "
 BANNER_GLYPHS = {
     "F": ["█████", "█    ", "████ ", "█    ", "█    "],
     "A": ["█████", "█   █", "█████", "█   █", "█   █"],
@@ -3279,93 +3532,119 @@ def banner(role):
     print(" " * (len(rows[0]) - len(role)) + role)
 
 
-def attachment_dirs():
-    """The attachment folders that are there, each once."""
-    found, seen = [], set()
-    for path in ATTACHMENT_DIRS:
-        if (path.exists() or path.is_symlink()) and os.path.realpath(path) not in seen:
-            seen.add(os.path.realpath(path))
-            found.append(path)
-    return found
-
-
-def keep_attachments(answer):
-    """True unless the owner clearly says no. A flag answers without a prompt;
-    Enter, anything unclear or no terminal to ask on keeps them."""
-    if answer is not None:
-        return answer
-    print()
-    if not sys.stdin.isatty():
-        skipped("Keeping your card attachments: there is no terminal to ask on.")
-        print("Pass --remove-attachments to remove them.")
-        return True
+def board_data_found():
+    """True when data/ holds anything the board saved: anything but what
+    install and update keep there for themselves."""
     try:
-        said = input(ATTACHMENT_QUESTION)
+        names = os.listdir(DATA)
+    except OSError:
+        return False
+    return any(name not in INSTALL_DATA_NAMES and not name.startswith(".facilitator-")
+               for name in names)
+
+
+def data_answer(question):
+    """What the person typed at one question, trimmed and in lower case; the
+    end of input is no answer, and Ctrl-C stops before anything is removed."""
+    try:
+        return input(question).strip().lower()
     except EOFError:
         print("")
-        return True
+        return ""
     except KeyboardInterrupt:
         print("")
-        sys.exit(problem("Stopped at the attachments question.", "Nothing was removed.", blank=True))
-    return said.strip().lower() not in ("n", "no")
+        sys.exit(problem("Stopped at the question about your board's data.", "Nothing was removed.",
+                         blank=True))
 
 
-def remove_attachments(path):
-    """Remove one attachment folder and nothing above it. A link is left alone
-    rather than followed, and rmtree unlinks any link inside without following
-    it, so nothing outside the folder goes."""
-    if path.is_symlink():
-        skipped(f"Kept card attachments link {path}.")
+def keep_board_data(answer):
+    """True unless the person says no to keeping the board's data and then a
+    clear yes to "Are you sure?". --keep-data (answer True) keeps it
+    without asking, and --delete-data (answer False) answers only the
+    first question. Enter, anything else or no terminal to ask on keeps it."""
+    if answer:
+        return True
+    print()
+    if not sys.stdin.isatty():
+        skipped("Keeping your board's data: there is no terminal to ask on.")
+        print("Run uninstall in a terminal to delete it.")
+        return True
+    if answer is None and data_answer(DATA_QUESTION) not in ("n", "no"):
+        return True
+    if data_answer(SURE_QUESTION) in ("y", "yes"):
+        return False
+    skipped("Keeping your board's data.")
+    return True
+
+
+def remove_board_data():
+    """Delete everything in data/ but the board's own Python, which the rest
+    of uninstall has already dealt with, then data/ itself when that leaves
+    it empty. A link in data/, or data/ itself when it is a link, is left
+    alone rather than followed, and rmtree unlinks any link deeper in without
+    following it, so nothing outside data/ goes."""
+    if DATA.is_symlink():
+        skipped(f"Kept link {DATA}.")
         print("A link is not followed. Remove it by hand.")
-    elif not path.is_dir():
-        skipped(f"Kept {path}: it is not a folder.")
-    else:
-        try:
-            shutil.rmtree(path)
-        except OSError as error:
-            sys.exit(problem(f"Could not remove {path}: {error.strerror or 'error'}.",
-                             "Fix that, then run uninstall again."))
-        ok(f"Removed card attachments folder {path}.")
+        return
+    links = []
+    for path in sorted(DATA.iterdir()):
+        if path.name == ".venv":
+            continue
+        if path.is_symlink():
+            links.append(path)
+        else:
+            remove_path(path)
+    try:
+        DATA.rmdir()
+    except OSError:
+        pass  # the .venv uninstall kept, or a link, is still there
+    ok(f"Removed your board's data in {DATA}.")
+    for path in links:
+        skipped(f"Kept link {path}.")
+        print("A link is not followed. Remove it by hand.")
 
 
 def cmd_uninstall(args):
-    """Take away exactly what install made, always keeping the board's data.
-    Right after the banner, asks whether to keep the card attachments.
-    Refuses while the server is up, and never removes this folder."""
+    """Take away exactly what install made. Right after the banner, asks
+    whether to keep the board's data, and deletes it only after a no and
+    then a yes to "Are you sure?". Refuses while the server is up, and never
+    removes this folder."""
     words = args[1:]
     if any(w in ("-h", "--help") for w in words):
         print(UNINSTALL_HELP)
         return
-    extra = [w for w in words if w not in ("--keep-attachments", "--remove-attachments")]
+    extra = [w for w in words if w not in ("--keep-data", "--delete-data")]
     if extra:
         sys.exit(problem("Unknown option: " + " ".join(extra) + ".",
-                         "uninstall takes --keep-attachments or --remove-attachments.")
+                         "uninstall takes --keep-data or --delete-data.")
                  + "\n\n" + UNINSTALL_HELP)
-    if "--keep-attachments" in words and "--remove-attachments" in words:
-        sys.exit(problem("Both --keep-attachments and --remove-attachments were given.",
+    if "--keep-data" in words and "--delete-data" in words:
+        sys.exit(problem("Both --keep-data and --delete-data were given.",
                          "Give one of them, not both."))
-    answer = (True if "--keep-attachments" in words
-              else False if "--remove-attachments" in words else None)
+    answer = (True if "--keep-data" in words
+              else False if "--delete-data" in words else None)
 
     banner("uninstaller")
     port = board_port()
-    if board_running(port):
+    up = state(port)
+    if up is REFUSED:
+        sys.exit(problem(f"Something is up on port {port} and turned away this folder's key ({AGENT_KEY}).",
+                         "Stop that server first, then run uninstall again."))
+    if board_shape(up) is not None:
         sys.exit(problem(f"The board is up on port {port}.",
                          "Stop that server first, then run uninstall again."))
 
     owned = read_install_record()
-    attachments = attachment_dirs()
-    section("Card attachments")
-    print("Uninstall asks about your card attachments first, apart from the")
-    print("rest of the board's data. Only a clear no removes them.")
-    print()
-    if attachments:
-        print("Your card attachments are in:")
-        for path in attachments:
-            print(f"  {path}")
-        keep = keep_attachments(answer)
+    section("Your board's data")
+    if board_data_found():
+        print("Your cards and their history, attachments, settings, logs, phone")
+        print("sign-in and backups are in:")
+        print(f"  {DATA}")
+        print('Only a no and then a yes to "Are you sure?" deletes them.')
+        keep = keep_board_data(answer)
     else:
-        print("No card attachments found.")
+        print("No board data found.")
         keep = True
 
     print()
@@ -3382,6 +3661,8 @@ def cmd_uninstall(args):
     for label in INSTALL_ARTIFACTS:
         path = artifact_path(label)
         marker = owned.get(label)
+        if not keep and label != ".venv" and path.parent == DATA:
+            continue  # goes below with the rest of the board's data
         if marker is None:
             if path.exists():
                 skipped(f"Kept {label}: it is not recorded as installer-owned.")
@@ -3393,8 +3674,7 @@ def cmd_uninstall(args):
         INSTALL_RECORD.unlink()
 
     if not keep:
-        for path in attachments:
-            remove_attachments(path)
+        remove_board_data()
 
     note = bridge_note(port)
     if note:
@@ -3415,21 +3695,26 @@ UPDATE_STEP_NAME = re.compile(r"^\d{4}-[A-Za-z0-9._-]+\.(?:py|sh)$")
 UPDATE_HELP = """usage: facilitator update
 
 Bring this checkout up to date. Stops, changing nothing, when the checkout has
-uncommitted changes, is not on a branch, or has no upstream. Pulls that
-upstream forward only (git pull --ff-only), then runs the pulled code's update
-steps. On a checkout from before data/, they first move the board's files into
-data/, once: everything is backed up into data/backups, copied and checked by
-checksum, and the old copies are removed only after the board, started again
-on the new code, shows every card it had. The board cannot start until the move
-is done; running facilitator update again finishes a move that was cut off.
-Then they sync the .venv to requirements.txt, and run each numbered step in
-app/updates/ that has not run here yet. A .venv that is missing, broken or not
-on Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
-older uv stops the update with one line. A board running on the old .venv is
-stopped before the rebuild and started again after. Otherwise restarts the
-board only when it is running and the pull changed the board's own code (a
-Python file in app/ or a requirements file) or update steps ran; when only
-pages changed, the board keeps running and a reload shows them."""
+uncommitted changes, is not on a branch, or has no upstream. Fetches that
+upstream and moves forward only (a fast-forward), and only as far as the newest
+commit on its first-parent line signed by a key in app/update-signers, as that
+file stands in the version installed here; a signed commit's own list counts
+for the commits after it. Newer commits that are not signed wait for the next
+signed one. When the upstream has a newer version and nothing newer is signed,
+it stops and changes nothing. The check needs git 2.34 or newer. Then runs the
+pulled code's update steps. On a checkout from before data/, they first move
+the board's files into data/, once: everything is backed up into data/backups,
+copied and checked by checksum, and the old copies are removed only after the
+board, started again on the new code, shows every card it had. The board cannot
+start until the move is done; running facilitator update again finishes a move
+that was cut off. Then they sync the .venv to requirements.txt, and run each
+numbered step in app/updates/ that has not run here yet. A .venv that is
+missing, broken or not on Python 3.14 is built again on it first; that needs uv
+0.9.0 or newer, and an older uv stops the update with one line. A board running
+on the old .venv is stopped before the rebuild and started again after.
+Otherwise restarts the board only when it is running and the pull changed the
+board's own code (a Python file in app/ or a requirements file) or update steps
+ran; when only pages changed, the board keeps running and a reload shows them."""
 
 
 def run_git(*args, env=None):
@@ -3522,24 +3807,124 @@ def check_checkout():
     return remote, upstream
 
 
+# the release keys, in git's allowed signers format. An update moves only to a
+# commit one of them signed, checked against the list in the version already
+# installed, so a push to GitHub by anyone without the private half installs
+# nothing
+SIGNERS = "app/update-signers"
+SIGNING_GIT = (2, 34)   # the first git that checks SSH signatures
+
+
+def signers_at(commit):
+    """The signers file as it stands in that commit; "" when it has none."""
+    shown = run_git("show", f"{commit}:{SIGNERS}")
+    return shown.stdout if shown.returncode == 0 else ""
+
+
+def lists_a_key(signers):
+    """Whether a signers file lists any key: a line that is not blank or a comment."""
+    return any(line.strip() and not line.lstrip().startswith("#") for line in signers.splitlines())
+
+
+def version_at(commit):
+    """The version label in that commit's index.html, or None."""
+    shown = run_git("show", f"{commit}:app/index.html")
+    found = re.search(r'id="npversion">([^<]*)<', shown.stdout) if shown.returncode == 0 else None
+    return found.group(1).strip() if found else None
+
+
+def newest_signed(before, tip, signers, keygen):
+    """Walk the first-parent line from this checkout's commit to the tip,
+    oldest first, keeping only commits this checkout can move forward to. A
+    commit signed by a key on the list in force is taken, and its own list is
+    in force for the commits after it: so the list changes only through a
+    commit a listed key signed, and a key taken off is refused from there on.
+    Every setting that could change git's answer is fixed here (SSH signatures
+    only, checked by ssh-keygen against a copy of the list, nothing revoked but
+    by leaving the list, any trust level), so the person's own git settings
+    count for nothing. Returns the last commit taken, or None, and how many
+    commits on the line come after it."""
+    line = run_git("rev-list", "--first-parent", "--reverse", tip, f"^{before}").stdout.split()
+    ahead = set(run_git("rev-list", "--ancestry-path", f"{before}..{tip}").stdout.split())
+    line = [commit for commit in line if commit in ahead]
+    taken, waiting = None, len(line)
+    with tempfile.TemporaryDirectory() as folder:
+        listed, revoked = Path(folder) / "signers", Path(folder) / "revoked"
+        listed.write_text(signers)
+        revoked.touch()
+        fixed = ["gpg.format=ssh", f"gpg.ssh.allowedSignersFile={listed}", f"gpg.ssh.program={keygen}",
+                 f"gpg.ssh.revocationFile={revoked}", "gpg.minTrustLevel=undefined",
+                 "gpg.openpgp.program=false", "gpg.x509.program=false"]
+        check = [word for setting in fixed for word in ("-c", setting)]
+        for place, commit in enumerate(line):
+            if run_git(*check, "verify-commit", commit).returncode == 0:
+                taken, waiting = commit, len(line) - place - 1
+                listed.write_text(signers_at(commit))
+    return taken, waiting
+
+
+def waiting_line(count, upstream):
+    if count == 1:
+        return (f"1 newer commit on {upstream} is not signed by Facilitator's maintainer, "
+                "so it waits for the next signed version.")
+    return (f"{count} newer commits on {upstream} are not signed by Facilitator's maintainer, "
+            "so they wait for the next signed version.")
+
+
 def pull_forward(remote, upstream):
-    """Fast-forward only pull of that one branch, no tags; return the commit before and after."""
+    """Fetch that one branch, no tags, then move forward only (a fast-forward)
+    and only as far as the newest commit on its first-parent line that a
+    release key signed (newest_signed); return the commit before and after.
+    With newer commits and none of them signed it stops, changing nothing,
+    when they carry another version; when they carry the same one (a README
+    edit, say) it says they wait and leaves the checkout where it is."""
     before = run_git("rev-parse", "HEAD").stdout.strip()
-    result = run_git("pull", "--ff-only", "--no-rebase", "--no-tags", remote, upstream,
-                     env={**os.environ, "LC_ALL": "C"})
+    plain = {**os.environ, "LC_ALL": "C"}
+    fetched = run_git("fetch", "--no-tags", remote, upstream, env=plain)
+    tip = run_git("rev-parse", "--verify", "-q", "FETCH_HEAD^{commit}").stdout.strip() \
+        if fetched.returncode == 0 else ""
+    if not tip:
+        output = (fetched.stdout + fetched.stderr).strip().splitlines()
+        sys.exit(problem(f"git could not pull {remote}/{upstream}.", *output[-4:],
+                         "Nothing was changed.", "Fix that, then run facilitator update again."))
+    if run_git("merge-base", "--is-ancestor", tip, before).returncode == 0:
+        return before, before
+    if run_git("merge-base", "--is-ancestor", before, tip).returncode != 0:
+        sys.exit(problem("This checkout cannot be moved forward on its own.",
+                         "It has changes of its own that the upstream does not have,",
+                         "or the upstream's history was rewritten.",
+                         "Nothing was changed. Ask whoever looks after this copy before",
+                         "going further."))
+    signers = signers_at(before)
+    if not lists_a_key(signers):
+        sys.exit(problem(f"No release signing key is listed yet in {SIGNERS}, so no update "
+                         "can be checked and nothing was changed."))
+    found = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", run_git("version").stdout)
+    if not found or (int(found[1]), int(found[2])) < SIGNING_GIT:
+        sys.exit(problem(f"git {found[0] if found else '(unknown version)'} cannot check signed "
+                         "updates: Facilitator needs git 2.34 or newer.",
+                         "Update git, then run facilitator update again. Nothing was changed."))
+    keygen = "/usr/bin/ssh-keygen" if os.access("/usr/bin/ssh-keygen", os.X_OK) else shutil.which("ssh-keygen")
+    if not keygen:
+        sys.exit(problem("ssh-keygen was not found, so the update cannot be checked.",
+                         "Nothing was changed."))
+    taken, waiting = newest_signed(before, tip, signers, keygen)
+    if taken is None:
+        if version_at(tip) != version_at(before):
+            sys.exit(problem("The newest version is not signed by Facilitator's maintainer, "
+                             "so nothing was changed."))
+        skipped(waiting_line(waiting, upstream))
+        return before, before
+    moved = run_git("merge", "--ff-only", "--no-verify-signatures", taken, env=plain)
     after = run_git("rev-parse", "HEAD").stdout.strip()
-    if result.returncode != 0:
-        output = (result.stdout + result.stderr).strip().splitlines()
-        if "fast-forward" in " ".join(output).lower():
-            sys.exit(problem("This checkout cannot be moved forward on its own.",
-                             "It has changes of its own that the upstream does not have,",
-                             "or the upstream's history was rewritten.",
-                             "Nothing was changed. Ask whoever looks after this copy before",
-                             "going further."))
+    if moved.returncode != 0 or after != taken:
+        output = (moved.stdout + moved.stderr).strip().splitlines()
         sys.exit(problem(f"git could not pull {remote}/{upstream}.", *output[-4:],
                          "Nothing was changed." if after == before else
                          "Check the lines above before going further.",
                          "Fix that, then run facilitator update again."))
+    if waiting:
+        skipped(waiting_line(waiting, upstream))
     return before, after
 
 
@@ -4050,7 +4435,10 @@ def cmd_update_steps(args):
         print(f"{green} Facilitator updated.\n")
         print(f"Old version: {old_version or 'unknown'}")
         print(f"New version: {new_version}\n")
-        print("Reload the board in your browser and reopen the phone app.\n")
+        if tabs_reloaded:
+            print("The board has reloaded in Chrome. Reopen the phone app.\n")
+        else:
+            print("Reload the board in your browser and reopen the phone app.\n")
     else:
         print(f"{green} Already up to date ({new_version}).\n")
     if not restarted:
@@ -4092,16 +4480,6 @@ def chrome_pid(folder):
     except (OSError, ValueError, IndexError):
         return None
     return pid if pid_alive(pid) else None
-
-
-def pid_alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 def read_key(valid):

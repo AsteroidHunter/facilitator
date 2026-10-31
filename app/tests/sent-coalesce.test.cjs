@@ -102,6 +102,34 @@ test("a message an agent sent stands apart from the reader's own in every place,
   assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a"], pendingStates: ["sent"] })), [m("a", "sent")]);
 });
 
+// the board can keep other words than the ones typed ("Replace curse words",
+// _curse_free in server.py): a send is the same message under the operation id
+// it went under, whatever words the reading brings back for it
+const sent = (text, stage, op) => ({ text, stage, op });
+
+test("a reading's message keeps the bubble of the send it is, by its operation id, when its words were changed on saving", () => {
+  const { context } = load();
+  // the board's reading carries each message's id (pendingOps), and none for one sent without
+  assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a", "b"], pendingStates: ["sent", "sent"], pendingOps: [null, "op-b"] })),
+    [m("a", "sent"), sent("b", "sent", "op-b")]);
+  // his case: a Delivered bubble standing, and the send flying into its own under it
+  const before = [[m("Invented older message", "sent")], [sent("this shit is broken", "sent", "op-2")]];
+  const reading = [m("Invented older message", "sent"), sent("this [expletive] is broken", "sent", "op-2")];
+  const groups = context.sentGroups(before, reading, null);
+  assert.deepEqual(words(groups), [["Invented older message"], ["this [expletive] is broken"]],
+    "the saved words joined the bubble standing at once");
+  assert.deepEqual(plain(groups).map(g => g.id), [0, 1], "the send's own bubble was not kept");
+  // the phone: the send still its own, and then landed, before the reading
+  const local = [[m("x", "sent")], [{ ...sent("damn", "local", "op-3"), state: "pending" }]];
+  assert.deepEqual(plain(context.sentGroups(local, [m("x", "sent"), sent("[expletive]", "sent", "op-3")], null)).map(g => g.id), [0, 1]);
+  // two sends of the same words are two messages under their own ids
+  const twice = context.sentGroups([[sent("ok", "sent", "op-a")]], [sent("ok", "sent", "op-b"), sent("ok", "sent", "op-a")], null);
+  assert.deepEqual(plain(twice).map(g => g.id), [1, 0]);
+  // a message with no id on either side is matched by its words, as before
+  assert.deepEqual(plain(context.sentGroups([[sent("a", "sent", "op-a")]], [m("a", "sent")], null)).map(g => g.id), [0]);
+  assert.deepEqual(plain(context.sentGroups([[m("a", "sent")]], [sent("a", "sent", "op-a")], null)).map(g => g.id), [0]);
+});
+
 test("an agent's messages and the reader's never share a bubble, however they arrive", () => {
   const { context } = load();
   // a first draw: runs standing in one place are one bubble only while one hand sent them
@@ -475,7 +503,7 @@ test("both pages read every bubble: the desktop's snap leaves the bubbles' seat 
   assert.match(draw, /for \(const panel of sentPanels\(el\)\)/);
   assert.match(draw, /sentRows\(panel\)\.some\(row => ids\.includes\(row\.dataset\.op\)\)\) openAnswered\(panel, true\)/);
   // the timed refresh and the page turn wait out a merge as they wait out a run
-  assert.match(LOGIC, /\.answered\.sentflight, \.answered\.coalesce, \.answered\.markin/);
-  const holding = LOGIC.slice(LOGIC.indexOf("function turnHolding(el, id){"), LOGIC.indexOf("function turnHold(el, id){"));
-  assert.match(holding, /if \(el\.sentMerge\) return true;/);
+  assert.match(LOGIC, /const CARD_MOTION = "\.answered:is\(\.motion, \.sentflight, \.coalesce, \.markin, /);
+  const waits = LOGIC.slice(LOGIC.indexOf("function turnWaits(el){"), LOGIC.indexOf("function turnBegin(el, b){"));
+  assert.match(waits, /if \(wait && wait\.run === el\.sentMerge\) return true;/);
 });

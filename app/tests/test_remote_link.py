@@ -13,8 +13,9 @@ board asks a server's link and the answers it takes back.
             starts with the board
   pairing   a code works once, runs out, is refused when wrong, and ten wrong
             codes in a minute shut pairing for the rest of it; a refused body
-            leaves the code alone; pairing a name again keeps its record and
-            replaces its key
+            leaves the code alone; no code is made without a name from the
+            Mac, the host name a server sends is never its name, and pairing
+            a name again keeps its record and replaces its key
   link      a question reaches a poll and its answer comes back; a server that
             is not connected, a question past its time and a question that is
             not one of the three are refused; an answer not in the picker's
@@ -143,7 +144,7 @@ class Addresses(unittest.TestCase):
             remote = remote_link.Remote(data, CLONE)
             remote.reload()
             self.assertFalse(remote.needs_door())
-            remote.new_code()
+            remote.new_code("lab")
             self.assertTrue(remote.needs_door())
             for entry in remote._codes.values():
                 entry["ends"] = time.monotonic() - 1
@@ -233,29 +234,29 @@ class Pairing(Board):
     ASKED = {"host": "bob.example.org", "home": "/home/you", "top": "/data/home/you"}
 
     def test_a_code_works_once(self):
-        code = self.remote.new_code()
+        code = self.remote.new_code("bench")
         self.assertRegex(code, r"^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$")
         status, said = self.remote.pair(code.lower().replace("-", " "), self.ASKED)   # however it is typed
         self.assertEqual(status, 200, said)
-        self.assertEqual((said["server"], said["name"]), ("bob-example-org", "bob.example.org"))
-        self.assertEqual(self.remote.server_of_key(said["key"])["id"], "bob-example-org")
+        self.assertEqual((said["server"], said["name"]), ("bench", "bench"))
+        self.assertEqual(self.remote.server_of_key(said["key"])["id"], "bench")
         self.assertIn(".agents/skills/facilitator/scripts/link.py", said["files"])
         saved = self.remote.store.servers_file.read_text()
         self.assertNotIn(said["key"], saved)
-        rec = next(s for s in self.remote.store.servers() if s["id"] == "bob-example-org")
+        rec = next(s for s in self.remote.store.servers() if s["id"] == "bench")
         self.assertEqual((rec["home"], rec["top"]), ("/home/you", "/data/home/you"))
         self.assertEqual(self.remote.pair(code, self.ASKED)[0], 401)
 
     def test_a_wrong_or_spent_code_is_refused(self):
         self.assertEqual(self.remote.pair("", self.ASKED)[0], 401)
         self.assertEqual(self.remote.pair("AAAA-BBBB-CCCC", self.ASKED)[0], 401)
-        code = self.remote.new_code()
+        code = self.remote.new_code("bench")
         for entry in self.remote._codes.values():
             entry["ends"] = time.monotonic() - 1   # its ten minutes are over
         self.assertEqual(self.remote.pair(code, self.ASKED)[0], 401)
 
     def test_ten_wrong_codes_shut_pairing_for_the_minute(self):
-        code = self.remote.new_code()
+        code = self.remote.new_code("bench")
         for _ in range(remote_link.PAIR_TRIES):
             self.assertEqual(self.remote.pair("WRONG-CODE-HERE", self.ASKED)[0], 401)
         status, said = self.remote.pair(code, self.ASKED)
@@ -265,28 +266,57 @@ class Pairing(Board):
         self.assertEqual(self.remote.pair(code, self.ASKED)[0], 200)   # the code was never spent
 
     def test_a_refused_body_leaves_the_code(self):
-        code = self.remote.new_code()
+        code = self.remote.new_code("bench")
         for bad in (None, [], {"home": "home/you", "top": "/x"}, {"home": "/h"}, {"home": "/h\n", "top": "/h"}):
             with self.subTest(body=bad):
                 self.assertEqual(self.remote.pair(code, bad)[0], 400)
         self.assertEqual(self.remote.pair(code, self.ASKED)[0], 200)
 
+    def test_no_code_without_a_name_from_the_mac(self):
+        before = self.remote.store.servers_file.read_text()
+        for missing in (None, "", "   ", "\n\t"):
+            with self.subTest(name=missing):
+                with self.assertRaises(ValueError) as refused:
+                    self.remote.new_code(missing)
+                self.assertIn("facilitator remote pair --name NAME", str(refused.exception))
+        with self.assertRaises(TypeError):
+            self.remote.new_code()
+        # nothing was made or saved, and the paired server is as it was
+        self.assertEqual(self.remote._codes, {})
+        self.assertEqual(self.remote.store.servers_file.read_text(), before)
+        self.assertEqual(self.remote.server_of_key("server-key")["id"], "lab")
+
+    def test_the_host_name_a_server_sends_is_never_its_name(self):
+        # a server that calls itself lab, the name of one already paired,
+        # pairs under the name the Mac gave its code and leaves lab alone
+        said = self.remote.pair(self.remote.new_code("bench"), {**self.ASKED, "host": "lab"})[1]
+        self.assertEqual((said["server"], said["name"]), ("bench", "bench"))
+        self.assertEqual(self.remote.server_of_key("server-key")["id"], "lab")
+        self.assertEqual(sorted(s["id"] for s in self.remote.store.servers()), ["bench", "lab"])
+
     def test_a_name_given_on_the_mac_and_pairing_it_again(self):
+        # a new name pairs a new server
         first = self.remote.pair(self.remote.new_code("Lab box"), self.ASKED)[1]
         self.assertEqual((first["server"], first["name"]), ("lab-box", "Lab box"))
+        self.assertEqual(self.remote.server_of_key("server-key")["id"], "lab")
+        # the same name again, in any case, is that server paired again
         again = self.remote.pair(self.remote.new_code("lab BOX"), {**self.ASKED, "host": "elsewhere"})[1]
         self.assertEqual(again["server"], "lab-box")
         self.assertIsNone(self.remote.server_of_key(first["key"]))   # the old key is over
         self.assertEqual(self.remote.server_of_key(again["key"])["id"], "lab-box")
         self.assertEqual([s["id"] for s in self.remote.store.servers()].count("lab-box"), 1)
-        # with no name given, the host name is the name, and a server already
-        # known by it is that server, paired afresh
-        other = self.remote.pair(self.remote.new_code(), {**self.ASKED, "host": "lab"})[1]
+        # and so is the name of a server paired before, given on the Mac
+        lab = next(s for s in self.remote.store.servers() if s["id"] == "lab")
+        other = self.remote.pair(self.remote.new_code("lab"), {**self.ASKED, "host": "bob.example.org"})[1]
         self.assertEqual((other["server"], other["name"]), ("lab", "lab"))
         self.assertIsNone(self.remote.server_of_key("server-key"))
+        self.assertEqual(self.remote.server_of_key(other["key"])["id"], "lab")
+        rec = next(s for s in self.remote.store.servers() if s["id"] == "lab")
+        self.assertEqual(rec["added"], lab["added"])
+        self.assertEqual(sorted(s["id"] for s in self.remote.store.servers()), ["lab", "lab-box"])
 
     def test_only_a_few_codes_wait_at_once(self):
-        codes = [self.remote.new_code() for _ in range(remote_link.CODES_HELD + 3)]
+        codes = [self.remote.new_code(f"bench {n}") for n in range(remote_link.CODES_HELD + 3)]
         self.assertEqual(len(self.remote._codes), remote_link.CODES_HELD)
         self.assertEqual(self.remote.pair(codes[0], self.ASKED)[0], 401)   # the oldest went first
         self.assertEqual(self.remote.pair(codes[-1], self.ASKED)[0], 200)

@@ -15,8 +15,10 @@
      Chrome holds the two as two apps and installing one leaves the other alone.
      The icon line below is untouched: the install reads its picture from the
      manifest, and the empty one here is what keeps the board from asking for a
-     tab icon it has never shown -->
-<link rel="manifest" href="/manifest.json">
+     tab icon it has never shown. Chrome asks for a manifest without cookies
+     unless told to send them, and the board answers its window only with its
+     cookie, so the link says use-credentials -->
+<link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
 <link rel="icon" href="data:,">
 <script>
   // the Spotify sign in opens in its own small window and comes back here. when
@@ -1637,19 +1639,20 @@
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
-  /* the two lines that tie the box to its card, as the owner chose them in the
-     connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
-     straight across the gap from the card's right edge to the box's left
-     edge, and no further, so none of a line is ever under a faded card or
-     box. they lie beneath the card and the box (#mbline, before the card,
-     under the box's z-index), and wear the card's own shadow, its two layers at the
-     strength a filter gives them (a filter's blur is the spread of the blur
-     a box-shadow asks for, so half of it); the card lowered, they have none,
-     as the box has none. they are drawn by magicLine, in the stage's pixels,
-     from the svg's corner at the stage's. the shadow is on the group inside
-     the svg, not on the svg: the svg is a layer of its own, and a filter on a
-     layer is blurred again on every frame the screen draws, each frame of a
-     scroll among them; on the group it is painted once with the lines (m1216) */
+  /* the one line that ties the box to its card, as the owner chose it in
+     m1497 (magicLine): the card's own edge colour, solid, 4/3 px, straight
+     across the gap at the middle of the box's height, from the card's right
+     edge to the box's left edge, and no further, so none of it is ever under
+     a faded card or box. it lies beneath the card and the box (#mbline,
+     before the card, under the box's z-index), and wears the card's own
+     shadow, its two layers at the strength a filter gives them (a filter's
+     blur is the spread of the blur a box-shadow asks for, so half of it); the
+     card lowered, it has none, as the box has none. it is drawn by magicLine,
+     in the stage's pixels, from the svg's corner at the stage's. the shadow
+     is on the group inside the svg, not on the svg: the svg is a layer of its
+     own, and a filter on a layer is blurred again on every frame the screen
+     draws, each frame of a scroll among them; on the group it is painted once
+     with the line (m1216) */
   #mbline{display:none}
   body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none; z-index:0}
@@ -1685,9 +1688,9 @@
      and the board's other layers while they are up (body.mbup, which outlasts
      the fade out), under the project list, the search, the settings and an
      open picture, which still open over it.
-     expanded, it wears its held look and draws no lines to its card, which
-     fade out as it expands and back in as it comes back, on its move's time
-     and curve, so they are whole the frame it lands (magicLineFade). on its
+     expanded, it wears its held look and draws no line to its card, which
+     fades out as it expands and back in as it comes back, on its move's time
+     and curve, so it is whole the frame it lands (magicLineFade). on its
      way either way (.moving) it stands over the shade, and its strength is
      the move's (magicMove): eased on the same time and curve from what it was
      drawn at to what its own rules give it where it lands, full expanded and
@@ -1759,7 +1762,7 @@
   #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
   /* the brace from the card to it (pipeLine): a { to it on the card's right
      and a } to it on its left, two sets of three straight lines meeting square
-     and touching neither, dashed as the box's lines are at half their width
+     and touching neither, dashed, at half the width of the box's line
      (PIPE_STROKE) and in the card's edge colour, beneath the card and the
      response, with the same shadow on its group */
   #pipeline{display:none}
@@ -1770,10 +1773,7 @@
   body.focus:is(.home, .editmode) #pipeline.on{display:none}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
-     reference app's thread, restated here in full rather than borrowed: the
-     quick chat panel further down this sheet is an older, looser copy of the
-     same thing and it keeps every rule it had. nothing below is shared with
-     it by selector, so neither panel can drift the other */
+     reference app's thread, restated here in full */
   #magic3.chatting{
     /* the reference app's own tokens, kept on the panel and not in :root:
        nothing outside this box has any use for them, and two of the names
@@ -2852,46 +2852,6 @@
     color:var(--ink); background:var(--paper);
     border-right:none; margin-right:calc(-1 * var(--edge-drawn));   /* opens into the canvas, as drawn */
   }
-  /* quick chat: x 4.1%, y 49..88.1% */
-  body.focus #qchat{
-    display:none;   /* absent from the ui_3 drawing; the lane stays live */
-    position:fixed;
-    display:flex; flex-direction:column; min-height:0;
-    background:#fff; border:var(--edge) solid var(--line); border-radius:0;
-  }
-  .paneh{font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase;
-    color:var(--sub); padding:10px 12px 6px}
-  /* min-height:0 keeps this honest: without it a flex child's automatic
-     minimum size lets the thread grow past its panel instead of scrolling, and
-     the typing bar gets pushed out of the bottom */
-  #qmsgs{flex:1; min-height:0; overflow-y:auto; padding:8px 12px;
-    display:flex; flex-direction:column}
-  .qrow{display:flex; margin-top:10px}
-  .qrow.cont{margin-top:2px}
-  .qrow.me{justify-content:flex-end}
-  .qb{max-width:78%; padding:8px 13px; font:15px/1.35 var(--sans);
-    white-space:pre-wrap; word-break:break-word}
-  .qb.cardmd{white-space:normal}
-  .qb.me{background:var(--accent); color:#fff; border-radius:18px 18px 4px 18px}
-  .qb.ag{background:#E9E9EB; color:#111; border-radius:18px 18px 18px 4px}
-  .qrow.cont .qb.me{border-radius:18px 4px 4px 18px}
-  .qrow.cont .qb.ag{border-radius:4px 18px 18px 4px}
-  .qtyping{align-self:flex-start; background:#E9E9EB; border-radius:18px 18px 18px 4px;
-    padding:12px 14px; margin-top:10px; display:flex; gap:4px}
-  .qtyping i{width:7px; height:7px; border-radius:50%; background:#8E8E93;
-    animation:qdot 1.2s infinite}
-  .qtyping i:nth-child(2){animation-delay:.15s}
-  .qtyping i:nth-child(3){animation-delay:.3s}
-  @keyframes qdot{0%,60%,100%{opacity:.35; transform:translateY(0)} 30%{opacity:1; transform:translateY(-3px)}}
-  #qcompose{display:flex; gap:8px; padding:8px 10px; border-top:1px solid #E5E5EA;
-    background:rgba(249,249,249,.94)}
-  #qcompose textarea{flex:1; resize:none; font:15px/1.35 var(--sans); color:#111;
-    background:#fff; border:1px solid #C7C7CC; border-radius:16px; padding:6px 12px;
-    outline:none; max-height:90px}
-  #qcompose textarea:focus{border-color:var(--accent)}
-  #qcompose button{width:30px; height:30px; flex:none; border:none; border-radius:50%;
-    background:var(--accent); color:#fff; font-size:16px; font-weight:700;
-    cursor:pointer; padding:0; align-self:flex-end}
   /* ---- the trio: rail, goal box, task box share one visual family ------- */
   .trio{border:var(--edge) solid var(--line); border-radius:0; background:transparent}
   #goalbox{
@@ -3038,7 +2998,7 @@
   body.phoneview-active > :not(#phoneview):not(#phoneviewstatus):not(script){visibility:hidden !important}
   /* regions absent from the ui_3 drawing stay dormant regardless of their
      own rule bodies */
-  body.focus #wsl, body.focus #qchat, body.focus #taskbox,
+  body.focus #wsl, body.focus #taskbox,
   body.focus #carousel{display:none !important}
   #navpad > div{display:flex; gap:14px}
   @media (max-width:989px){ body.focus #navpad{display:none} }
@@ -3772,7 +3732,8 @@
   #homebrandcopy{position:relative; display:inline-block}
   #homebrandname{display:block}
   #homeversion{position:absolute; top:calc(100% - 1px * var(--home-logo, 1)); left:calc(1px * var(--home-logo, 1));
-    font:500 calc(10px * var(--home-logo, 1))/1.1 var(--inter); letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap}
+    font:500 calc(10px * var(--home-logo, 1))/1.1 var(--inter); letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap;
+    pointer-events:auto}   /* its clicks turn developer mode on and off */
   #home{display:none}
   body.focus.home #home{display:block; flex:none; height:var(--home-chart-h, calc((100vh - var(--bar-h)) * .35));
     pointer-events:auto}
@@ -4064,6 +4025,9 @@
   #onboard.gone{opacity:0; pointer-events:none}
   /* one step under the startup curtain while the curtain stands over it */
   #onboard.under{z-index:2147483646}
+  /* the New layout switch shows only in developer mode (MAC_DEVELOPER_KEY in
+     the script) */
+  body:not(.mac-developer-mode) #setlayoutrow{display:none}
   /* the settings page's Bin: the line saying how long cards are kept, then a
      row to a deleted card, its title over its project and when it was
      deleted, and Restore on the right */
@@ -4080,6 +4044,62 @@
   .sp-mac .binrow:hover .binrestore, .sp-mac .binrow:focus-within .binrestore{opacity:1}
   .sp-mac .binrow .binrestore:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
   .sp-mac .binrow .binrestore:disabled{opacity:.4; cursor:default}
+
+  /* ---- the new layout (Settings, Appearance) ----------------------------- */
+  /* the card on the left, the ticket list at the upper right and the card's
+     typing row out of the card, in a box of its own under the list. the script
+     places all three as shares of the window (fitNewLayout) and hands the
+     box's place down from the stage as --nl-x, --nl-y, --nl-w and --nl-h, in
+     the stage's pixels. the box is the card's own tray and row, so typing,
+     sending, attaching, drafts and every key work as they do in the card.
+     with the setting off the holder lays out nothing of its own, and the tray
+     and the row stand in the card's foot exactly as they always have */
+  .composebox{display:contents}
+  /* front to back: the list, the typing box, the card. the box is laid from
+     inside the card, so it stands over the card by being positioned in it */
+  body.focus.newlayout #tickets{z-index:2}
+  body.focus.newlayout #tickets .ttl{font-size:19px}
+  /* the box is paratrooper's typing field, a rounded rectangle rather than a
+     pill: its glass face (an almost white tint over a blur), its hairline and
+     white rim drawn inside the edge, its lift and its soft shadow under, its
+     18px corner, and its text inset and type. the type is the board's 18. the
+     paperclip stands outside the field at its left, on its floor, where
+     paratrooper's plus stands; the send square stands inside at its bottom
+     right, where paratrooper's arrow stands */
+  body.focus.newlayout .box.sel .composebox{
+    display:flex; flex-direction:column; position:fixed; box-sizing:border-box;
+    left:var(--nl-x); top:var(--nl-y); width:var(--nl-w); height:var(--nl-h);
+    border-radius:18px; background-color:rgba(120,120,128,.03);
+    backdrop-filter:blur(16px) saturate(180%); -webkit-backdrop-filter:blur(16px) saturate(180%);
+    box-shadow:inset 0 0 0 .5px rgba(255,255,255,.55), inset 0 1px 0 rgba(255,255,255,.9),
+      inset 0 0 0 1px #C7C7CC, inset 0 0 2px rgba(255,255,255,.35),
+      0 1px 3px rgba(0,0,0,.07), 0 8px 20px rgba(0,0,0,.06), 0 6px 33px rgba(0,0,0,.068);
+    isolation:isolate;
+  }
+  body.focus.newlayout .box.sel .composebox .tray{margin:0 40px 0 14px; background:none}
+  body.focus.newlayout .box.sel .composebox .bottombar{
+    flex:1 1 auto; min-height:0; margin:0; border-top:none; background:none; align-items:stretch;
+  }
+  body.focus.newlayout .box.sel .composebox .compose{align-items:stretch}
+  /* the field fills the box, so a click anywhere in it is a click in the words,
+     and the words scroll inside it once they pass its foot */
+  body.focus.newlayout .box.sel .composebox :is(textarea, .cffield){
+    flex:1 1 auto; align-self:stretch; height:auto !important; min-height:0; max-height:none; margin:0;
+    font:18px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    color:#000;
+  }
+  body.focus.newlayout .box.sel .composebox textarea,
+  body.focus.newlayout .box.sel .composebox .cffield .cm-scroller{padding:8px 40px 8px 14px}
+  body.focus.newlayout .box.sel .composebox .cffield .cm-scroller{
+    height:100% !important; min-height:0; max-height:none; font:inherit;
+  }
+  /* paratrooper leaves the placeholder in the browser's own grey */
+  body.focus.newlayout .box.sel .composebox textarea::placeholder,
+  body.focus.newlayout .box.sel .composebox .cffield .cm-placeholder{color:#757575}
+  body.focus.newlayout .box.sel .composebox .sendbtn{position:absolute; right:5px; bottom:5px; margin:0 !important}
+  body.focus.newlayout .box.sel .composebox .clipbtn{
+    position:absolute; left:-42px; bottom:2.5px; width:34px; height:34px;
+  }
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
@@ -4168,12 +4188,22 @@
         <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
       <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
     </div>
+    <div class="setrow" id="setlayoutrow">
+      <label class="setlabel" for="setlayout"><span>New layout</span>
+        <small class="sethelp">Projects show the card on the left, the ticket list at the upper right and the composer in its own box under the list.</small></label>
+      <input type="checkbox" role="switch" id="setlayout">
+    </div>
   </div>
   <div data-section="editor" data-label="Editor">
     <div class="setrow">
       <label class="setlabel" for="setformat"><span>Format text while typing</span>
         <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</small></label>
       <input type="checkbox" role="switch" id="setformat">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setcurses"><span>Replace curse words</span>
+        <small class="sethelp">Curse words in the messages you send are saved as [expletive], so the board, its history and agents only see the tag. Messages sent before stay as they are.</small></label>
+      <input type="checkbox" role="switch" id="setcurses">
     </div>
   </div>
   <div data-section="improvements" data-label="Improvements">
@@ -4224,11 +4254,6 @@
   <section id="wsl">
     <div id="wslist"></div>
   </section>
-  <section id="qchat">
-    <div class="paneh">quick chat</div>
-    <div id="qmsgs"></div>
-    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question"></textarea><button id="qsend" aria-label="send" data-tip="Send (Enter)">↑</button></div>
-  </section>
 </div>
 
 <div id="rightcol">
@@ -4272,14 +4297,14 @@
   </div>
   <div class="mbbody"></div>
 </section>
-<!-- the lines from the card to its magic box, two dashed lines beneath the
-     card and the box: before the card on the page, so it is drawn over them -->
+<!-- the line from the card to its magic box, one solid line beneath the
+     card and the box: before the card on the page, so it is drawn over it -->
 <svg id="mbline" aria-hidden="true"></svg>
 <!-- the card's response piped out beside it while a long reply is typed: a
      second magic box, with no edge (pipeSync); its bar is never shown, and is
      there for the box's view, which measures one. under it the patch of the
      board it stands on, and after it the brace that ties it to the card,
-     beneath the card as the box's lines are -->
+     beneath the card as the box's line is -->
 <div id="pipeground" aria-hidden="true"></div>
 <section id="pipebox" class="magicbox" aria-label="The agent's response">
   <div class="mbbar"></div>
@@ -4304,7 +4329,7 @@
      opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.3.27</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.3.72</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -4359,6 +4384,7 @@
 
 <script src="/board-settings.js"></script>
 <script src="/mac-phone-view.js"></script>
+<script src="/board-line.js"></script>
 <script src="/magic-box.js"></script>
 <script src="/hover-labels.js"></script>
 <script src="/card-report.js"></script>
@@ -4409,6 +4435,23 @@ let lastState = null;
 // (owner) is a row, its conversations the columns; arrows walk it, the left
 // bar jumps anywhere directly.
 const FOCUS = document.body.classList.contains("focus");
+// developer mode belongs to this browser, not the board's shared settings, the
+// way the phone's belongs to the phone (m.html): seven quick clicks on the
+// home page's version turn it on or off (the listener by homeversion below).
+// while it is off, Settings shows no New layout switch
+const MAC_DEVELOPER_KEY = "macDeveloperMode";
+let macDeveloperMode = false;
+try { macDeveloperMode = localStorage.getItem(MAC_DEVELOPER_KEY) === "on"; } catch (_) {}
+document.body.classList.toggle("mac-developer-mode", macDeveloperMode);
+// the new layout (Settings, Appearance): the project tabs show the card on the
+// left, the ticket list at the upper right and the card's typing row in a box
+// of its own under the list (fitNewLayout). it is the board's newlayout
+// setting, "1" for on, and it is drawn only in developer mode; with that off
+// the board keeps today's layout and the setting waits as it was kept. the
+// class goes on with the page's first lines, so a page opened in it never
+// draws the other layout first
+const newLayoutWanted = () => macDeveloperMode && settingsStore.getItem("newlayout") === "1";
+document.body.classList.toggle("newlayout", FOCUS && newLayoutWanted());
 let selectedId = localStorage.getItem("selbox") || null;
 let shownId = null;   // the card the page is actually showing, so a selection
                       // that changed without a click can be noticed
@@ -4574,6 +4617,114 @@ for (const type of ["click", "pointerdown", "keydown", "submit"]){
 }
 
 
+// ---- the page note -------------------------------------------------------------
+// when the page's own Chrome process ends, the window goes white and the page
+// hears nothing: no pagehide, and what the reporter holds for page hide goes with
+// it. so the page keeps one small note in this window's sessionStorage, which
+// belongs to the tab rather than to the process and so outlives it. it is written
+// when the page starts and once a minute after: when the page started, the card
+// open, whether the page was on screen, its JS heap in MB at the last five writes
+// and the most it has been, how late its own timer ran, when the last key was
+// pressed, where the last error was thrown and the page's version. a normal close
+// (pagehide) takes the note away, and a page back from the back/forward cache
+// writes it again. a page that starts and finds a note still there follows a page
+// that ended without closing, and sends what the note held to the board's log at
+// once, as one line. a key press costs one time in memory: what was typed, card
+// text and messages are never read
+const PAGE_NOTE_KEY = "facilitator-page-note", PAGE_NOTE_EVERY = 60000, PAGE_NOTE_HEAPS = 5;
+const pageNoteStarted = Date.now();
+const pageNoteVersion = String(document.getElementById("npversion")?.textContent || "")
+  .replace(/[^A-Za-z0-9.-]/g, "").slice(0, 20);
+const pageNoteHeaps = [];
+let pageNoteTimer = 0, pageNoteKey = 0, pageNotePeak = 0;
+document.addEventListener("keydown", () => { pageNoteKey = Date.now(); }, { capture: true, passive: true });
+// the JS heap in MB. Chrome alone has it; -1 elsewhere (the Tauri app's WebKit)
+function pageNoteHeap(){
+  try { return performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; }
+  catch (_) { return -1; }
+}
+function pageNoteWrite(){
+  try {
+    const heap = pageNoteHeap();
+    if (heap >= 0){
+      pageNoteHeaps.push(heap);
+      if (pageNoteHeaps.length > PAGE_NOTE_HEAPS) pageNoteHeaps.shift();
+      if (heap > pageNotePeak) pageNotePeak = heap;
+    }
+    const who = typeof reportWho === "function" ? reportWho() : { window: "", doing: "" };
+    const pulse = typeof reportPulse === "function" ? reportPulse() : { late: 0, lateMax: 0, error: null };
+    const note = { win: who.window, start: pageNoteStarted, at: Date.now(),
+      box: typeof selectedId === "string" ? selectedId : "", doing: who.doing, shown: !document.hidden,
+      heaps: pageNoteHeaps, peak: pageNotePeak, late: pulse.late, lateMax: pulse.lateMax,
+      version: pageNoteVersion };
+    if (pageNoteKey) note.key = pageNoteKey;
+    if (pulse.error) note.err = { file: pulse.error.file, line: pulse.error.line, at: pulse.error.at };
+    sessionStorage.setItem(PAGE_NOTE_KEY, JSON.stringify(note));
+  } catch (_) {}
+}
+function pageNoteStart(){
+  if (pageNoteTimer) return;
+  pageNoteWrite();
+  pageNoteTimer = setInterval(pageNoteWrite, PAGE_NOTE_EVERY);
+}
+function pageNoteStop(){
+  clearInterval(pageNoteTimer);
+  pageNoteTimer = 0;
+  try { sessionStorage.removeItem(PAGE_NOTE_KEY); } catch (_) {}
+}
+// a stretch of time in words: "5 h 58 min", "3 min 20 s", "52 s"
+function pageNoteSpan(ms){
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s >= 3600) return Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " min";
+  if (s >= 60) return Math.floor(s / 60) + " min " + (s % 60) + " s";
+  return s + " s";
+}
+function pageNoteFind(){
+  let found = null;
+  try { found = JSON.parse(sessionStorage.getItem(PAGE_NOTE_KEY) || "null"); } catch (_) {}
+  // this load's own note is no news
+  if (found && typeof reportWho === "function" && found.win === reportWho().window) return;
+  try { sessionStorage.removeItem(PAGE_NOTE_KEY); } catch (_) { return; }
+  if (!found || typeof found.at !== "number" || typeof found.start !== "number") return;
+  try {
+    const whole = n => (typeof n === "number" && isFinite(n) ? Math.round(n) : null);
+    const said = (n, unit) => (whole(n) === null ? "unknown" : whole(n) + " " + unit);
+    const before = at => (whole(at) === null ? "" : " " + pageNoteSpan(found.at - at) + " before the last note");
+    const time = at => new Date(at).toISOString().replace(/\.\d+Z$/, "Z");
+    const ago = Math.max(0, Date.now() - found.at);
+    const box = String(found.box || "").slice(0, 64);
+    const heaps = (Array.isArray(found.heaps) ? found.heaps : []).map(whole).filter(n => n !== null);
+    const nav = String(performance.getEntriesByType?.("navigation")?.[0]?.type || "unknown").replace(/_/g, " ");
+    const err = found.err && typeof found.err === "object" ? found.err : null;
+    const parts = [
+      "the page stopped without closing: window " + found.win + " (" + (found.version || "unknown version") + "), open "
+        + pageNoteSpan(found.at - found.start) + (box ? ", card " + box : "")
+        + ", " + (found.shown ? "on screen" : "hidden"),
+      "last note " + time(found.at) + ", " + pageNoteSpan(ago) + " before this load",
+      heaps.length ? "JS heap MB at the last " + (heaps.length > 1 ? heaps.length + " notes " : "note ")
+        + heaps.join(", ") + ", at most " + said(found.peak, "MB") : "JS heap not readable",
+      "timer " + said(found.late, "ms") + " late, " + said(found.lateMax, "ms") + " at worst in the last minute",
+      whole(found.key) ? "last key" + before(found.key) : "no key pressed",
+      "this load: " + nav + (document.wasDiscarded ? ", discarded by Chrome" : ", not discarded"),
+      err ? "last error at " + (String(err.file || "").slice(0, 40) || "unknown") + ":" + (whole(err.line) || 0) + (before(err.at) && "," + before(err.at))
+        : "no error",
+    ];
+    // only the plain characters the board's log keeps; any other drops the line's words
+    const message = parts.join("; ").replace(/[^A-Za-z0-9 ,.:;()\/-]/g, "").slice(0, 500);
+    // an error, so it reaches the board's log at every log level; late is the
+    // time from the last note to this page's start, as the phone's note has it
+    const report = { kind: "error", message, file: "", line: 0, box, late: ago,
+      doing: String(found.doing || "idle").slice(0, 40), count: 1 };
+    // at once, not at the next hide: this page may end the same way
+    if (typeof reportNotice === "function") reportNotice(report);
+    else if (typeof reportProblem === "function") reportProblem("error", new Error(message), report);
+  } catch (_) {}
+}
+pageNoteFind();
+pageNoteStart();
+window.addEventListener("pagehide", pageNoteStop);
+window.addEventListener("pageshow", e => { if (e.persisted) pageNoteStart(); });
+
 // ---- the lane's worktrees -------------------------------------------------
 // the card's top bar names a worktree, and the names come from git by way of
 // /worktrees rather than from anything typed here. one entry per lane, held for
@@ -4645,7 +4796,12 @@ function boardFadeTake(){
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
   const body = document.body, stage = document.getElementById("stage");
   if (!stage || body.classList.contains("pageblank") || !body.classList.contains("layout-ready")) return null;
-  const still = stillCopy(stage);
+  // the copy holds only what is drawn. on the board every card but the one on
+  // show (.sel) is display:none, so the others are left out of it: they are
+  // nearly all of the stage, and copying them made a switch late
+  const hidden = [];
+  for (const k of Object.keys(els)) if (!els[k].box.classList.contains("sel")) hidden.push(els[k].box);
+  const still = stillCopy(stage, { leave: hidden });
   still.copy.classList.add("boardghost");
   return { ...still, owner: activeOwner };
 }
@@ -5430,6 +5586,28 @@ const homeNewName = document.querySelector("#homenew .homename");
 // the landing's own mark and version, so the version is written in one place
 document.getElementById("homemark").src = document.getElementById("npmark").src;
 document.getElementById("homeversion").textContent = document.getElementById("npversion").textContent;
+// seven clicks on the home page's version, each within a second of the last,
+// turn developer mode on or off (MAC_DEVELOPER_KEY), as seven taps on the
+// phone's do, and the layout follows at once. another window of this browser
+// turning it is heard too
+let developerClicks = 0, developerClickAt = -Infinity;
+function setMacDeveloperMode(on){
+  macDeveloperMode = on;
+  document.body.classList.toggle("mac-developer-mode", on);
+  applyNewLayout();
+}
+document.getElementById("homeversion").addEventListener("click", () => {
+  const now = performance.now();
+  developerClicks = now - developerClickAt < 1000 ? developerClicks + 1 : 1;
+  developerClickAt = now;
+  if (developerClicks !== 7) return;
+  developerClicks = 0;
+  setMacDeveloperMode(!macDeveloperMode);
+  try { localStorage.setItem(MAC_DEVELOPER_KEY, macDeveloperMode ? "on" : "off"); } catch (_) {}
+});
+addEventListener("storage", e => {
+  if (e.key === MAC_DEVELOPER_KEY && (e.newValue === "on") !== macDeveloperMode) setMacDeveloperMode(e.newValue === "on");
+});
 // set only when it changes, so a fit that changes nothing lays nothing out again
 function homeSet(el, name, value, unit = "px"){
   const v = Math.round(value * 1000) / 1000 + unit;
@@ -6295,7 +6473,7 @@ function select(id, opts){
   // card whose row has no field is a no-op.
   if (els[id].tick) els[id].tick();
   syncDesktopHistoryAvailability(id);
-  // the ticket rows re-render on the poll, up to a second later; the selection
+  // the ticket rows re-render only on the board's next reading; the selection
   // shadow must move the instant of the click, so flip the class directly,
   // and bring the chosen row into the panel's view in the same breath
   for (const r of document.querySelectorAll("#tiklist .trow")){
@@ -6440,8 +6618,8 @@ function statusOf(b){
 // so is the page turn that takes the one up to the other when an answer lands.
 // what the desktop tells them: the panel over the answer taking or giving back
 // its room re-snaps the answer's lines against it (the sent panel's own word is
-// sentRoom, below, which only writes its band again), and a new answer held back while the
-// reader was busy is shown by asking the board again
+// sentRoom, below, which only writes its band again), and a new answer that
+// waited for a merge of the waiting bubbles is shown by asking the board again
 answeredRoomChanged = snapCard;
 turnAgain = () => poll();
 
@@ -6757,11 +6935,16 @@ function snapCard(){
       const markRoom = parseFloat(getComputedStyle(answ).marginBottom) || 0;
       const top0 = firstLine ? inkTop(firstLine) - (answ.getBoundingClientRect().bottom + markRoom) : 0;
       const bottom0 = lastLine ? pendingTop - inkBottom(lastLine) : top0;
-      // When the answer is short, the large body region below its only line is
-      // content room rather than a boundary gap; it cannot be made equal by moving
-      // the line. In that case keep the line at the smallest top gap and put the
-      // snap remainder below it.
-      const balanced = bottom0 > line * 2 ? 0 : (bottom0 - top0) / 2;
+      // When the answer ends above the foot measured here (pendingTop, the
+      // bar's top edge), the white below its last line is room it did not need
+      // rather than a boundary gap; it cannot be made equal by moving the line.
+      // In that case keep the line at the smallest top gap and put the snap
+      // remainder below it. Only an answer that runs on past that edge is framed
+      // by it. Telling the two apart by distance alone (two lines) missed an
+      // answer that ended a line or two above the bar, and pushed it up to a
+      // line further down off the panel than every other card's.
+      const ends = !lines.some(q => q.height > 2 && inkBottom(q) > pendingTop);
+      const balanced = (ends || bottom0 > line * 2) ? 0 : (bottom0 - top0) / 2;
       const upper = Math.max(0, Math.min(s, balanced));
       const lower = s - upper;
       r.style.marginTop = upper.toFixed(2) + "px";
@@ -7003,16 +7186,12 @@ function makeBox(b, i, state){
     const x = h("button", "xbtn", "×");
     x.setAttribute("aria-label", "done");
     x.dataset.tip = SECTION_CHIP_TIPS.done;
-    x.addEventListener("click", async e => {
+    x.addEventListener("click", e => {
       e.stopPropagation();
       if (chipOff(x)) return;   // a done card: the cross has nothing left to do
-      const { order, section } = cardDeparture(lastState, b.id);   // the list as it stands, before the close
-      // the server reads the current record atomically, so a handler born with
-      // an empty card can never erase replies that arrived on later polls
-      await fetch(closeCardUrl(b.id), { method: "POST" }).catch(() => {});
-      // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
-      selectNextCard(b.id, order, section);
-      poll();
+      // dismiss this card from the center and its ticket from the list at once,
+      // and jump to the next ongoing chat, so no extra click is needed
+      boardCloseCard(b.id);
     });
     topbar.appendChild(x);   // the done mark is an item of the bar now, not a pinned corner
     // the card's own number, its id; the same number the quick note's "card N" /
@@ -7099,7 +7278,12 @@ function makeBox(b, i, state){
     send.innerHTML = SEND_ICON;
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
-    pendwrap.append(meta, sentwrap, tray, bottombar);
+    // the tray and the row together: a box of their own under the ticket list
+    // in the new layout, and in the other one nothing at all, so the two lay
+    // out in the card's foot as they always have (.composebox)
+    const composebox = h("div", "composebox");
+    composebox.append(tray, bottombar);
+    pendwrap.append(meta, sentwrap, composebox);
     // the column: the scroller holding the answered panel over the answer, and laid
     // over the answer at the card's floor the sent panel and the row the reader types in
     replyview.append(answwrap, reply);
@@ -7171,9 +7355,6 @@ function makeBox(b, i, state){
     ta.addEventListener("input", () => {
       cancelAutoNext();
       tick();
-      // the moment of the last key, which is what holds a new answer back
-      // while the reader is typing (turnHolding in card-logic.js)
-      noteTyping(ta);
       draftSave(b.id);   // kept on this Mac as it is typed (card-logic.js)
     });
     // a focus moves no scroll inside the field, so a caret put at the end of a
@@ -7279,8 +7460,11 @@ function makeBox(b, i, state){
     // answer under the title, and the row the reader types in under the bar's hairline
     watchRise(replyview);
     watchRise(ta);
-    // and the reader's own scrolling of the answer, which holds a page turn back
-    watchReading(els[b.id]);
+    // in the new layout the tray stands over the words in the typing box, so
+    // its opening and shutting moves them, and the block caret is laid again
+    if (window.ResizeObserver) new ResizeObserver(() => {
+      if (document.body.classList.contains("newlayout")) queueFatCaret();
+    }).observe(tray);
 
     // Tab on the card walks the title, the text box and the card and nothing else (cardTab),
     // and no other part of the card is a stop of the browser's own Tab (quietStops); a
@@ -7686,11 +7870,11 @@ function* applyPass(state){
     // a new answer on the card on show turns the page (card-logic.js): the sheet
     // over the page the reader was on is laid here, before anything of the new
     // one is drawn, and turnGo below glides it once the new page stands under
-    // it. while the reader is busy with the card the new answer is held back,
-    // and this pass leaves the answer and both panels exactly as they stand
+    // it. while it waits for a merge of the waiting bubbles, this pass leaves
+    // the answer and both panels exactly as they stand
     const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== rawReply){
+    const waits = turn === TURN_WAIT;
+    if (!waits && el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];   // a fresh reply outdates the cached history
       if (hist && hist.id === b.id) histExit(b.id);   // and snaps a history view back to live
@@ -7746,7 +7930,7 @@ function* applyPass(state){
     // bringing the same list touches no dom at all, and a reading asked for
     // before this page's own last send landed knows nothing of it and may not
     // take it away
-    if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
+    if (!waits && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
       el.sentItems = sentFrom(b);
       syncSent(el, el.sentItems);
     }
@@ -7756,10 +7940,7 @@ function* applyPass(state){
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the composer moves
-    if (!held){
-      el.liveMeta = liveAnswered(b);
-      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
-    }
+    if (!waits && !(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     // the new page stands under the sheet: the glide and the print
     turnGo(el, turn);
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
@@ -7857,22 +8038,26 @@ function* applyPass(state){
 
 // listener presence, per agent: each is either long-polling (listening),
 // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
-function drawListeners(state){
+// gone is how many seconds have passed since the board answered the reading,
+// for a reading drawn again later from what is held (deskTick): each lane's
+// quiet is the reading's own plus that
+function drawListeners(state, gone = 0){
   const offOwners = Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
-    !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
+    !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] + gone > 300);
   document.body.classList.toggle("offline", offOwners.length > 0);
   if (offOwners.length){
     document.getElementById("offline").textContent =
       "Offline: " + offOwners.map(ow => laneName(ow) + " (last heard " +
-      Math.round(state.listenerGap[ow] / 60) + " min ago)").join(", ") +
+      Math.round((state.listenerGap[ow] + gone) / 60) + " min ago)").join(", ") +
       ". Messages still queue safely; replies resume when that terminal side wakes.";
     // the bar's own status line went with the strip; the banner below says it
   }
 }
 
 // a card's age in the outline, written only when it reads differently: a
-// thousand cards written every 1.2 s with the same words cost a whole pass
+// thousand cards written on every reading and every tick with the same words
+// cost a whole pass
 function writeAge(el, b){
   const text = age(b.ts);
   if (el.tageText === text) return;
@@ -7881,11 +8066,12 @@ function writeAge(el, b){
 }
 
 // what the clock alone moves, for a timed reading that found the board
-// standing still (poll): each card's age in the outline and each row's in the
-// list (the ones paintTicketPane keeps; a working row's spinner has its own
-// clock), each written only where it now reads differently, and the line that
-// names a lane whose agent has gone quiet
-function drawClock(state){
+// standing still (poll), and for the reading held while the line is up
+// (deskTick, with gone as drawListeners takes it): each card's age in the
+// outline and each row's in the list (the ones paintTicketPane keeps; a
+// working row's spinner has its own clock), each written only where it now
+// reads differently, and the line that names a lane whose agent has gone quiet
+function drawClock(state, gone = 0){
   const cards = new Map();
   for (const b of state.boxes){
     cards.set(b.id, b);
@@ -7899,7 +8085,7 @@ function drawClock(state){
       if (row.text !== text){ row.text = text; row.span.textContent = text; }
     }
   }
-  drawListeners(state);
+  drawListeners(state, gone);
 }
 
 // ---- the clock: day, time, date, plain text, upper left -------------------
@@ -8686,9 +8872,10 @@ panelPoll(); setInterval(panelPoll, 4000);
 
 // a card's magic box: the box beside the card on screen that the card's agent
 // filled (POST /magic, or `facilitator magic`). each card keeps its own and only
-// the one on screen is ever built, so at most one live frame is on the page. the
+// the one on screen is shown; an agent's page beside it may stay loaded, hidden
+// and drawing nothing, for a few cards (MAGIC_KEEP, below). the
 // card's magic field says whether it has one, whether it is open, which
-// revision and which lines join it to its card; what it holds is read from
+// revision and which line joins it to its card; what it holds is read from
 // /magic/body when that revision moves, ahead of the owner coming to the card
 // (magicFetch), so flipping to a card shows its box in the same frame as the
 // card. MagicBox.place (magic-box.js) works out where it stands. the box shows what it
@@ -8698,7 +8885,14 @@ panelPoll(); setInterval(panelPoll, 4000);
 // green button at its bar's left expands it over the dimmed board (magicBig).
 // bodies: card id -> {rev, box, wait}, what each open box holds; pictures and
 // heights: "id:rev" -> a picture fetched and read, {src, natural}, and a page's
-// height at a width, {w, h}
+// height at a width, {w, h}.
+// an agent's page stays loaded, hidden, once its card is left, and the pages of
+// the project on screen are loaded ahead (magicPrepare), up to MAGIC_KEEP, so
+// clicking a card shows its page in the same frame as the card, as a picture or
+// words are shown. a page made afresh on each click kept the box waiting on a
+// new frame and process, the page's load and a widget's reading of its record
+// (magicView's keep)
+const MAGIC_KEEP = 6;
 const MB = { el: document.getElementById("magicbox"), line: document.getElementById("mbline"), id: null, rev: 0, asked: 0,
   rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null }, known: null,
   bodies: new Map(), pictures: new Map(), heights: new Map(), measuring: null };
@@ -8718,7 +8912,18 @@ if (MB.el){
     expand: from => { magicBig(from); return MB.view.big; },
     moving: () => !!MB.move,
     pageHeight: width => magicHeight(MB.id + ":" + MB.rev, width),
-    heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); } });
+    heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); },
+    // pages kept once their cards are left, and made ahead for the project on
+    // screen, the next as each one loads (magicPrepare)
+    keep: MAGIC_KEEP, made: () => magicPrepare(),
+    // the owner is at the box, for a widget's message: the keys are in it (its
+    // page's frame has the focus), or the pointer is over it (magicPointer)
+    // and nothing else on the board has the keys, so keys typed on the card
+    // with the pointer resting on the box never count
+    atBox: () => {
+      const live = document.activeElement;
+      return MB.el.classList.contains("on") && (MB.el.contains(live) || (MB.over && (!live || live === document.body)));
+    } });
   MB.body = MB.view.body;
   MB.el.querySelector(".mbclose").addEventListener("click", () => magicClose());
   // the green button expands the box and puts it back (magicBig). what held
@@ -8777,9 +8982,13 @@ function magicSync(){
     boxBack(MB);
     magicPlace();
   }
+  // and a widget's page hears what its agent answered since, a page kept
+  // from its card's last showing as well
+  MB.view.widgetSync(b.magic);
 }
-// the box off the page with everything in it, so a frame that was showing
-// stops running the moment its card is not the one on screen. it is left
+// the box off the page with everything in it, so nothing of it shows once its
+// card is not the one on screen: an agent's page is kept loaded and hidden
+// (magicView's keep), and anything else goes. it is left
 // risen: whether the next one rises in is magicLoad's to say. an expanded box
 // is put back first, unless keep: the same card's next revision, which
 // stays expanded and carries on any move it is making (magicMove)
@@ -8842,20 +9051,19 @@ function magicFetch(id, rev){
   MB.bodies.set(id, ask);
   return ask.wait;
 }
-// a box's picture as the page's own copy, decoded and its size read before
-// it is shown, so the box takes its shape at once (the view's seen)
+// a box's picture loaded, decoded and its size read before it is shown, so the
+// box takes its shape at once (the view's seen). from its own address, which
+// the server sandboxes; a blob: copy is this origin's. one that will not load
+// is left to the view, which loads it itself
 async function magicPicture(key, src){
   if (MB.pictures.has(key)) return;
   MB.pictures.set(key, null);
-  try {
-    const r = await fetch(src, { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    const url = URL.createObjectURL(await r.blob()), img = new Image();
-    img.src = url;
-    await img.decode().catch(() => {});
-    if (!MB.pictures.has(key)){ URL.revokeObjectURL(url); return; }
-    MB.pictures.set(key, { src: url, natural: [img.naturalWidth, img.naturalHeight], img });
-  } catch (e) { MB.pictures.delete(key); }
+  const img = new Image();
+  const loaded = await new Promise(done => { img.onload = () => done(true); img.onerror = () => done(false); img.src = src; });
+  if (!loaded){ MB.pictures.delete(key); return; }
+  await img.decode().catch(() => {});
+  if (!MB.pictures.has(key)) return;
+  MB.pictures.set(key, { src, natural: [img.naturalWidth, img.naturalHeight], img });
 }
 // a page's height known for a box at a width, to within a pixel and a half
 // (the box's edge rounds), or 0
@@ -8873,20 +9081,40 @@ function magicAhead(){
     if (x.magic.open) magicFetch(x.id, x.magic.rev);
   }
   for (const [id, have] of MB.bodies) if (!live.has(id + ":" + have.rev) && have.box) MB.bodies.delete(id);
-  for (const [key, seen] of MB.pictures) if (!live.has(key)){ if (seen) URL.revokeObjectURL(seen.src); MB.pictures.delete(key); }
+  for (const key of MB.pictures.keys()) if (!live.has(key)) MB.pictures.delete(key);
   for (const key of MB.heights.keys()) if (!live.has(key)) MB.heights.delete(key);
+  // a kept page goes with its box closed or filled again, or its card done
+  MB.view.keepOnly(new Set(lastState.boxes.filter(x => x.magic && x.magic.open && !x.done).map(x => x.id + ":" + x.magic.rev)));
   magicMeasure();
+}
+// the pages of the project on screen loaded ahead and kept (magicView's keep):
+// its open boxes' pages on cards not done, those out of Deferred first, one at
+// a time (a page still loading is waited for, up to five seconds, and the next
+// is made as one says it has loaded) and once the measuring is done, so
+// loading the board is not slowed. every reading of the board and every
+// project switch asks again (magicAhead, by way of magicMeasure)
+function magicPrepare(){
+  if (!MB.el || !lastState || MB.measuring || MB.view.kept().some(k => !k.said && k.age < 5000)) return;
+  const mine = lastState.boxes.filter(x => x.owner === activeOwner && !x.done && x.magic && x.magic.open && x.magic.kind === "html");
+  mine.sort((a, b) => !!a.parked - !!b.parked);
+  const wanted = new Set(mine.slice(0, MAGIC_KEEP).map(x => x.id + ":" + x.magic.rev));
+  for (const x of mine.slice(0, MAGIC_KEEP)){
+    const have = MB.bodies.get(x.id);
+    if (!have || !have.box || have.rev !== x.magic.rev) continue;
+    if (MB.view.prepare(have.box, wanted)) return;
+  }
 }
 // a page's height measured before its card is first shown: the page laid out
 // once, unseen, in a sealed frame of its own at the width it will be shown at,
 // until it has said its height and then a moment more for anything that
 // arrives late. one page at a time, and the frame goes as soon as it is done.
-// it runs as the shown page does (MagicBox.pageDoc): no network, no keys
+// it runs as the shown page does (MagicBox.pageDoc, in its holder,
+// MagicBox.holderDoc): no network, no keys
 const MEASURE_SETTLE = 300, MEASURE_MOST = 3000;
 function magicMeasure(){
   if (!MB.el || MB.measuring) return;
   const room = magicRoom();
-  if (!room) return;
+  if (!room) return magicPrepare();
   const width = room.most.width - 2 * (parseFloat(getComputedStyle(MB.el).borderLeftWidth) || 0);
   for (const [id, have] of MB.bodies){
     const key = id + ":" + have.rev;
@@ -8908,10 +9136,12 @@ function magicMeasure(){
       magicMeasure();
     };
     const m = MB.measuring = { frame, word, key, width, settle: 0, most: setTimeout(done, MEASURE_MOST), done };
-    frame.srcdoc = MagicBox.pageDoc(have.box.html || "", word, true);
+    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(have.box.html || "", word, true, false, !!have.box.widget));
     document.body.appendChild(frame);
     return;
   }
+  // nothing left to measure: the pages of the project on screen are made ahead
+  magicPrepare();
 }
 addEventListener("message", e => {
   const m = MB.measuring;
@@ -9039,8 +9269,8 @@ function boxSink(box, off){
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   if (MB.move) return;
-  // expanded, it draws no lines: any it had are fading out (magicLineFade),
-  // which takes them off
+  // expanded, it draws no line: one it had is fading out (magicLineFade),
+  // which takes it off
   if (MB.view.big){ if (!MB.lineFade) MB.line.classList.remove("on"); magicPlaceBig(); return; }
   MB.line.classList.remove("on");
   const room = magicRoom();
@@ -9048,13 +9278,14 @@ function magicPlace(){
   const { S, rect, fit, most } = room;
   if (!most.shown){ MB.el.style.visibility = "hidden"; return; }
   // what it shows asks for, in stage pixels: the view's want (card-logic.js)
-  const at = MagicBox.place(rect, fit, MB.view.want(most, S));
+  const at = MagicBox.place(rect, fit, MB.view.want(most, S), room.side);
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   if (MB.el.style.visibility === "hidden") return;
-  // shown: its lines to the card, and the rise if it is new on the card
+  // shown: its line to the card, and the rise if it is new on the card
   magicLine(rect, at);
   boxRise(MB);
+  if (room.side === "left") magicLineLeft(rect, at);
 }
 // the box expanded by its green button, over the dimmed board: nine tenths of
 // the window's width and height in its middle (MagicBox.grow), a site that
@@ -9090,11 +9321,11 @@ function magicPlaceBig(){
 // stays full. the keys moving while it is on its way take it to its new
 // strength from where it has got to (magicHold). once it lands it is placed
 // as it always is, a picture from its words shown alone (view.solo) giving
-// way to the words as it lands beside the card. its lines to the card fade
-// on the same time and curve, from how strongly they were drawn as it set
+// way to the words as it lands beside the card. its line to the card fades
+// on the same time and curve, from how strongly it was drawn as it set
 // off (lines, magicLineStop): out as it expands and in as it comes back
 // (magicLineFade). with reduced motion it does not travel: it fades in where
-// it now stands, quickly (BIG_FADE_MS), and the lines fade with it
+// it now stands, quickly (BIG_FADE_MS), and the line fades with it
 const BIG_MS = CARD_PICTURE_MS, BIG_EASE = CARD_PICTURE_EASE, BIG_FADE_MS = 160;
 function magicMove(from, lines){
   const s = MB.el.style;
@@ -9133,11 +9364,11 @@ function magicMoveStop(){
   MB.el.classList.remove("moving");
   return at;
 }
-// the lines to the card on the box's way (magicMove), from strength from, on
-// its time: expanding, the lines it had stay where they were drawn and fade
-// out, and are taken off as they reach nothing, so none is left the frame it
-// is expanded; coming back, the lines just drawn at its place beside the card
-// fade in, to whatever the rise gives them, so they are whole the frame it
+// the line to the card on the box's way (magicMove), from strength from, on
+// its time: expanding, the line it had stays where it was drawn and fades
+// out, and is taken off as it reaches nothing, so none is left the frame it
+// is expanded; coming back, the line just drawn at its place beside the card
+// fades in, to whatever the rise gives it, so it is whole the frame it
 // lands
 function magicLineFade(from, time){
   const line = MB.line;
@@ -9151,8 +9382,8 @@ function magicLineFade(from, time){
     fade.onfinish = () => { if (MB.lineFade === fade) MB.lineFade = null; };
   }
 }
-// how strongly the lines are drawn now, 0 when they are not, however far a
-// fade of theirs has got, which stops there
+// how strongly the line is drawn now, 0 when it is not, however far its
+// fade has got, which stops there
 function magicLineStop(){
   const now = MB.line.classList.contains("on") ? +getComputedStyle(MB.line).opacity : 0;
   if (MB.lineFade){ MB.lineFade.cancel(); MB.lineFade = null; }
@@ -9228,7 +9459,9 @@ if (MB.el) addEventListener("keydown", e => {
   if (magicEscape()){ e.preventDefault(); e.stopImmediatePropagation(); }
 });
 // the card's rectangle on the stage, the fit's edges and the largest box
-// there is room for beside it, or null with no card laid out to stand beside
+// there is room for beside it, or null with no card laid out to stand beside.
+// the box stands right of the card, and left of it in the new layout, where
+// the room on the right is the ticket list's and the typing box's (side)
 function magicRoom(){
   const card = document.querySelector("main"), stage = document.getElementById("stage");
   if (!card || !stage) return null;
@@ -9237,40 +9470,47 @@ function magicRoom(){
   const lim = frameLimits();
   const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
   const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
-  return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
+  const side = document.body.classList.contains("newlayout") ? "left" : undefined;
+  if (side) fit.left = lim.left - FRAME_CLEAR;
+  return { S, sr, rect, fit, side, most: MagicBox.place(rect, fit, undefined, side) };
 }
-// the lines from the card to its box, the ones every box draws, as the owner
-// chose them in the connector mock (m1237, mock-box-connector-20261013.html:
-// Two lines, Dashed, n = 52). two level dashed lines across the gap, with no
-// tabs, each from the card's right edge to the box's left edge and no further,
-// so nothing of it is under either, which shows through whichever is faded:
-//   the first sits a share of the box's height down from its top and the
-//     second the same share up from its foot: the mock's n of 52 on its box
-//     488 high, so the two keep the same look on a box of any size and never
-//     meet
-//   each is dashes 6 long with gaps of 4, 4/3 wide (two thirds of the 2 the
-//     mock drew, thinned in m1275), with flat ends, in the card's
-//     edge colour, counted from the box's edge, so a whole dash ends exactly
-//     at it
-// a gap narrower than 8 px gives null, and no line is drawn
-const TWO = { gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 };
-function magicTwo(card, box){
+// the line from the card to its box, the one every box draws, as the owner
+// chose it in m1497 (views.html, view 5: one middle line). one level solid
+// line across the gap at exactly the middle of the box's height, from the
+// card's right edge to the box's left edge and no further, so nothing of it is
+// under either, which shows through whichever is faded. it is 4/3 wide (two
+// thirds of the 2 the connector mock drew, thinned in m1275), with flat ends,
+// in the card's edge colour. the box always stands within the card's height
+// (MagicBox.place: its top is the largest box's, which is shorter than the
+// card and centred on it), so its middle is always beside the card. a gap
+// narrower than 8 px gives null, and no line is drawn
+const LINE = { gap: 8, width: 4 / 3 };
+function magicMiddle(card, box){
   const cr = card.left + card.width;
-  if (box.left - cr < TWO.gap) return null;
-  const n = box.height * TWO.share;
-  const ys = [box.top + n, box.top + box.height - n];
-  return { ys, from: cr, to: box.left };
+  if (box.left - cr < LINE.gap) return null;
+  return { y: box.top + box.height / 2, from: cr, to: box.left };
 }
 function magicLine(card, box){
-  const two = magicTwo(card, box);
-  if (!two) return;
-  // the card's own edge colour, read off the card, so the lines are always it
+  const mid = magicMiddle(card, box);
+  if (!mid) return;
+  // the card's own edge colour, read off the card, so the line is always it
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-  // each path starts at the box's edge, where its dashes are counted from. both
-  // are one group, which wears the shadow (#mbline.on > g)
-  MB.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
-    two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
-    '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+  // in a group, which wears the shadow (#mbline.on > g)
+  MB.line.innerHTML = '<g><path d="M' + mid.from.toFixed(2) + ' ' + mid.y.toFixed(2) + 'L' + mid.to.toFixed(2) + ' ' +
+    mid.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + LINE.width + '" stroke-linecap="butt"/></g>';
+  MB.line.classList.add("on");
+}
+// the same line for a box left of the card, where the new layout stands it
+// (magicRoom): the card and the box are turned over so magicMiddle measures
+// them as it measures a box on the right, and the line is turned back, from
+// the card's left edge to the box's right edge
+function magicLineLeft(card, box){
+  const turn = r => ({ left: -(r.left + r.width), top: r.top, width: r.width, height: r.height });
+  const mid = magicMiddle(turn(card), turn(box));
+  if (!mid) return;
+  const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+  MB.line.innerHTML = '<g><path d="M' + (-mid.from).toFixed(2) + ' ' + mid.y.toFixed(2) + 'L' + (-mid.to).toFixed(2) + ' ' +
+    mid.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + LINE.width + '" stroke-linecap="butt"/></g>';
   MB.line.classList.add("on");
 }
 if (MB.el){
@@ -9417,6 +9657,18 @@ addEventListener("keydown", e => {
   e.preventDefault();
   getSelection().selectAllChildren(words);
 });
+// control+shift+left and right while the box is expanded go to the widget's
+// page in it, which flips its items with them, as they would with the keys in
+// the page (view.widgetKey), and not to the cards under the dimmed board.
+// heard in capture, ahead of the board's and the small card's own, and only
+// while nothing over the box holds the keys (magicEscape). a box that holds
+// no widget's page, or one put back, leaves the keys as they were
+if (MB.el) addEventListener("keydown", e => {
+  if (!FOCUS || !MB.view.big || e.altKey || imeKey(e) || !boardKeysLive() || projOpen() || searchOpen || p3Zoom || cardPictureShown) return;
+  const shortcut = cardShortcut(e);
+  if (!shortcut || shortcut.action !== "navigate" || !MB.view.widgetKey(e)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
 
 // ---- the response piped out beside a long reply -------------------------------
 // the card's typing row grows in two steps. it grows a line at a time to the
@@ -9439,9 +9691,11 @@ addEventListener("keydown", e => {
 // step. it rises and sinks quicker than the box, over PIPE_MS on the box's
 // curve, and dims what it stands for and over to PIPE_DIM (pipeDim). its brace
 // stops PIPE_CLEAR short of the card and of it (pipeBrace), its lines
-// PIPE_STROKE wide, half the box's lines (TWO.width)
+// PIPE_STROKE wide, half the box's line (LINE.width), dashed 6 long with
+// gaps of 4 (BRACE), as the box's two lines were before its one middle line
 const PIPE_MS = 600, PIPE_DIM = .1, PIPE_CLEAR = 8;
-const PIPE_STROKE = TWO.width / 2;
+const PIPE_STROKE = LINE.width / 2;
+const BRACE = { share: 52 / 488, dash: 6, space: 4 };
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
   ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
   aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
@@ -9654,8 +9908,7 @@ function pipeSync(){
     else pipeOff();
     return;
   }
-  // the response the card shows, its live one (a new answer is held back from
-  // the card while the reply is typed, and from here with it)
+  // the response the card shows, its live one
   const raw = el.reply.dataset.raw || "";
   if (PIPE.id !== shownId){
     // new beside the card: it comes flat, as a box new on its card does, and
@@ -9815,21 +10068,22 @@ function pipeInk(words){
 // top, its own top edge there), and the foot arm with its foot, in by its
 // corner (round). the two lines toward the card stand a line of the
 // response's words (apart) apart, either side of the point, a set way under
-// the top arm: where the magic box's first line stands
-// on the largest box beside this card (TWO), or half way down a response too
-// short for that, and no further apart than half of what is left of the brace.
+// the top arm: 52/488 of the largest box beside this card (BRACE.share),
+// where the magic box's upper line stood when it had two, or half way down a
+// response too short for that, and no further apart than half of what is left
+// of the brace.
 // so the upper set keeps its height and the lower stretches with the response.
 // each line is dashed from the corner it leaves, and the spines from the
 // point, each starting half the line's width back so the corners close. a gap
 // with no room on either side of the spine for a clear end and a dash gives null
-function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO.space + PIPE_STROKE, clear = 0 } = {}){
+function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = BRACE.space + PIPE_STROKE, clear = 0 } = {}){
   const s = side === "left" ? -1 : 1;
   const from = s > 0 ? card.left + card.width : card.left;
   const to = s > 0 ? box.left : box.left + box.width;
   const spine = (from + to) / 2, w = PIPE_STROKE / 2;
-  if (s * (to - from) / 2 < clear + w + TWO.dash) return null;
+  if (s * (to - from) / 2 < clear + w + BRACE.dash) return null;
   const top = box.top + lead, foot = box.top + box.height - round;
-  const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
+  const point = top + Math.min(most.height * BRACE.share, (foot - top) / 2);
   const nub = Math.min(apart / 2, (foot - top) / 4);
   const up = point - nub, down = point + nub, near = to - s * clear, far = from + s * clear;
   const upper = [[spine - s * w, top, near, top], [spine, up + w, spine, top], [spine + s * w, up, far, up]];
@@ -9845,12 +10099,12 @@ function pipeLine(card, box, side, most, lead){
   const apart = words ? parseFloat(getComputedStyle(words).lineHeight) || 0 : 0;
   const brace = pipeBrace(card, box, side, most, { round, lead: lead == null ? round : lead, apart, clear: PIPE_CLEAR });
   if (!brace) return;
-  // the card's own edge colour, read off the card, as the box's lines are. it is
+  // the card's own edge colour, read off the card, as the box's line is. it is
   // drawn again only when it has moved: each key typed at the second step places it
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
   const drawn = '<g>' + brace.segments.map(([x1, y1, x2, y2]) => '<path d="M' + x1.toFixed(2) + ' ' +
     y1.toFixed(2) + 'L' + x2.toFixed(2) + ' ' + y2.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' +
-    PIPE_STROKE + '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+    PIPE_STROKE + '" stroke-linecap="butt" stroke-dasharray="' + BRACE.dash + ' ' + BRACE.space + '"/>').join("") + '</g>';
   if (drawn !== PIPE.drawn){ PIPE.drawn = drawn; PIPE.line.innerHTML = drawn; }
   PIPE.line.classList.add("on");
 }
@@ -12283,11 +12537,7 @@ function renderMiniCards(state){
         }
       });
       ta.addEventListener("keyup", e => e.stopPropagation());
-      ta.addEventListener("input", () => {
-        ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px";
-        // a key here holds a new answer on this card back, as on the large one
-        noteTyping(ta);
-      });
+      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
       watchTyping(ta, b.id);
@@ -12296,8 +12546,6 @@ function renderMiniCards(state){
                              answwrap, answ: null, answId: null,
                              sentwrap, sent: null, sentKey: "", sentItems: [],
                              tick: () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; } };
-      // and the reader's own scrolling of its answer, which holds a turn back too
-      watchReading(el);
       list.appendChild(box);
     }
     // one card at a time; the rest stay built so their half-typed messages
@@ -12317,21 +12565,21 @@ function renderMiniCards(state){
     // a new one on the card on show turns the page as the large card's does
     // (turnBegin in card-logic.js): the sent panel rises to the head of the card
     // with the new answer under it, in one glide, or the answer is printed in
-    // place when nothing was sent. it waits while the reader is busy with the
-    // card, and a card built just now has nothing to turn from
+    // place when nothing was sent. it waits for a merge of the waiting bubbles,
+    // as the large card's does, and a card built just now has nothing to turn from
     const shortReply = replyShort(b);
     const turn = el.reply.dataset.raw !== undefined && el.reply.dataset.raw !== shortReply
       ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== shortReply){
+    const waits = turn === TURN_WAIT;
+    if (!waits && el.reply.dataset.raw !== shortReply){
       el.reply.dataset.raw = shortReply;
       el.reply.innerHTML = fmt(shortReply);
     }
     // the large card's own passes, told to answer to nobody: the small card has
     // no answer to re-snap when a panel opens or is cut back. a reading asked
     // for before this card's own last send landed may not take it away
-    if (!held) syncAnswered(el, liveAnswered(b), null);
-    if (!held && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
+    if (!waits) syncAnswered(el, liveAnswered(b), null);
+    if (!waits && (state.fetchedAt || 0) >= (el.sendGuard || 0)){
       el.sentItems = sentFrom(b);
       syncSent(el, el.sentItems);
     }
@@ -12525,6 +12773,7 @@ function renderCarousel(state){
   // two-section jump; each is its own group's pool
   if (sheet){
     for (const name of TICKET_VIEWS){
+      if (tikShownOnly && name !== curView()) continue;   // a close's own draw (closeCardNow)
       const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
       if (pane) paintTicketPane(pane, viewPoolFor(state, name), name, state, laneSig);
     }
@@ -13203,6 +13452,28 @@ async function deskCopy(reading, pause){
   }
   return out;
 }
+// a 401 is the board's lock refusing this window: one opened before the lock
+// came in, or one whose cookie the board no longer keeps (server.py BoardLock).
+// It is no reading, so it is thrown rather than handed on, and the page opens
+// itself again once; the board answers that open with its own page saying to
+// open the board with facilitator run. The mark kept for this tab stops a page
+// that is refused again from opening itself over and over, and the next good
+// reading lets it go
+const LOCK_RELOAD_MARK = "facilitator-lock-reload";
+function lockRefused(){
+  try {
+    if (!sessionStorage.getItem(LOCK_RELOAD_MARK)){
+      sessionStorage.setItem(LOCK_RELOAD_MARK, "1");
+      location.reload();
+    }
+  } catch (e) {}
+  return new Error("the board's lock refused this window");
+}
+async function lockChecked(answer){
+  if (answer.status === 401) throw lockRefused();
+  if (answer.ok) try { sessionStorage.removeItem(LOCK_RELOAD_MARK); } catch (e) {}
+  return answer.json();
+}
 // one reading, as the board's state at this moment, new objects for the draw. An
 // answer that is no reading at all (a busy or failed board's {error}) is handed
 // on as it came, as it always was, and the reading held stays held. same says
@@ -13211,7 +13482,7 @@ async function deskCopy(reading, pause){
 async function readState(same = false, pause = null){
   const base = deskHeld;
   const ask = base && base.epoch !== null ? "/state?since=" + base.rev + "&delta=" + encodeURIComponent(base.epoch) : "/state?since=";
-  const data = await (await fetch(ask)).json();
+  const data = await lockChecked(await fetch(ask));
   if (data === null || typeof data !== "object" || (data.delta == null && !Array.isArray(data.boxes))) return data;
   let held = null;
   try { held = deskMerge(base, data); } catch (e) { held = null; }
@@ -13224,7 +13495,7 @@ async function readState(same = false, pause = null){
     // check should make impossible: written down, and the whole board read now
     if (typeof reportProblem === "function") reportProblem("error", new Error("a lean reading did not fit the reading held"));
     deskHeld = null;
-    const whole = await (await fetch("/state?since=")).json();
+    const whole = await lockChecked(await fetch("/state?since="));
     if (whole === null || typeof whole !== "object" || !Array.isArray(whole.boxes)) return whole;
     held = deskMerge(null, whole);
   }
@@ -13254,11 +13525,13 @@ function deskStill(){
 // three throws from anywhere in the render path raised pollFails to three and
 // painted the banner over a server that was answering perfectly. The banner
 // keeps its wording and its three strikes and now means what it says; a render
-// that fails is reported and the board keeps polling, because one card that
+// that fails is reported and the board keeps reading, because one card that
 // will not draw should not stop the rest.
 //
-// timed is the 1.2 s timer's own reading. one that finds the board standing
-// still (DESK_SAME) draws only what the clock moves (drawClock) rather than the
+// timed is the reading a ring of the board's live line asks for in a window on
+// screen, and the 1.2 s timer's own while that line is down (the board's live
+// line, at the end of this page). one that finds the board standing still
+// (DESK_SAME) draws only what the clock moves (drawClock) rather than the
 // whole board again, as long as the page holds nothing of its own that waits
 // for the board's word (deskStill); one that brings a change is copied and
 // drawn in slices between the page's frames (deskCopy, applySliced). a reading
@@ -13330,7 +13603,8 @@ async function poll(timed = false){
     seedSeenOnce(state);
     // and the settings, which have a revision of their own: another window's
     // arrangement is read when it moves, and used at the next tab switch or
-    // reload, as it was when the browser kept them
+    // reload, as it was when the browser kept them. the new layout and the
+    // waiting order are drawn as soon as they are read (settingsStore.onChange)
     if (settingsStore.notice) settingsStore.notice(state.settingsRev);
     const caretBefore = focusedCaretContext();
     // a card this page has just put in the Bin stays out of the reading
@@ -13476,13 +13750,13 @@ function boardMoveLive(){
     !(selectedId && els[selectedId]?.wtmenu?.classList.contains("open"));
 }
 
-// the large card's close from the done keys: the cross's own request, then the
-// cross's own hop to the next doing card, once the board has answered
-async function boardCloseCard(id){
-  const { order, section } = cardDeparture(lastState, id);
-  await fetch(closeCardUrl(id), { method: "POST" }).catch(() => {});
-  selectNextCard(id, order, section);
-  poll();
+// the large card's close, from the cross and the done keys alike: the card and
+// its ticket leave together on the press, the hop goes to the next doing card,
+// and the board is told after (closeCardNow, card-logic.js). the server reads
+// the current record atomically, so a handler born with an empty card can never
+// erase replies that arrived on later polls
+function boardCloseCard(id){
+  return closeCardNow(id, card => fetch(closeCardUrl(card), { method: "POST" }));
 }
 
 // the section keys' one path on the large card: a meta card moved the way its
@@ -13751,54 +14025,6 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
   });
 }
 
-// quick chat: the q box's thread as text-message bubbles, served by the qchat
-// lane; the panel is dormant in the current board but the machinery stays
-let qSig = "";
-async function pollQ(){
-  if (!FOCUS) return;
-  try {
-    const r = await (await fetch("/thread?box=q&n=60")).json();
-    const sig = JSON.stringify(r.messages.map(m => m.ts));
-    const writing = !!lastState?.boxes.find(b => b.id === "q")?.writing;
-    if (sig + writing !== qSig){
-      qSig = sig + writing;
-      const qm = document.getElementById("qmsgs");
-      qm.textContent = "";
-      let prev = null;
-      for (const m of r.messages){
-        const side = m.kind === "user" ? "me" : "ag";
-        const row = h("div", "qrow " + side + (prev === m.kind ? " cont" : ""));
-        const bubble = h("div", "qb cardmd " + side);
-        bubble.innerHTML = fmt(m.kind === "user" ? m.text : (m.replyFull ?? m.text));
-        row.appendChild(bubble);
-        qm.appendChild(row);
-        prev = m.kind;
-      }
-      if (writing){
-        const t = h("div", "qtyping");
-        t.append(h("i"), h("i"), h("i"));
-        qm.appendChild(t);
-      }
-      qm.scrollTop = qm.scrollHeight;
-    }
-  } catch (e) {}
-}
-const qta = document.getElementById("qta"), qsend = document.getElementById("qsend");
-async function doQSend(){
-  const t = qta.value.trim();
-  if (!t) return;
-  qsend.disabled = true;
-  try {
-    await fetch("/send?box=q", { method: "POST", body: t });
-    qta.value = "";
-    pollQ();
-  } finally { qsend.disabled = false; }
-}
-qsend.addEventListener("click", doQSend);
-qta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey){ e.preventDefault(); doQSend(); } });
-
-setInterval(pollQ, 2500); pollQ();
-
 tickClock();
 setInterval(tickClock, 1000);
 
@@ -13898,6 +14124,7 @@ function fitStage(){
   if (!FOCUS) return;
   const stage = document.getElementById("stage");
   if (!stage) return;
+  if (document.body.classList.contains("newlayout")){ fitNewLayout(stage); return; }
   // fit inside the rounded app frame, not the raw window: the frame is inset from
   // every edge, so a region fitted to the window bottom lands past the frame line.
   const lim = frameLimits();
@@ -13964,6 +14191,94 @@ function fitStage(){
   applyRespNav();   // show or hide the pan arrow for the current mode and pane
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
   magicSync();      // and the card's magic box follows the card, or goes in the phone view
+}
+
+// ---- the new layout ----------------------------------------------------------
+// the three boxes as the owner sized them, each as percent of the window, its
+// outer edges: the card, the ticket list's holder and the typing box. their
+// places are rough. the fit keeps their sizes and the gaps between them, puts
+// the list's centre line on the typing box's, and then moves the three as one
+// so the smallest rectangle round them stands in the middle of the window
+const NEW_LAYOUT = {
+  card:     { left: 18,   top: 12, width: 31, height: 77 },
+  list:     { left: 54.5, top: 9,  width: 24, height: 52 },
+  composer: { left: 52.5, top: 66, width: 28, height: 25 },
+};
+// the stage's scale there: full size in a window this big, and in proportion
+// in any other, smaller or larger, so what is inside the boxes keeps its size
+// against the boxes. the window the layout was tuned in, 1512 by 949, draws it
+// at .94
+const NEW_LAYOUT_FULL = { w: 1605, h: 1010 };
+// the regions the new layout shows; every other one is put away while it is on
+const NEW_LAYOUT_REGIONS = new Set(["main", "tickets"]);
+let newLayoutFitH = null;   // innerHeight at the new layout's last fit
+function fitNewLayout(stage){
+  const W = innerWidth, H = innerHeight;
+  // the card and the ticket list and nothing else. the regions' own hides,
+  // places and sizes stay as this tab keeps them, for the other layout
+  // (applySavedLayout puts them back, and this takes them off again after it)
+  for (const id of FIT_REGIONS){
+    const el = id === "main" ? document.querySelector("main") : document.getElementById(id);
+    if (el) el.classList.toggle("region-off", !NEW_LAYOUT_REGIONS.has(id));
+  }
+  // the phone view takes a narrow window over as it does for the other layout
+  const phone = MacPhoneView.portrait(W, H, contentBounds(LEFT_MID_REGIONS).right, phoneWanted);
+  phoneWanted = phone;
+  window.macPhoneHost?.request(phone);
+  respMode = "wide";
+  respHasRight = false;
+  document.body.dataset.respMode = respMode;
+  const card = document.querySelector("main"), list = document.getElementById("tickets");
+  const head = document.getElementById("tikhead");
+  const bar = document.querySelector(".bar");
+  const num = v => parseFloat(v) || 0;
+  // every measure below is in the stage's pixels at the scale k0, counted from
+  // the window's top left corner
+  const k0 = Math.min(W / NEW_LAYOUT_FULL.w, H / NEW_LAYOUT_FULL.h);
+  const box = r => ({ x: r.left / 100 * W / k0, y: r.top / 100 * H / k0,
+                      w: r.width / 100 * W / k0, h: r.height / 100 * H / k0 });
+  const c = box(NEW_LAYOUT.card), l = box(NEW_LAYOUT.list), m = box(NEW_LAYOUT.composer);
+  // the list's names and rows stand in from its holder by the holder's own
+  // insets, the two not quite equal, so the line through the middle of what
+  // shows is the one put on the typing box's
+  const hs = head ? getComputedStyle(head) : null;
+  const inL = hs ? num(hs.marginLeft) : 0, inR = hs ? num(hs.marginRight) : 0;
+  l.x = m.x + m.w / 2 - (l.w + inL - inR) / 2;
+  const seen = [c, { x: l.x + inL, y: l.y, w: l.w - inL - inR, h: l.h }, m];
+  const left = Math.min(...seen.map(b => b.x)), right = Math.max(...seen.map(b => b.x + b.w));
+  const top = Math.min(...seen.map(b => b.y)), bottom = Math.max(...seen.map(b => b.y + b.h));
+  const midX = (left + right) / 2, midY = (top + bottom) / 2;
+  // centred, the group's top would only reach under the bar in a very short
+  // window. there the whole group is drawn smaller about the window's middle,
+  // so it still stands centred and clear of the bar
+  const barFoot = bar ? bar.getBoundingClientRect().bottom : STAGE_BAR;
+  const half = (bottom - top) * k0 / 2;
+  const k = k0 * Math.min(1, Math.max(0.1, (H / 2 - barFoot) / half));
+  // a point of the group, in the stage's own pixels: the stage stands at the
+  // window's left edge and under the bar (#stage), drawn at k
+  const sx = x => W / 2 / k + (x - midX);
+  const sy = y => (H / 2 - STAGE_BAR) / k + (y - midY);
+  const put = (el, b) => {
+    el.style.left = sx(b.x) + "px"; el.style.top = sy(b.y) + "px";
+    el.style.width = b.w + "px"; el.style.height = b.h + "px";
+  };
+  put(card, c);
+  put(list, l);
+  // the typing box is the card's own row, laid on the stage from inside the
+  // card (.composebox), so its place is handed down rather than written on it
+  stage.style.setProperty("--nl-x", sx(m.x) + "px");
+  stage.style.setProperty("--nl-y", sy(m.y) + "px");
+  stage.style.setProperty("--nl-w", m.w + "px");
+  stage.style.setProperty("--nl-h", m.h + "px");
+  stageScale = k; stageTx = 0; stageTy = 0;
+  stage.style.transform = `translate(0px, 0px) scale(${k})`;
+  lastFitW = W;
+  newLayoutFitH = H;
+  document.body.style.backgroundPosition =
+    `calc(0px - var(--step) / 2) calc(${STAGE_BAR}px - var(--step) / 2)`;
+  applyRespNav();
+  seatPagePill();
+  magicSync();
 }
 
 // the edge arrow that pans between the two panes. It only exists when the mode
@@ -14066,6 +14381,13 @@ try {
   if (fsq.addEventListener) fsq.addEventListener("change", onFs);
   else if (fsq.addListener) fsq.addListener(onFs);
 } catch (e) {}
+// the new layout stands in the middle of the window, so it follows the
+// window's height as well: the freeze above on a resize that only changes the
+// height is the other layout's. a resize that changed the width has already
+// been fitted by the time this hears it
+addEventListener("resize", () => {
+  if (FOCUS && document.body.classList.contains("newlayout") && innerHeight !== newLayoutFitH) fitStage();
+});
 
 // the copy button on fenced blocks: one click puts the block's text on the
 // clipboard; the icon is the standard two-sheets copy glyph, drawn inline
@@ -14295,12 +14617,43 @@ function applySavedLayout(){
   // freeze rule does not apply here.
   if (typeof fitStage === "function") fitStage(); else seatPagePill();
 }
+// the switch in Settings, or another window's turn of it read off the board:
+// the page takes the layout the setting names at once. the regions go back to
+// this tab's own arrangement first (applySavedLayout), and the new layout's fit
+// then places them, or the other layout's fit does. the typing row on screen is
+// measured again for the row it now stands in
+function applyNewLayout(){
+  const on = FOCUS && newLayoutWanted();
+  if (on === document.body.classList.contains("newlayout")) return;
+  if (on && editMode) setEditMode(false);
+  document.body.classList.toggle("newlayout", on);
+  if (!on){
+    const stage = document.getElementById("stage");
+    for (const v of ["--nl-x", "--nl-y", "--nl-w", "--nl-h"]) stage.style.removeProperty(v);
+  }
+  applySavedLayout();
+  const shown = els[shownId];
+  if (shown && shown.tick) shown.tick();
+  queueFatCaret();
+}
+// another window's turn of a setting, once this one has fetched it from the
+// board: the new layout and the order of the cards waiting on the reader are
+// the two taken at once, so they are drawn again with the new value
+if (settingsStore.onChange) settingsStore.onChange(keys => {
+  try {
+    if (keys.includes("newlayout")) applyNewLayout();
+    if (keys.includes("waitnewest") && lastState) renderCarousel(lastState);
+  } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("render", e);
+  }
+});
 let dragging = null;
 let dragEnabled = true;    // hold Option and drag a box to move it; snaps to the grid
 const mouse = { x: 0, y: 0 };   // the resize hotkey targets the box under the cursor
 addEventListener("pointermove", e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 addEventListener("pointerdown", e => {
-  if (!FOCUS || !dragEnabled || !e.altKey) return;
+  // the new layout places its boxes itself, so nothing on it is dragged
+  if (!FOCUS || !dragEnabled || !e.altKey || document.body.classList.contains("newlayout")) return;
   const el = e.target.closest(REGION_SEL);
   if (!el) return;
   e.preventDefault();
@@ -14363,6 +14716,7 @@ const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
 function setEditMode(on){
   if (!FOCUS) return;
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
+  if (on && document.body.classList.contains("newlayout")) return;   // it places its own boxes
   editMode = on;
   document.body.classList.toggle("editmode", on);
   if (on){
@@ -14427,6 +14781,21 @@ function updateWatch(state){
     wait.checked = waitNewestFirst();
     waitNote.textContent = wait.checked ? "Newest first" : "Oldest first";
   };
+  // the new layout for the project tabs: the board's newlayout setting, "1"
+  // for on and absent for off. the switch puts it on or off at once
+  // (applyNewLayout)
+  const layout = document.getElementById("setlayout");
+  const layoutOn = () => settingsStore.getItem("newlayout") === "1";
+  // whether the reader's curse words are saved as [expletive] (_curse_free in
+  // server.py): the board's expletives setting, "1" for on and absent for
+  // off, so every window and the phone's drawer show the same choice
+  const curses = document.getElementById("setcurses");
+  const masking = () => settingsStore.getItem("expletives") === "1";
+  // a send's bubble shows its saved words from the press, worked out on the
+  // board's own list (sentCurseFree, in card-logic.js) while this switch,
+  // which follows the board, is on
+  SENT_CURSES.switch = masking;
+  sentCursesRead();
   // the profile (GET and POST /profile in server.py): what the onboarding
   // saved, read from the board each time the page opens and saved a field at a
   // time as each is changed. a change the board refuses (an empty name, an
@@ -14547,6 +14916,8 @@ function updateWatch(state){
       usage.checked = sharing();
       updateCheck.checked = checking();
       showWait();
+      layout.checked = layoutOn();
+      curses.checked = masking();
       readProfile();
       readBin();
     },
@@ -14575,6 +14946,17 @@ function updateWatch(state){
     else settingsStore.removeItem("waitnewest");
     showWait();
     if (lastState) renderCarousel(lastState);
+  });
+  layout.checked = layoutOn();
+  layout.addEventListener("change", () => {
+    if (layout.checked) settingsStore.setItem("newlayout", "1");
+    else settingsStore.removeItem("newlayout");
+    applyNewLayout();
+  });
+  curses.checked = masking();
+  curses.addEventListener("change", () => {
+    if (curses.checked) settingsStore.setItem("expletives", "1");
+    else settingsStore.removeItem("expletives");
   });
   btn.addEventListener("click", () => view.open());
   const feedbackBtn = document.getElementById("feedbackbtn");
@@ -15066,8 +15448,8 @@ addEventListener("keydown", e => {
 
 // ---- the fat caret --------------------------------------------------------
 // a terminal style block cursor stands in for the native caret on every
-// typing surface: card reply boxes, the title while naming, the to-do input,
-// quick chat and the file navigator. its left edge sits exactly on the
+// typing surface: card reply boxes, the title while naming, the to-do input
+// and the file navigator. its left edge sits exactly on the
 // insertion point. a visible character sets the block's width from the same
 // rendered text; generated placeholders lend their first grapheme to an empty
 // field, and other empty positions keep the established half-em cell.
@@ -15826,12 +16208,62 @@ renameMagicLayouts();
 syncLayoutsOnce();
 seedHiddenOnce();
 applySavedLayout();
-// the timed refresh waits out a panel's run or a page turn (cardsMoving in
-// card-logic.js): the tick that lands inside one is skipped, and the next one
-// catches up. a refresh asked for by a send or a click still goes at once.
-// a timed one that finds the board standing still draws only what the clock
-// moves (poll's timed)
-poll(); setInterval(() => { if (!cardsMoving()) poll(true); }, 1200);
+// ---- the board's live line ---------------------------------------------------
+// The board rings this page whenever it changes (board-line.js says how): each
+// line names the revision on disk and a mark of what moves with no save, and a
+// page holding anything else reads the board, the same reading the 1.2 s timer
+// made, drawn the same way. A window on screen takes the timer's own path
+// (poll's timed: a board standing still draws only what the clock moves, and a
+// changed one is drawn in slices between the page's frames); a hidden window
+// draws whole, since the slices wait on idle time a hidden page gives late and
+// nobody scrolls a hidden window. The reply chime comes before the draw either
+// way. A ring that lands in a panel's run or a page turn (cardsMoving in
+// card-logic.js) is put off a moment and tried again, never dropped, since the
+// change it brings has to be drawn; one reading at a time, at most one started
+// by a ring each second.
+//
+// While the line is down, and until the first line comes, the timed refresh
+// runs exactly as it did before there was a line (deskTimed), and it stops when
+// a line is up. Its tick that lands inside a run or a page turn is skipped and
+// the next one catches up; a refresh asked for by a send or a click still goes
+// at once
+let deskTicker = 0;
+function deskTimed(on){
+  if (on && !deskTicker) deskTicker = setInterval(() => { if (!cardsMoving()) poll(true); }, 1200);
+  else if (!on && deskTicker){ clearInterval(deskTicker); deskTicker = 0; }
+}
+// what moves with the clock alone while the board stands still: each age in
+// the outline and the list, and the line naming a lane whose agent has gone
+// quiet. While the line is up and the window is on screen they are drawn from
+// the reading held every DESK_TICK_MS, and at once when the window is shown
+// again, each lane's quiet counted on from the board's clock in that reading
+// (drawClock). Never while the banner says the board is unreachable, which
+// drawListeners would take down, and never while the line is down, when the
+// timed refresh draws the clock itself
+const DESK_TICK_MS = 15000;
+function deskTick(){
+  if (document.hidden || !deskLine || !deskLine.up || pollFails >= 3 || !lastState || !deskHeld) return;
+  const clock = { ...deskHeld.reading };
+  const gone = typeof clock.now === "number" ? Math.max(0, Date.now() / 1000 - clock.now) : 0;
+  try { drawClock(clock, gone); } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("render", e);
+  }
+}
+// the reading at load is the first; a page whose board-line.js did not load
+// keeps the timed refresh for good
+const deskLine = typeof BoardLine === "object" ? BoardLine.connect({
+  held: () => deskHeld ? deskHeld.rev : null,
+  read: () => document.hidden ? poll() : poll(true),
+  moving: cardsMoving,
+  failed: () => pollFails > 0,
+  up: () => deskTimed(false),
+  down: () => deskTimed(true),
+  first: poll(),
+}) : null;
+if (!deskLine){ poll(); deskTimed(true); }
+setInterval(deskTick, DESK_TICK_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) deskTick(); });
+// ---- the board's live line ends
 
 // ---- the board's worker --------------------------------------------------------
 // The worker keeps nothing at all, and sw.js says why it is here: Chrome asked
@@ -15872,7 +16304,7 @@ if ("serviceWorker" in navigator){
     },
   };
   window.macPhoneProject = LOCKED;
-  window.macPhoneHost = view.createHost({ window, adapter,
+  window.macPhoneHost = view.createHost({ window, adapter, line: deskLine,
     childConnected(child) {
       installChromeShortcutGuard(child);
       installMacZoomGuard(child);

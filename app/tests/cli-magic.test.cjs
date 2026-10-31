@@ -1,8 +1,10 @@
 // `facilitator magic`, the one call an agent makes to open, fill and close
 // a card's magic box on its own. A copy of the command runs beside a fixture
 // board on spare ports, finding the port the way it does on a real install,
-// in the run.config.json beside it. No browser is started and no site is
-// asked for: the web addresses used here are refused before any fetch.
+// in the run.config.json beside it, and the board's agent key in data/ beside
+// it: the board is locked as a real one is, so every call carries the key. No
+// browser is started and no site is asked for: the web addresses used here
+// are refused before any fetch.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawnSync } = require("node:child_process");
@@ -17,7 +19,7 @@ let board, cli;
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"), Buffer.alloc(64, 7)]);
 
 before(async () => {
-  board = await startBoard();
+  board = await startBoard({ lock: true });
   cli = path.join(board.app, "facilitator");
   await copyFile(path.join(ROOT, "facilitator"), cli);
   await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cli), "data_folder.py"));
@@ -32,7 +34,7 @@ function magic(args, input, command = cli, name = "magic") {
   });
   return { code: run.status, out: run.stdout.trim(), err: run.stderr.trim() };
 }
-const body = async id => (await fetch(`${board.origin}/magic/body?box=${id}`)).json();
+const body = async id => (await fetch(`${board.origin}/magic/body?box=${id}`, { headers: board.keyed() })).json();
 
 test("each kind fills the card's magic box from an argument, a file or standard input", async () => {
   // a card never filled has none to show, and says so
@@ -60,7 +62,7 @@ test("each kind fills the card's magic box from an argument, a file or standard 
   assert.equal(run.code, 0, run.err);
   const shown = await body("0");
   assert.equal(shown.kind, "image");
-  assert.deepEqual(Buffer.from(await (await fetch(board.origin + shown.src)).arrayBuffer()), PNG);
+  assert.deepEqual(Buffer.from(await (await fetch(board.origin + shown.src, { headers: board.keyed() })).arrayBuffer()), PNG);
 });
 
 test("close hides the magic box, reopen shows it, show prints what it holds", async () => {
@@ -73,6 +75,31 @@ test("close hides the magic box, reopen shows it, show prints what it holds", as
   assert.deepEqual([JSON.parse(run.out).open, JSON.parse(run.out).kind], [false, "text"]);
   run = magic(["1.1", "reopen"]);
   assert.equal(JSON.parse(run.out).open, true);
+});
+
+test("--widget makes a page a widget, answer puts the agent's answer in it and widget prints its record", async () => {
+  let run = magic(["1.1", "html", "<p>a widget</p>", "--widget", "issues"]);
+  assert.equal(run.code, 0, run.err);
+  assert.equal(JSON.parse(run.out).widget, "issues");
+  run = magic(["1.1", "answer", "t3-sound", "Yes, it plays once.", "--agent", "opus"]);
+  assert.equal(run.code, 0, run.err);
+  assert.deepEqual([JSON.parse(run.out).ok, JSON.parse(run.out).answered, JSON.parse(run.out).released], [true, 0, false]);
+  run = magic(["1.1", "answer", "", "-"], "about nothing in particular");
+  assert.equal(run.code, 0, run.err);
+  run = magic(["1.1", "widget"]);
+  assert.equal(run.code, 0, run.err);
+  const record = JSON.parse(run.out);
+  assert.deepEqual(record.thread.map(m => [m.by, m.about, m.text, m.agent]),
+    [["agent", "t3-sound", "Yes, it plays once.", "opus"], ["agent", "", "about nothing in particular", undefined]]);
+  // what the board refuses, and what the command refuses before asking it
+  for (const [args, words] of [[["0", "answer", "t1", "no widget here"], /^magic: this card's box is not a widget$/],
+    [["1.1", "answer", "t 1", "x"], /^magic: about is one id/], [["1.1", "text", "x", "--widget", "issues"], /only an html page/],
+    [["1.1", "answer"], /^magic: answer needs the id/], [["1.1", "widget", "extra"], /^magic: widget takes only the card$/],
+    [["1.1", "text", "x", "--agent", "opus"], /^magic: --agent goes with answer$/]]) {
+    run = magic(args);
+    assert.equal(run.code, 1, args.join(" "));
+    assert.match(run.err, words, args.join(" "));
+  }
 });
 
 test("the board's refusals come back in its own words with exit 1", () => {
@@ -137,6 +164,27 @@ test("a board that is down is said so, with exit 1", async () => {
   } finally {
     await rm(path.dirname(folder), { recursive: true, force: true });
   }
+});
+
+test("a call the operating system or a sandbox blocks is said as blocked, never as a board that is down", async () => {
+  // a sandbox's refusal to connect, as macOS gives it: EPERM on connect
+  const before = await body("0");
+  const run = spawnSync("python3", ["-c", [
+    "import errno, runpy, socket, sys",
+    "def refuse(self, *args):",
+    "    raise PermissionError(errno.EPERM, 'Operation not permitted')",
+    "socket.socket.connect = refuse",
+    "sys.argv = sys.argv[1:]",
+    "runpy.run_path(sys.argv[0], run_name='__main__')",
+  ].join("\n"), cli, "magic", "0", "text", "never sent"], {
+    encoding: "utf8", timeout: 60000,
+    env: { ...process.env, FACILITATOR_LOG_DIR: path.join(board.outer, "cli-logs") },
+  });
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(run.stderr.trim(), `magic: the operating system or a sandbox blocked this call to the board on port ${board.port}; `
+    + "that does not mean the board is down. Run the command again through the host's permission retry, as the facilitator skill says");
+  assert.doesNotMatch(run.stderr, /DOWN/);
+  assert.deepEqual(await body("0"), before);
 });
 
 test("the command's help names the subcommand", () => {

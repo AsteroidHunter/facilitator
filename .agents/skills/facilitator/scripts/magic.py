@@ -12,6 +12,7 @@ so the board is handed bytes and never a path. Prints the board's answer as
 one JSON line, or exits 1 with the board's words; never a key or the
 board's address. Runs on python3 3.7 and newer, standard library only."""
 
+import errno
 import http.client
 import io
 import json
@@ -30,23 +31,37 @@ PIECE = 64 * 1024     # bytes sent at a time, looking for an early answer betwee
 HEAD_MAX = 16 * 1024  # bytes of an answer's head read before the body is sent
 
 MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
-MAGIC_ACTIONS = ("close", "reopen", "show")
-MAGIC_HELP = """usage: magic.py CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+MAGIC_ACTIONS = ("close", "reopen", "show", "widget")
+MAGIC_HELP = """usage: magic.py CARD KIND (CONTENT | --file PATH | -) [--title TITLE] [--widget NAME]
        magic.py CARD close|reopen|show
+       magic.py CARD answer ABOUT (TEXT | --file PATH | -) [--agent NAME]
+       magic.py CARD widget
 
-On one of the owner's servers, what `facilitator magic` is on the Mac, with
+On one of the person's servers, what `facilitator magic` is on the Mac, with
 the same words. Fill a card's magic box on the Mac board and open it, in
 place of what it held. KIND is text, markdown, html, image or url. CONTENT
 is the words, or one https address for url and image; --file sends a file's
 contents (a picture's bytes for image) and - reads standard input. close
 hides the box and keeps it, reopen shows it again, show prints what it
-holds. Prints the board's answer as one JSON line; exits 1 with the board's
+holds.
+
+--widget NAME (lowercase letters, digits and -) makes an html page a widget:
+the person's messages typed in it reach you in /wait and /fresh as
+widget_messages, and never on the card. answer puts your answer about ABOUT,
+one of the page's own ids ("" for none), into the open widget, never on the
+card; --agent names you. widget prints the widget's messages, answers and
+memory. Prints the board's answer as one JSON line; exits 1 with the board's
 words when it refuses."""
 
 
 class LinkDown(Exception):
     """The board's door does not answer: the tailnet, the Mac or the board is
     away."""
+
+
+class Blocked(LinkDown):
+    """The operating system or a sandbox did not let this process connect to
+    the board's door, which says nothing about whether the board is up."""
 
 
 def remote_record():
@@ -147,7 +162,9 @@ def ask(rec, method, route, key, body=None):
             raw, status = response.read(), response.status
         else:
             status, raw = early
-    except (OSError, ValueError, IndexError, http.client.HTTPException):
+    except (OSError, ValueError, IndexError, http.client.HTTPException) as problem:
+        if isinstance(problem, PermissionError) or getattr(problem, "errno", None) in (errno.EPERM, errno.EACCES):
+            raise Blocked()
         raise LinkDown()
     finally:
         conn.close()
@@ -170,50 +187,66 @@ def main(argv):
             print(MAGIC_HELP)
             return
         sys.exit(MAGIC_HELP)
-    title, path, rest = None, None, []
+    named, rest = {"--title": None, "--file": None, "--widget": None, "--agent": None}, []
     at = 0
     while at < len(words):
         word = words[at]
-        if word in ("--title", "--file"):
+        if word in named:
             if at + 1 == len(words):
                 sys.exit("magic: " + word + " needs a value")
-            if word == "--title":
-                title = words[at + 1]
-            else:
-                path = words[at + 1]
+            named[word] = words[at + 1]
             at += 2
             continue
         rest.append(word)
         at += 1
+    title, path, widget, agent = named["--title"], named["--file"], named["--widget"], named["--agent"]
     if len(rest) < 2:
         sys.exit(MAGIC_HELP)
     card, what, content = rest[0], rest[1], rest[2:]
-    if what in MAGIC_ACTIONS:
-        if content or path is not None or title is not None:
-            sys.exit("magic: " + what + " takes only the card")
-        method, route, body, query = ("GET" if what == "show" else "POST",
-                                      "/magic" if what == "show" else "/magic/" + what,
-                                      None if what == "show" else b"", {"box": card})
-    elif what in MAGIC_KINDS:
+
+    def given(content):
+        """The content, given once: one argument, --file PATH or - for
+        standard input."""
         if len(content) + (path is not None) != 1:
             sys.exit("magic: give the content once: as one argument, as --file PATH, or as - to read standard input")
         if path is not None:
             try:
-                body = Path(path).expanduser().read_bytes()
+                return Path(path).expanduser().read_bytes()
             except OSError as error:
                 sys.exit("magic: " + path + " cannot be read: " + (error.strerror or str(error)))
-        elif content[0] == "-":
-            body = sys.stdin.buffer.read()
-        else:
-            body = content[0].encode("utf-8")
+        if content[0] == "-":
+            return sys.stdin.buffer.read()
+        return content[0].encode("utf-8")
+
+    if what == "answer":
+        if title is not None or widget is not None:
+            sys.exit("magic: answer takes the card, the id it is about, the answer and --agent")
+        if not content:
+            sys.exit("magic: answer needs the id it is about (\"\" for none), then the answer")
+        body = given(content[1:])
+        method, route, query = "POST", "/magic/answer", {"box": card, "about": content[0]}
+        if agent is not None:
+            query["agent"] = agent
+    elif what in MAGIC_ACTIONS:
+        if content or path is not None or title is not None or widget is not None or agent is not None:
+            sys.exit("magic: " + what + " takes only the card")
+        method, route, body, query = ("GET" if what in ("show", "widget") else "POST",
+                                      {"show": "/magic", "widget": "/magic/widget"}.get(what, "/magic/" + what),
+                                      None if what in ("show", "widget") else b"", {"box": card})
+    elif what in MAGIC_KINDS:
+        if agent is not None:
+            sys.exit("magic: --agent goes with answer")
+        body = given(content)
         method, route, query = "POST", "/magic", {"box": card, "kind": what}
         if title is not None:
             query["title"] = title
+        if widget is not None:
+            query["widget"] = widget
     else:
-        sys.exit("magic: " + what + " is not one of " + ", ".join(MAGIC_KINDS) + ", " + ", ".join(MAGIC_ACTIONS))
+        sys.exit("magic: " + what + " is not one of " + ", ".join(MAGIC_KINDS) + ", " + ", ".join(MAGIC_ACTIONS) + ", answer")
     rec = remote_record()
     if rec is None:
-        sys.exit("magic: this is not one of the owner's servers; on the Mac run facilitator magic")
+        sys.exit("magic: this is not one of the person's servers; on the Mac run facilitator magic")
     keys = lane_keys(rec)
     if not keys:
         sys.exit("magic: no lane on this server has a key yet: onboard first")
@@ -234,6 +267,10 @@ def main(argv):
             sys.exit(refusal(*refused))
         if what != "show":
             status, answer = ask(rec, method, route + "?" + urllib.parse.urlencode(query), chosen, body)
+    except Blocked:
+        sys.exit("magic: the operating system or a sandbox blocked this call to the board; that does not "
+                 "mean the board is down. Run the command again through the host's permission retry, "
+                 "as the facilitator skill says")
     except LinkDown:
         sys.exit("magic: the board cannot be reached now (the Mac asleep, Tailscale or the board down); "
                  "try again in a minute")

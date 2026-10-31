@@ -286,7 +286,7 @@ function selectorParts(selector) {
 }
 function sandbox() {
   FakeResizeObserver.made = [];
-  const counts = { timers: 0, rooms: 0, again: 0 };
+  const counts = { timers: 0, rooms: 0 };
   const timers = new Map();
   const frames = new Map();
   let seq = 0;
@@ -333,7 +333,6 @@ function sandbox() {
     picked: null,
     boxHasSelection: node => context.picked === node,
     roomSpy: () => { counts.rooms++; },
-    againSpy: () => { counts.again++; },
   });
   vm.runInContext(LOGIC, context, { filename: "card-logic.js" });
   const run = source => vm.runInContext(source, context);
@@ -1882,72 +1881,49 @@ test("a batch the board could not state, or a bubble holding both a message answ
   assert.equal(one.body.querySelector(".turnsheet").style.height, "700px", "a bubble holding both kinds was left standing");
 });
 
-test("the reader is never moved while reading or typing: the new answer waits, and turns once the card is left still", () => {
+test("a new answer turns the page at once whatever the reader is doing with the card, and the row they type in is left as it stands", () => {
   const busy = [
-    ["scrolled the answer a moment ago", (el, context, run) => { el.readAt = Date.now(); }, el => { el.readAt = 0; }],
-    ["typed into the row a moment ago", (el) => { el.ta.typedAt = Date.now(); }, el => { el.ta.typedAt = 0; }],
-    ["on an older page of the history", (el, context, run) => { run("hist = { id: 'c1', step: 1 }"); },
-      (el, context, run) => { run("hist = null"); }],
-    ["picking out words in the answer", (el, context) => { context.picked = el.replyview; },
-      (el, context) => { context.picked = null; }],
+    ["scrolling the answer", el => { el.replyview.scrollTop = 80; el.replyview.fire("scroll"); }],
+    ["typing in the row", el => { el.ta.fire("input"); }],
+    ["on an older page of the history", (el, context, run) => { run("hist = { id: 'c1', step: 1 }"); }],
+    ["picking out words in the answer", (el, context) => { context.picked = el.replyview; }],
+    ["with the caret in the answer", (el, context) => { context.document.activeElement = el.reply; }],
   ];
-  for (const [what, start, stop] of busy) {
-    const { context, counts, run, pending, ring } = sandbox();
-    run("turnAgain = againSpy");
+  for (const [what, start] of busy) {
+    const { context, run, pending } = sandbox();
+    context.ComposeFormat = { focused: ta => ta === context.caret };
     const el = turningCard(context);
+    context.caret = el.ta;
+    el.ta.value = "Invented words half typed";
     start(el, context, run);
     const turn = context.turnBegin(el, NEXT);
-    assert.equal(turn, run("TURN_HELD"), `${what}: the new answer did not wait`);
-    assert.equal(el.body.querySelector(".turnsheet"), null, `${what}: the page moved`);
-    assert.equal(el.replyview.scrollTop, 35, `${what}: the reader's scroll was taken`);
-    assert.ok(el.sent, `${what}: the sent panel was taken away`);
-    // the card looks again every half second, and leaves it alone while the reader is at it
-    assert.equal(pending().at(-1).ms, run("HOLD_LOOK_MS"));
-    assert.equal(run("HOLD_LOOK_MS"), 500);
-    ring();
-    assert.equal(counts.again, 0, `${what}: the page was drawn again while the reader was busy`);
-    assert.ok(el.turnHeld, `${what}: the card stopped looking`);
-    // a second pass while still busy waits too, and arms no second look
-    const looks = pending().length;
-    assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"));
-    assert.equal(pending().length, looks, `${what}: a second pass armed a second look`);
-    // left still, the card draws its page again and the turn runs
-    stop(el, context, run);
-    ring();
-    assert.equal(counts.again, 1, `${what}: the page was not drawn again once the reader was done`);
-    assert.equal(el.turnHeld, null);
-    assert.equal(context.turnBegin(el, NEXT).mode, "glide", `${what}: the page did not turn once the reader was done`);
+    assert.equal(turn.mode, "glide", `${what}: the new answer did not turn the page at once`);
+    assert.ok(el.body.querySelector(".turnsheet"), `${what}: the page the reader was on was not pictured`);
+    assert.equal(el.replyview.scrollTop, 0, `${what}: the new page does not open at its head`);
+    assert.ok(!pending().some(timer => timer.ms === 500), `${what}: the card still looks again on a clock`);
+    landReply(context, el, turn);
+    assert.equal(el.ta.value, "Invented words half typed", `${what}: the turn touched the words in the row`);
+    assert.equal(context.caret, el.ta, `${what}: the turn took the caret out of the row`);
   }
-  // the reader's scrolling is what says so, and the page's own moves of the scroll are not
-  const { context } = sandbox();
-  const el = fullCard("c1");
-  context.watchReading(el);
-  el.replyview.fire("scroll");
-  assert.ok(Date.now() - el.readAt < 1000, "the reader's scroll was not noticed");
-  el.readAt = 0;
-  context.scrollCardTop(el);
-  el.replyview.fire("scroll");
-  assert.equal(el.readAt, 0, "the page's own scroll to the top was taken for the reader's");
-  // the times the design names
-  assert.equal(sandbox().run("READ_QUIET_MS"), 3000);
-  assert.equal(sandbox().run("TYPE_QUIET_MS"), 2000);
+  // nothing of the hold is left on the shared file or the pages
+  for (const [where, text] of [["card-logic.js", LOGIC], ["index.html", DESKTOP], ["m.html", PHONE]])
+    for (const name of ["turnHolding", "turnHold", "TURN_HELD", "turnHeld", "noteTyping", "watchReading",
+                        "typedAt", "quietScroll", "READ_QUIET_MS", "TYPE_QUIET_MS", "HOLD_LOOK_MS", "liveMeta"])
+      assert.ok(!text.includes(name), `${where} still carries the hold's ${name}`);
 });
 
-test("a history step back to live while an answer waits shows the live page the card last drew", async () => {
+test("a step back to live from an older page shows the live reply's own panel, from the reading the page holds", async () => {
   const { context, run } = sandbox();
   const el = turningCard(context);
-  const old = { id: "reply-old", answered: [{ text: "Invented message the old answer was given.", ts: 1 }] };
   context.els = { c1: el };
   context.selectedId = "c1";
-  context.syncAnswered(el, old);
-  el.liveMeta = old;
-  // the board already holds the new answer, and the page is holding it back
+  context.syncAnswered(el, { id: "reply-old", answered: [{ text: "Invented message the old answer was given.", ts: 1 }] });
   context.lastState = { boxes: [NEXT] };
-  run(`histCache.c1 = Promise.resolve(Object.assign(["The invented older answer."], { meta: [{ id: "reply-older", answered: [] }] }))`);
+  run(`histCache.c1 = Promise.resolve(Object.assign(["The invented older answer."], { meta: [{ id: "reply-older", answered: [{ text: "Invented message the older answer was given.", ts: 0 }] }] }))`);
   await context.histStep("c1", 1);
-  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "the new answer did not wait for the reader on an older page");
+  assert.equal(el.answId, "reply-older", "the older page did not show its own panel");
   await context.histStep("c1", -1);
-  assert.equal(el.answId, "reply-old", "stepping back to live showed the waiting answer's panel over the old answer");
+  assert.equal(el.answId, "reply-next", "stepping back to live did not show the live reply's panel");
 });
 
 test("a progress note, a card not on show, or a reader who asked for no motion turn nothing", () => {
@@ -2055,7 +2031,10 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     for (const name of retired)
       assert.ok(!text.includes(name), `${where} still carries the old sent box's ${name}`);
   // the file tray sits between the sent panel and the row, on both pages
-  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, tray, bottombar"],
+  // the desktop holds the tray and the row in one box (composebox), which lays
+  // out nothing of its own unless the new layout takes it out of the card
+  assert.ok(DESKTOP.includes("composebox.append(tray, bottombar);"), "the desktop's tray is not over its row");
+  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, composebox"],
     ["the phone", PHONE, "meta, sentwrap, tray, bottombar"]]) {
     assert.match(text, /const sentwrap = h\("div", "sentwrap"\);/, `${where} builds no seat for the sent panel`);
     assert.ok(text.includes(`pendwrap.append(${foot});`), `${where} does not seat it over the row`);
@@ -2064,16 +2043,19 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     const ask = text.indexOf("const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;");
     const swap = text.indexOf("el.reply.innerHTML = fmt(rawReply);", ask);
     const sent = text.search(/syncSent(Phone)?\(el, /);
-    const answered = text.indexOf("syncAnswered(el, el.liveMeta)");
+    const answered = text.indexOf("syncAnswered(el, liveAnswered(b))");
     const go = text.indexOf("turnGo(el, turn);");
     assert.ok(ask > 0 && ask < swap && swap < go && sent < go && answered < go,
       `${where} does not lay the picture first and glide once the new page is drawn`);
-    assert.match(text, /if \(!held && el\.reply\.dataset\.raw !== rawReply\)\{/, `${where} swaps an answer it was told to hold`);
-    assert.match(text, /watchReading\((els\[b\.id\]|card)\);/, `${where} does not watch the reader's scrolling`);
-    assert.match(text, /noteTyping\(ta\);/, `${where} does not note the reader's typing`);
+    // a new answer takes an older page of the history back to the live one
+    assert.match(text, /if \(!waits && el\.reply\.dataset\.raw !== rawReply\)\{\s*el\.reply\.dataset\.raw = rawReply;[\s\S]{0,120}if \(hist && hist\.id === b\.id\) histExit\(b\.id\);/,
+      `${where} does not show a new answer over an older page`);
+    // and one that waits for a merge leaves both panels as they stand, and is drawn again once it ends
+    assert.match(text, /const waits = turn === TURN_WAIT;/, `${where} does not let a new answer wait for a merge`);
+    assert.match(text, /if \(!waits && !\(hist && hist\.id === b\.id\)\) syncAnswered\(el, liveAnswered\(b\)\);/);
+    assert.match(text, /turnAgain = /, `${where} cannot show an answer that waited for a merge`);
     // (the Mac board reads the band in its stage's pixels, which the phone does not scale)
     assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap(, 0, stageScale \|\| 1)?\)\)/, `${where} does not hold the band for a run`);
-    assert.match(text, /turnAgain = /, `${where} cannot show an answer it held back`);
   }
   // the sends: both pages draw the message faded as an arrival when it is sent,
   // and the desktop saves it as sent once the board has answered
@@ -2089,51 +2071,39 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
 });
 
 test("the turn keeps to the composer the reader is in, and to a board that is covered", () => {
-  const { context, run, pending } = sandbox();
-  // a key counts only in a row that holds the caret: the formatter's own input
-  // as it puts its editor on, to every card on load, is nobody typing
-  const idle = element("textarea"), typing = element("textarea");
+  const { context } = sandbox();
+  // the reader typing in the card's composer: the page turns at once, and the
+  // caret and the words stay in the composer
+  const typing = element("textarea");
   context.ComposeFormat = { focused: ta => ta === context.caret };
-  context.noteTyping(idle);
-  assert.equal(idle.typedAt, undefined, "a row with no caret was taken for typing");
   context.caret = typing;
-  context.noteTyping(typing);
-  assert.ok(Date.now() - typing.typedAt < 1000, "a key into the row with the caret was not noted");
-  // typing in the card's composer holds the new answer back
-  run("turnAgain = againSpy");
+  typing.value = "Invented words being typed";
   const el = turningCard(context);
   el.ta = typing;
-  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the composer did not hold the answer");
-  assert.equal(el.body.querySelector(".turnsheet"), null);
-  typing.typedAt = 0;
-  assert.equal(pending().at(-1).ms, 500);
   // with the seat standing at the card's floor, the picture reaches down to the
   // seat's foot wherever the seat stands
   el.sentwrap.rect = { top: 780, bottom: 900 };
   const turn = context.turnBegin(el, NEXT);
-  assert.equal(turn.mode, "glide");
+  assert.equal(turn.mode, "glide", "typing in the composer held the answer back");
   assert.equal(el.body.querySelector(".turnsheet").style.height, "800px", "the picture does not reach the seat at the floor");
   assert.equal(context.caret, typing, "the turn took the caret out of the composer");
+  assert.equal(typing.value, "Invented words being typed", "the turn touched the words in the composer");
   // a board the page has covered, as the desktop's home page covers its stage,
-  // is not on show: the answer swaps as it always did, and nothing is held
+  // is not on show: the answer swaps as it always did
   const covered = sandbox();
   const hidden = turningCard(covered.context);
   const see = covered.context.getComputedStyle;
   covered.context.getComputedStyle = (node, pseudo) => node === hidden.box
     ? { ...see(node, pseudo), visibility: "hidden" } : see(node, pseudo);
-  hidden.readAt = Date.now();
-  assert.equal(covered.context.turnBegin(hidden, NEXT), null, "a covered card turned, or held its answer back");
+  assert.equal(covered.context.turnBegin(hidden, NEXT), null, "a covered card turned");
   assert.equal(hidden.body.querySelector(".turnsheet"), null);
-  // the pages: a reply landing on the card in use is read whatever the turn
-  // does, the answer held back included
+  // the pages: a reply landing on the card in use is read on every pass of a card
   for (const [where, text, rule] of [["the desktop", DESKTOP, "readOnArrival(el, b, b.id === selectedId && !browsing);"],
       ["the phone", PHONE, "readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());"]]) {
-    const ask = text.indexOf("const held = turn === TURN_HELD;");
+    const ask = text.indexOf("const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;");
     const read = text.indexOf(rule, ask);
     const go = text.indexOf("turnGo(el, turn);", ask);
     assert.ok(ask > 0 && read > ask && read < go, `${where} does not ask the read rule on every pass of a card`);
-    const between = text.slice(text.lastIndexOf("\n", read), read);
-    assert.ok(!/held/.test(between), `${where} keeps the read rule from an answer that is held back`);
   }
 });
 
@@ -2461,8 +2431,9 @@ test("the panel's list is the board's reading: a note's messages first, read, th
   // the pages draw from it on every reading, and a send lands as sent
   assert.match(DESKTOP, /el\.sentItems = sentFrom\(b\);\s*syncSent\(el, el\.sentItems\);/);
   assert.match(PHONE, /el\.sentItems = sentFrom\(b\);\s*drawSent\(el, b\.id\);/);
-  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, stage: "sent" \}\];/);
-  assert.match(PHONE, /batch\.push\(\{ text: op\.text, op: op\.id, state: op\.state, badge: opBadge\(op\), stage: "local" \}\);/,
+  assert.match(PHONE, /el\.sentItems = \[\.\.\.el\.sentItems, \{ text: op\.text, \.\.\.\(typeof op\.saved === "string" \? \{ saved: op\.saved \} : \{\}\),\s*op: op\.id, stage: "sent" \}\];/,
+    "the phone's landed send does not keep the id the reading finds it by, or the saved words worked out at its press");
+  assert.match(PHONE, /batch\.push\(\{ text: op\.text, \.\.\.\(typeof op\.saved === "string" \? \{ saved: op\.saved \} : \{\}\), op: op\.id, state: op\.state,\s*badge: opBadge\(op\), stage: "local" \}\);/,
     "the phone's own messages are not marked as not yet on the board");
   // and the sheet draws the stages: faded words and grey, the one quiet mark in its room
   assert.match(rule(TOKENS, ".answered.undelivered"), /--answ-fill:color-mix\(in srgb, var\(--bubble-fill\) 50%, var\(--card, #fff\)\)/);
@@ -2735,10 +2706,6 @@ test("the small card turns the same way, its three pieces pictured and carried u
   box.classList.add("off");
   assert.equal(context.turnBegin(el, NEXT), null, "a small card not on show turned");
   box.classList.remove("off");
-  // typing in its own row holds the answer back
-  el.ta.typedAt = Date.now();
-  assert.equal(context.turnBegin(el, NEXT), run("TURN_HELD"), "typing in the small card did not hold the answer");
-  el.ta.typedAt = 0;
   const turn = context.turnBegin(el, NEXT);
   assert.equal(turn.mode, "glide", "the small card did not glide");
   const sheet = box.querySelector(".turnsheet");
@@ -2769,8 +2736,6 @@ test("the small card turns the same way, its three pieces pictured and carried u
   const go = mini.indexOf("turnGo(el, turn);");
   assert.ok(ask > 0 && go > mini.indexOf("syncSent(el, el.sentItems);") && go > ask,
     "the small card does not lay its picture first and glide once its new page is drawn");
-  assert.match(mini, /watchReading\(el\);/);
-  assert.match(mini, /noteTyping\(ta\);/);
   assert.match(DESKTOP, /#magic2 \.turnsheet\{background:inherit\}/);
 });
 
@@ -3460,6 +3425,49 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   assert.equal(el.sentMotions.size, 0);
 });
 
+// the board can save other words than the ones typed ("Replace curse words",
+// _curse_free in server.py), and the reading behind the send brings them while
+// the send is still in the air. the send is found by the operation id it went
+// under (pendingOps), so it keeps its flight and its bubble, as a send whose
+// words came back the same does, and lands showing the words as saved
+test("a send the board saves with other words keeps its flight and its bubble, and lands on the saved words", () => {
+  const typed = "Invented words, damn it.", saved = "Invented words, [expletive] it.";
+  for (const ops of [true, false]) {
+    const s = motionScene(), { context, el, frame } = s;
+    // a message already standing, Delivered, where the new one will stand
+    const older = s.insert("Invented older message.");
+    context.sentLanded(el, older);
+    const olderBubble = el.sent;
+    const motion = context.armSentMotion(el);
+    const item = s.insert(typed);
+    const bubble = el.sent;
+    rect(olderBubble, 150, 150, 170, 45);
+    motion.play();
+    frame(1000 / 60); frame(60);
+    context.sentLanded(el, item);
+    // the reading the landing asks for: the words as the board kept them
+    const reading = { pendingTexts: [older.text, ops ? saved : typed], pendingStates: ["sent", "sent"],
+                      ...(ops ? { pendingOps: [older.op, item.op] } : {}) };
+    el.sentItems = context.sentFrom(reading);
+    context.syncSent(el, el.sentItems);
+    const why = ops ? "saved words" : "same words";
+    assert.deepEqual([...context.sentPanels(el)], [olderBubble, bubble], why + ": the reading took the send out of its bubble");
+    assert.equal(bubble.parentNode, el.sentwrap, why + ": the bubble the send flies to was dropped");
+    assert.ok(s.shell(), why + ": the reading cut the flight off");
+    assert.equal(bubble.classList.contains("sentflight"), true, why + ": the bubble showed under its own flight");
+    assert.equal(bubble.style.opacity, "0", why + ": the bubble showed under its own flight");
+    assert.deepEqual([...context.sentRows(olderBubble)].map(row => row.dataset.text), [older.text],
+      why + ": the send joined the bubble standing at once");
+    assert.deepEqual([...context.sentRows(bubble)].map(row => row.dataset.text), [ops ? saved : typed],
+      why + ": the bubble does not hold the words as saved");
+    frame(300); frame(650); frame(667);
+    assert.equal(s.shell(), null, why + ": the flight did not land");
+    assert.equal(bubble.style.opacity, "", why);
+    assert.equal(bubble.classList.contains("sentflight"), false, why);
+    assert.deepEqual([...context.sentRows(bubble)].map(row => row.dataset.text), [ops ? saved : typed], why);
+  }
+});
+
 // ---- one bubble for each send, and the merge ------------------------------------------
 // the owner's rule: a new message goes as
 // a bubble of its own and joins the one above it only once the two stand in the
@@ -3515,7 +3523,13 @@ test("a second message stands in a bubble of its own, and joins only once it sta
   assert.ok(first.classList.contains("markout") && first.classList.contains("markmove"), "the first word does not go out gently");
   assert.equal(second.dataset.mark, undefined, "a word stood under the second while the first was still going");
   assert.ok(first.classList.contains("coalesce"), "the refresh does not wait out the merge");
-  assert.equal(context.turnHolding(el, "motion"), true, "a page turn would cut the merge short");
+  // a new answer landing now waits for this merge, and the page draws its cards
+  // again on the frame the merge ends (turnWaits)
+  let again = 0;
+  context.turnAgain = () => { again++; };
+  s.run("turnAgain = () => globalThis.turnAgain()");
+  assert.equal(context.turnWaits(el), true, "a page turn would cut the merge short");
+  assert.equal(context.turnWaits(el), true, "a second pass while the merge runs did not wait");
   // the moment the word is gone the first falls into the second, and the word
   // comes in under it on the mark's own run as it falls
   ringFor(s.merge.OUT_MS);
@@ -3544,7 +3558,9 @@ test("a second message stands in a bubble of its own, and joins only once it sta
   assert.equal(first.style.visibility, "", "the joined bubble stayed hidden");
   assert.equal(first.classList.contains("coalesce"), false);
   assert.deepEqual(marks(bubbles()), ["Delivered"], "the joined bubble lost its word");
-  assert.equal(context.turnHolding(el, "motion"), false);
+  frame(s.merge.MS + 34);
+  assert.equal(again, 1, "the page was not drawn again once the merge ended");
+  assert.equal(context.turnWaits(el), false, "the new answer still waited after the merge ended");
 });
 
 test("two bubbles standing in different places never merge, each keeping its own word, and join the moment they match", () => {
@@ -3706,7 +3722,6 @@ test("the earlier bubble starts to fall the moment the word under it has faded, 
   assert.ok(el.sentMerge === null, "the fall did not land");
   assert.equal(bubbles().length, 1);
   assert.deepEqual(marks(bubbles()), ["Delivered"]);
-  assert.equal(context.turnHolding(el, "motion"), false);
 });
 
 test("the answer's band comes down with the falling bubble's head rather than dropping on the fall's first frame", () => {

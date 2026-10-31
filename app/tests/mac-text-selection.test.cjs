@@ -158,9 +158,11 @@ test("Command+A uses each editor's document and Command+F stays available", () =
   const composer = api.freshState(C, { shellClass: "compose-test", changed() {} }, "Composer only", 3);
   // Execute the real file mount through state construction; stop before it
   // creates a DOM view. Both plain and Markdown branches carry the keymap.
-  const start = html.indexOf("function fileNavMount(");
-  const end = html.indexOf('\n  el.edit.textContent = "";', start);
-  assert.ok(start > 0 && end > start);
+  // The emoji Backspace both branches bind sits just above the mount and runs as shipped.
+  const start = html.indexOf("function mdEmojiEnd(");
+  const mountAt = html.indexOf("function fileNavMount(", start);
+  const end = html.indexOf('\n  el.edit.textContent = "";', mountAt);
+  assert.ok(start > 0 && mountAt > start && end > mountAt);
   Object.assign(context, { window: { CM6: C }, mdAwake() {}, mdLayer: () => [] });
   vm.runInContext(html.slice(start, end) + "\nreturn state;\n}", context);
   const mount = vm.runInContext("fileNavMount", context);
@@ -174,6 +176,10 @@ test("Command+A uses each editor's document and Command+F stays available", () =
     assert.equal(state.selection.main.to, original.doc.length);
     assert.equal(state.doc.toString(), original.doc.toString());
   }
+  // the guard reads a key's name with card-logic.js's own rule, run as shipped
+  const logic = read("card-logic.js"), keyAt = logic.indexOf("function cardCommandKey(e){");
+  assert.ok(keyAt >= 0);
+  vm.runInContext(logic.slice(keyAt, logic.indexOf("\n}\n", keyAt) + 3), context);
   const guardStart = html.indexOf("function chromeShortcutBlocked(e){");
   vm.runInContext(html.slice(guardStart, html.indexOf("\nfunction installChromeShortcutGuard", guardStart)), context);
   const blocked = vm.runInContext("chromeShortcutBlocked", context);

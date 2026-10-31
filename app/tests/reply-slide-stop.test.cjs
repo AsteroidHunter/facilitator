@@ -102,10 +102,10 @@ async function openCard(surface, id){
   await page.waitForFunction(cardId => typeof lastState !== "undefined" && lastState && typeof els !== "undefined" && els[cardId], {}, id);
   await page.evaluate(cardId => select(cardId), id);
   await page.evaluate(() => document.fonts && document.fonts.ready);
-  // the sent message is standing at the foot, and the reader is not busy with the card
+  // the sent message is standing at the foot
   await page.waitForFunction(cardId => {
     const el = els[cardId];
-    return el.sent && el.sentwrap.getBoundingClientRect().height > 0 && !turnHolding(el, cardId);
+    return el.sent && el.sentwrap.getBoundingClientRect().height > 0;
   }, { timeout:8000 }, id);
   await wait(300);
   return page;

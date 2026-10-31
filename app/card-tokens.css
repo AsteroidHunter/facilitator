@@ -631,6 +631,18 @@
 .sentmorph-ground{position:absolute; left:0; top:0}
 .sentmorph-face{position:absolute}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
+/* a bubble that takes its saved words once it has landed (card-logic.js:
+   sentReword): a layer inside it, in its own px, draws the change with the
+   flight's four clips, face and words, over the bubble's own grey and words,
+   which are hidden under it; the word under its foot stays */
+.sentreword{position:absolute; left:0; top:0; pointer-events:none}
+/* a word of a sent bubble's copy rolling to its saved word, in the flight or
+   in that layer (card-logic.js: sentRoll): a box set beside the word, as tall
+   as its line and cut there, riding the word's place, and in it the word
+   going and the word coming, one over the other, each placed by the script.
+   both take the word's own lettering from the line they stand in */
+.sentroll{position:absolute; overflow:hidden; pointer-events:none; transition:none}
+.sentroll > span{position:absolute; left:0; top:0; white-space:pre; text-indent:0; overflow-wrap:normal; transition:none}
 /* the earlier of two bubbles falling into the later one (card-logic.js:
    sentMerge). the joined bubble is laid out and hidden, and this layer inside
    it draws the merge in its own px: a grey face cut each frame by a clip path

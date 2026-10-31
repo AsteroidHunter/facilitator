@@ -254,9 +254,11 @@ test("a page put away tries nothing, and coming back tries at once", async () =>
 test("m.html: the guard comes first, asks only for what the script cannot run without, and a draw lets it go", async () => {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const guard = html.slice(html.indexOf(STARTS), html.indexOf(ENDS));
-  // first thing in the main script, after the shared files and before anything uses them
+  // first thing in the main script, after the shared files and before anything uses them;
+  // only the audio session line stands before it, and that one cannot throw
   const head = html.slice(0, html.indexOf(STARTS));
-  assert.match(head, /<script src="\/m-splash\.js"><\/script>\n<script>\n$/, "the guard is not the main script's first code");
+  assert.match(head, /<script src="\/m-splash\.js"><\/script>\n<script>\n\/\/ sounds from the box pages play through silent mode \(iOS 17 and later\)\ntry \{ if \(navigator\.audioSession\) navigator\.audioSession\.type = "playback"; \} catch \(_\) \{\}\n$/,
+    "the guard is not the main script's first code");
   // the files it names are ones the page loads, and each global is defined by its own file
   for (const [file, name] of [["card-markdown.js", "CardMarkdown"], ["card-logic.js", "function settingsPage"],
                               ["compose-format.js", "ComposeFormat"]]) {

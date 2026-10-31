@@ -140,6 +140,8 @@ async function desktopLarge() {
   const build = between(html, '    const x = h("button", "xbtn", "×");', "    topbar.insertBefore(dock, arc);");
   const paint = between(html, "    const cs = cardState(b);   // one state", "    paintSectionChips(el, b);");
   const env = await context();
+  // the cross closes through the page's own close, cut out of the page with it
+  vm.runInContext(between(html, "function boardCloseCard(id){", "\n}"), env.ctx);
   const makeChips = vm.runInContext(`(function(b, topbar, head, box){\n${build}\nreturn { sun, dock, arc, x };\n})`, env.ctx);
   const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
   return {
@@ -182,10 +184,11 @@ async function desktopMini() {
 async function phone() {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const icon = between(html, "const MOON_ICON = ", "</svg>';");
-  const close = between(html, "async function closeCard(id){", "  poll();\n}");
+  const close = between(html, "function closeCard(id){", "\n}");
   const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, dock, arc, x);");
-  const paint = between(html, '  const cs = cardState(b);\n  el.box.classList.toggle("done", cs === "done");',
-    "  paintSectionChips(el, b);");
+  // the card's paint runs inside drawCard's timed try block, one level in
+  const paint = between(html, '    const cs = cardState(b);\n    el.box.classList.toggle("done", cs === "done");',
+    "    paintSectionChips(el, b);");
   const env = await context();
   vm.runInContext(icon + "\n" + close, env.ctx);
   const makeChips = vm.runInContext(`(function(b, topbar, histctl){\n${build}\nreturn { sun, dock, arc, x };\n})`, env.ctx);
@@ -383,7 +386,7 @@ function pressSection(surface, id, el, section, prevent) {
   }[surface.name];
   // the large card's done is its keyboard close, declared just above the move
   if (surface.name === "desktop large card")
-    vm.runInContext(between(surface.html, "async function boardCloseCard(id){", "\n}"), ctx);
+    vm.runInContext(between(surface.html, "function boardCloseCard(id){", "\n}"), ctx);
   vm.runInContext(between(surface.html, move, "\n}"), ctx);
   ctx.miniFocused = false;
   ctx.selectedId = id;
@@ -430,7 +433,7 @@ const HOP_CHIP = { doing: "sun", docked: "dock", deferred: "arc", done: "x" };
 // the page's own key handling: its action table and what it calls, from the
 // first line to the table's end, and the scope its listener dispatches in
 const TABLES = {
-  "desktop large card": { from: "async function boardCloseCard(id){", to: "const boardShortcutActions = {",
+  "desktop large card": { from: "function boardCloseCard(id){", to: "const boardShortcutActions = {",
                           table: "boardShortcutActions", scope: "card" },
   "desktop small card": { from: "const miniShortcutActions = {", to: "function miniSectionMove(e, section){",
                           table: "miniShortcutActions", scope: "mini" },

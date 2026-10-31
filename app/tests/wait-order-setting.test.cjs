@@ -194,6 +194,7 @@ function macPage(stored = {}) {
     feedbackBox: () => ({ setReady() {} }),   // the feedback box in Improvements, tested in feedback-box.test.cjs
     feedbackOverlay: () => ({ open() {}, close() {}, seat() {} }),   // the bar's bug and its sheet, tested there too
     controlShiftEnter: () => false, bareControlEnter: () => false,
+    SENT_CURSES: { on: false, switch: null }, sentCursesRead() {},   // the curse words switch, tested in curse-words-switch.test.cjs
   });
   // the page's own line that answers for the option, then its settings block
   vm.runInContext(between(MAC, "waitNewestFirst = () =>", "\n") + "\n", context);

@@ -304,81 +304,6 @@ test("index main and mini card prose have real DOM and style parity", async () =
 });
 
 for (const pageName of ["index.html", "page.html"]) {
-  test(`${pageName} quick-chat call site uses shared safe Markdown`, async () => {
-    const page = await browser.newPage();
-    const errors = [];
-    page.on("pageerror", error => errors.push(String(error)));
-    try {
-      const suffix = pageName === "page.html" ? "?mock=1" : "";
-      await page.goto(`${origin}/${pageName}${suffix}`, { waitUntil: "domcontentloaded" });
-      const result = await page.evaluate(async () => {
-        globalThis.__quickPwned = 0;
-        const rich = [
-          "# Thread heading", "", "[named](https://example.com) and `code`", "",
-          "![local](/uploads/thread.png)",
-          "![remote](https://remote.invalid/thread.png)", "", "- list", "", "---", "",
-          '[hostile](https://safe.invalid/x" onclick="globalThis.__quickPwned=1)',
-        ].join("\n");
-        const nativeFetch = globalThis.fetch;
-        globalThis.fetch = async (input, options) => {
-          if (String(input).startsWith("/thread?box=q")) {
-            return { json: async () => ({ messages: [
-              { kind: "agent", ts: 100, text: "legacy fallback", replyFull: rich },
-              { kind: "user", ts: 101, text: "*user emphasis*" },
-            ] }) };
-          }
-          return nativeFetch(input, options);
-        };
-        qSig = "";
-        await pollQ();
-        globalThis.fetch = nativeFetch;
-        const bubbles = [...document.querySelectorAll("#qmsgs .qb")];
-        for (const node of document.querySelectorAll("#qmsgs a, #qmsgs img")) {
-          for (const type of ["click", "load", "error", "mouseover"])
-            node.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-        }
-        const activeAttributes = [...document.querySelectorAll("#qmsgs *")].flatMap(node =>
-          [...node.attributes].filter(attribute => /^on/i.test(attribute.name))
-            .map(attribute => attribute.name));
-        return {
-          bubbleCount: bubbles.length,
-          cardmdCount: document.querySelectorAll("#qmsgs .qb.cardmd").length,
-          heading: bubbles[0].querySelector("h1")?.textContent,
-          link: bubbles[0].querySelector("a")?.textContent,
-          code: bubbles[0].querySelector("code.inlinecode")?.textContent,
-          localImages: [...bubbles[0].querySelectorAll("img")].map(img => img.getAttribute("src")),
-          remoteVisible: bubbles[0].textContent.includes("![remote](https://remote.invalid/thread.png)"),
-          fallbackVisible: bubbles[0].textContent.includes("legacy fallback"),
-          userEmphasis: bubbles[1].querySelector("em")?.textContent,
-          rules: bubbles[0].querySelectorAll("hr").length,
-          whiteSpace: getComputedStyle(bubbles[0]).whiteSpace,
-          activeAttributes,
-          pwned: globalThis.__quickPwned,
-        };
-      });
-      assert.deepEqual(result, {
-        bubbleCount: 2,
-        cardmdCount: 2,
-        heading: "Thread heading",
-        link: "named",
-        code: "code",
-        localImages: ["/uploads/thread.png"],
-        remoteVisible: true,
-        fallbackVisible: false,
-        userEmphasis: "user emphasis",
-        rules: 1,
-        whiteSpace: "normal",
-        activeAttributes: [],
-        pwned: 0,
-      });
-      assert.deepEqual(errors, []);
-    } finally {
-      await page.close();
-    }
-  });
-}
-
-for (const pageName of ["index.html", "page.html"]) {
   test(`${pageName} reply-history thread call site uses shared safe Markdown`, async () => {
     const page = await browser.newPage();
     const errors = [];
@@ -604,11 +529,11 @@ test("browser coverage inventory includes every thread fetch call site", async (
   const index = await readFile(path.join(ROOT, "index.html"), "utf8");
   const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const page = await readFile(path.join(ROOT, "page.html"), "utf8");
-  assert.equal((index.match(/fetch\("\/thread\?box=/g) || []).length, 2,
+  assert.equal((index.match(/fetch\("\/thread\?box=/g) || []).length, 1,
     "index gained an unreviewed thread renderer");
   assert.equal((logic.match(/fetch\("\/thread\?box=/g) || []).length, 0,
     "the shared card logic gained an unreviewed thread renderer");
-  assert.equal((page.match(/fetch\("\/thread\?box=/g) || []).length, 2,
+  assert.equal((page.match(/fetch\("\/thread\?box=/g) || []).length, 1,
     "page gained an unreviewed thread renderer");
   // the shared reply history reads the board's history route instead, which
   // hands it the pages themselves rather than a window to pick them out of
@@ -620,7 +545,5 @@ test("browser coverage inventory includes every thread fetch call site", async (
     "page gained a history renderer of its own");
   assert.match(logic, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
   assert.match(page, /el\.reply\.innerHTML = fmt\(list\[list\.length - step\]\)/);
-  assert.match(index, /bubble\.innerHTML = fmt\(m\.kind === "user"/);
-  assert.match(page, /bubble\.innerHTML = fmt\(m\.kind === "user"/);
   assert.match(index, /else msg\.innerHTML = fmt\(b\.text\)/);
 });

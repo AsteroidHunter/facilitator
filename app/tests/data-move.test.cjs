@@ -4,7 +4,7 @@
 // own `facilitator update`, which pulls and hands over to the launcher at the
 // top. Everything happens in throwaway folders with a fake uv and a fake
 // tailscale; osascript and open are stand-ins that answer nothing, so no
-// Chrome is asked or opened. No real port, board or data is touched.
+// real Chrome is asked or opened. No real port, board or data is touched.
 const assert = require("node:assert/strict");
 const { after, test } = require("node:test");
 const { execFile, execFileSync, spawn } = require("node:child_process");
@@ -191,6 +191,16 @@ async function makeWorld({ fresh = false } = {}) {
     fs.mkdirSync(path.join(w.dev, "app", "updates"), { recursive: true });
     for (const name of ["facilitator", "data_folder.py", "shell_integration.py", "server.py", "bridge_auth.py", "bridge_gate.py", "m-gate.html"])
       fs.copyFileSync(path.join(ROOT, name), path.join(w.dev, "app", name));
+    // the board opens its window and sends its tabs on through open and
+    // osascript by their full paths: here, through the same stand-ins
+    const server = path.join(w.dev, "app", "server.py");
+    let source = fs.readFileSync(server, "utf8");
+    for (const [name, stand] of [["OPEN_PROGRAM", "open"], ["OSASCRIPT_PROGRAM", "osascript"]]) {
+      const line = new RegExp(`^${name} = "/usr/bin/[a-z]+"$`, "m");
+      assert.match(source, line, `server.py names no ${name} to stand in for`);
+      source = source.replace(line, `${name} = ${JSON.stringify(path.join(w.bin, stand))}`);
+    }
+    fs.writeFileSync(server, source);
     fs.copyFileSync(path.join(ROOT, "updates", "README.md"), path.join(w.dev, "app", "updates", "README.md"));
     fs.writeFileSync(path.join(w.dev, "app", "index.html"), '<span id="npversion">v0.2.415</span>\n');
     fs.writeFileSync(path.join(w.dev, "app", "requirements.txt"), "\n");
@@ -206,6 +216,7 @@ async function makeWorld({ fresh = false } = {}) {
   w.cli = path.join(w.user, "facilitator");
   w.data = path.join(w.user, "data");
   w.update = (extra = {}) => run(PYTHON, [w.cli, "update"], { cwd: base, env: { ...w.env, ...extra } });
+  worlds.push(w);
   return w;
 }
 
@@ -250,11 +261,22 @@ function fillOldBoard(w) {
   fs.copyFileSync(path.join(w.user, ".venv", "bin", "python3"), path.join(w.user, ".venv", "bin", "python"));
 }
 
+// the boards this file starts, by port: the new layout's board is locked as a
+// real one is, so a call to it carries the agent key it made in data/; the old
+// layout's board has none and asks for none
+const worlds = [];
+function keyed(port) {
+  const w = worlds.find(one => one.port === port);
+  try { return { Authorization: `Bearer ${fs.readFileSync(path.join(w.data, "agent.key"), "utf8").trim()}` }; }
+  catch { return {}; }
+}
+const boardFetch = (port, route) => fetch(`http://127.0.0.1:${port}${route}`, { headers: keyed(port) });
+
 async function waitBoard(port, ms = 15000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     try {
-      const answer = await fetch(`http://127.0.0.1:${port}/state`);
+      const answer = await boardFetch(port, "/state");
       if (answer.ok) return answer.json();
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -339,7 +361,7 @@ test("an older checkout with its board running moves every file into data/ throu
   const w = await makeWorld();
   fillOldBoard(w);
   const oldPid = await startOldBoard(w);
-  const before = await (await fetch(`http://127.0.0.1:${w.port}/state`)).json();
+  const before = await (await boardFetch(w.port, "/state")).json();
   assert.deepEqual(ids(before), [...CARDS].sort());
   await new Promise(resolve => setTimeout(resolve, 300));
   const snap = oldSnapshot(w);
@@ -357,7 +379,14 @@ test("an older checkout with its board running moves every file into data/ throu
   assert.match(res.stdout, /✓ Removed the old copies \(\d+ files\)\. The backup stays in data\/backups\/before-data-move-/);
   assert.match(res.stdout, /Old version: v0\.2\.414\nNew version: v0\.2\.415/);
   assert.equal(alive(oldPid), false, "the old board is still running");
-  assert.equal(fs.existsSync(w.opened) ? fs.readFileSync(w.opened, "utf8") : "", "", "a window was opened");
+  // Chrome cannot be asked here (osascript answers nothing) and the board,
+  // from before the lock, has let no window in, so any window open on it is
+  // refused now: the board opens one window, on a launch link, as it opens one
+  // for facilitator run
+  const opened = fs.existsSync(w.opened) ? fs.readFileSync(w.opened, "utf8").trim().split("\n") : [];
+  assert.equal(opened.length, 1, `windows opened: ${opened.join(" | ")}`);
+  assert.match(opened[0],
+    new RegExp(`^open -na Google Chrome --args --app=http://127\\.0\\.0\\.1:${w.port}/\\?launch=[A-Za-z0-9_-]{16,64}$`));
 
   // the board answers from app/ with the same cards, the one board of this folder
   const after = await waitBoard(w.port);
@@ -390,9 +419,9 @@ test("an older checkout with its board running moves every file into data/ throu
   }
   assert.equal(fs.readFileSync(path.join(w.data, "uploads", "m901-keys-lit.png"), "utf8"), "the copy the board serves");
   assert.equal(fs.readFileSync(path.join(w.data, "uploads-old", "m901-keys-lit.png"), "utf8"), "the old in-repo copy");
-  const served = await fetch(`http://127.0.0.1:${w.port}/uploads/m901-keys-lit.png`);
+  const served = await boardFetch(w.port, "/uploads/m901-keys-lit.png");
   assert.equal(await served.text(), "the copy the board serves", "a different picture is served for the same address");
-  assert.equal(await (await fetch(`http://127.0.0.1:${w.port}/uploads/1700000000000-old.png`)).text(), "old in-repo picture");
+  assert.equal(await (await boardFetch(w.port, "/uploads/1700000000000-old.png")).text(), "old in-repo picture");
 
   // the backup holds every file as it was, and stays
   const backup = path.join(w.data, "backups", moved.backup);
@@ -415,7 +444,7 @@ test("an older checkout with its board running moves every file into data/ throu
   const again = await w.update();
   assert.equal(again.code, 0, again.stdout + again.stderr);
   assert.deepEqual(sectionTitles(again.stdout), ["1. Checkout", "2. Update steps", "3. Board"]);
-  assert.equal(await (await fetch(`http://127.0.0.1:${w.port}/state`)).ok, true, "the board went down");
+  assert.equal(await (await boardFetch(w.port, "/state")).ok, true, "the board went down");
   const still = tree(w.data);
   for (const [rel, s] of Object.entries(inData))
     if (!live(rel) && rel !== "server.lock") assert.equal(still[rel], s, `${rel} changed on an update after the move`);
@@ -602,7 +631,7 @@ test("a pull by hand with no update leaves the new command and server refusing, 
   fillOldBoard(w);
   w.pushNew();
   w.git(w.user, "pull", "-q", "--ff-only");
-  for (const words of [["status"], ["run"], ["restart"], ["magic", "m1", "show"], ["uninstall", "--keep-attachments"]]) {
+  for (const words of [["status"], ["run"], ["restart"], ["magic", "m1", "show"], ["uninstall", "--keep-data"]]) {
     const res = await run(PYTHON, [w.cli, ...words], { cwd: w.base, env: w.env });
     assert.equal(res.code, 1, words.join(" "));
     assert.match(res.stderr, /still in their old place at the top of .* \(.*\), so the board stayed down\.\n  Run facilitator update to move them into data\/\. Nothing was changed\./, words.join(" "));

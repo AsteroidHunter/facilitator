@@ -5,9 +5,10 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { request } = require("node:http");
 const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
+const { readFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
-const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { copyBridgeFiles, freePortPair, stubWindow, windowOpens } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PAGE_FILES = ["index.html", "page.html", "m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json",
@@ -20,9 +21,12 @@ const SEED = { title: "fixture board", items: [
 // seed, config: the board's first words and its run.config.json. env: extra
 // environment. extra: more files from the repo to copy beside the server.
 // prepare: called with the folders once the files are in place, before the
-// server starts. The copy is laid out as a checkout: the code in app/ and the
-// board's files (seed, config, state, profile) in data/ beside it
-async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare } = {}) {
+// server starts. lock: the copy asks every caller on its own port for the
+// agent key or the window's cookie, as a real board does; a test's copy does
+// not unless asked, so the tests about something else run as they always did.
+// The copy is laid out as a checkout: the code in app/ and the board's files
+// (seed, config, state, profile) in data/ beside it
+async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare, lock = false } = {}) {
   const outer = await mkdtemp(path.join(tmpdir(), "facilitator-fixture-"));
   const app = path.join(outer, "app");
   const data = path.join(outer, "data");
@@ -33,7 +37,9 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   if (patched === source) throw new Error("test server port was not patched");
-  await writeFile(path.join(app, "server.py"), patched);
+  // the board's window goes to stand-ins in window/, never to the real Chrome
+  const windowDir = path.join(outer, "window");
+  await writeFile(path.join(app, "server.py"), stubWindow(patched, windowDir));
   copyBridgeFiles(app);
   for (const name of [...PAGE_FILES, ...extra]) await copyFile(path.join(ROOT, name), path.join(app, name));
   await mkdir(path.join(app, "assets"));
@@ -44,11 +50,16 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
   if (prepare) await prepare({ app, data, logs, outer });
 
   const origin = `http://127.0.0.1:${port}`;
-  const board = { app, data, logs, origin, outer, port, child: null };
+  const board = { app, data, logs, origin, outer, port, windowDir, child: null };
+  // the agent key the board made at its first start, and the header that
+  // carries it; none before the board has started once
+  const key = () => { try { return readFileSync(path.join(data, "agent.key"), "utf8").trim(); } catch { return ""; } };
+  const keyed = () => (key() ? { Authorization: `Bearer ${key()}` } : {});
   async function launch() {
     const child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(app, "server.py")], {
       cwd: app,
-      env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs, ...env },
+      env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs,
+             ...(lock ? { FACILITATOR_TEST_LOCK: "1" } : {}), ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -56,7 +67,7 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
     const deadline = Date.now() + 10000;
     for (;;) {
       if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
-      try { if ((await fetch(origin + "/state")).ok) break; } catch {}
+      try { if ((await fetch(origin + "/state", { headers: keyed() })).ok) break; } catch {}
       if (Date.now() > deadline) throw new Error(`fixture server did not start:\n${output}`);
       await new Promise(resolve => setTimeout(resolve, 25));
     }
@@ -68,6 +79,7 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
   }
   await launch();
   return Object.assign(board, {
+    key, keyed,
     // one raw request to the board's own port, as its own page would make it
     call(method, route, body, headers = {}) {
       return new Promise((resolve, reject) => {
@@ -81,6 +93,32 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
         req.on("error", reject);
         req.end(body);
       });
+    },
+    // the reader's own message on a card, sent as the board's page sends it:
+    // a send without the page's headers is an agent's. query adds to box=
+    async say(box, text, query = "") {
+      const r = await board.call("POST", `/send?box=${encodeURIComponent(box)}${query}`, text);
+      return { status: r.status, body: JSON.parse(r.text) };
+    },
+    // a window's cookie, got the way the window gets it: the board is asked
+    // with its key to open its window, and the address it gave the stand-in
+    // open is opened as Chrome opens it
+    async windowCookie() {
+      const asked = await board.call("POST", "/window/open", "", keyed());
+      if (asked.status !== 200) throw new Error(`the board opened no window: ${asked.status} ${asked.text}`);
+      const app = windowOpens(windowDir).at(-1).find(arg => arg.startsWith("--app="));
+      const where = new URL(app.slice("--app=".length));
+      const opened = await new Promise((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port, path: where.pathname + where.search,
+          headers: { Host: `127.0.0.1:${port}`, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate",
+                     "Sec-Fetch-Dest": "document" } }, resolve);
+        req.on("error", reject);
+        req.end();
+      });
+      opened.resume();
+      const set = opened.headers["set-cookie"];
+      if (opened.statusCode !== 303 || !set) throw new Error(`the window's code set no cookie: ${opened.statusCode}`);
+      return set[0].split(";")[0];
     },
     // stop the server, leave the folder as it is, and start the same board again
     async restart(between) { await halt(); if (between) await between(); await launch(); },

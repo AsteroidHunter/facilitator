@@ -376,12 +376,19 @@ test("the answer says when Codex was read, by the server's clock, and whether it
   const before = Math.floor(Date.now() / 1000);
   const b = await (await board({ codex: {} })).start();
   const first = await b.limits();
+  const answered = Math.floor(Date.now() / 1000);
   assert.deepEqual(Object.keys(first).sort(), ["codex", "fetched", "now", "refreshing"]);
-  assert.ok(Number.isInteger(first.fetched) && first.fetched >= before - 1 && first.fetched <= first.now, "the fetch time is a whole second");
+  // the first answer reads the server's clock before Codex is asked and stamps
+  // the reading after, so its "now" can fall a second short of the fetch time;
+  // the first fetch time is bounded by this test's own clock, read before and
+  // after the request, and the next answer, whose clock is read after the
+  // reading was kept, by the server's "now"
+  assert.ok(Number.isInteger(first.fetched) && first.fetched >= before - 1 && first.fetched <= answered, "the fetch time is a whole second");
   assert.ok(Math.abs(first.now - Date.now() / 1000) < 5, "now is the server's own clock");
   assert.equal(first.refreshing, false);
   const again = await b.limits();
   assert.equal(again.fetched, first.fetched, "a request inside the five minutes leaves the fetch time alone");
+  assert.ok(again.fetched <= again.now, "a kept reading is never dated after the server's now");
 });
 
 test("a stale reading is answered at once by the board, and renewed behind the answer", async () => {

@@ -639,11 +639,11 @@
      drawn at full strength in the shadow a box wears while it is held (.held
      there), the card's own: nothing here can hold the box, and the faint look
      a box wears beside the card being worked in, its lighter shadow at 60%,
-     would only wash the photo out. its two lines to the card are the board's
+     would only wash the photo out. its line to the card is the board's
      too (#mbline below).
      left out: the bar's two buttons (nothing here expands or closes the
      box), the rise (a box already open on a card is simply there when the
-     card is shown), the lines' fade as the box moves (it never moves here),
+     card is shown), the line's fade as the box moves (it never moves here),
      the expanded box and its shade, the lowered card, home and edit mode */
   body.focus{--shade-raised:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   #magicbox{display:none}
@@ -657,15 +657,15 @@
   #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
   #magicbox .mbbar::after{display:none}
   #magicbox .mbbody{overflow:hidden}
-  /* the two lines that tie the box to its card, as the owner chose them in the
-     connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
-     straight across the gap from the card's right edge to the box's left
-     edge, and no further. they lie beneath the card and the box (#mbline,
-     before the card, under the box's z-index), and wear the card's own
-     shadow, its two layers at the strength a filter gives them (a filter's
-     blur is the spread of the blur a box-shadow asks for, so half of it).
-     the shadow is on the group inside the svg, not on the svg, so it is
-     painted once with the lines (m1216). they come and go with the box */
+  /* the one line that ties the box to its card, as the owner chose it in
+     m1497 (magicLine): the card's own edge colour, solid, 4/3 px, straight
+     across the gap at the middle of the box's height, from the card's right
+     edge to the box's left edge, and no further. it lies beneath the card and
+     the box (#mbline, before the card, under the box's z-index), and wears
+     the card's own shadow, its two layers at the strength a filter gives them
+     (a filter's blur is the spread of the blur a box-shadow asks for, so half
+     of it). the shadow is on the group inside the svg, not on the svg, so it
+     is painted once with the line (m1216). it comes and goes with the box */
   #mbline{display:none}
   body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none; z-index:0}
@@ -802,8 +802,8 @@
   <div class="mbbar"></div>
   <div class="mbbody" data-kind="image"></div>
 </section>
-<!-- the lines from the card to its magic box, two dashed lines beneath the
-     card and the box: before the card on the page, so it is drawn over them -->
+<!-- the line from the card to its magic box, one solid line beneath the
+     card and the box: before the card on the page, so it is drawn over it -->
 <svg id="mbline" aria-hidden="true"></svg>
 <div id="obstage"><main><div id="sections"></div></main></div>
 <!-- the ticket list, as index.html has it -->
@@ -1342,8 +1342,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // picture (view.want in card-logic.js), and the box takes its shape. a window
   // with too little room beside the card for the board's box does not show it
   // (MagicBox.place's shown) and shows it again once the room is back, and the
-  // photo still on its way keeps it hidden, as on the board. its two lines to
-  // the card are drawn each time it is placed and shown, and taken off
+  // photo still on its way keeps it hidden, as on the board. its line to
+  // the card is drawn each time it is placed and shown, and taken off
   // whenever it is not, as magicPlace does
   const FRAME_CLEAR = 16;   // index.html's
   const BOX = { el: document.getElementById("magicbox"), line: document.getElementById("mbline") };
@@ -1370,42 +1370,32 @@ for (const pane of document.querySelectorAll(".tikpane")){
                                              head: BOX.bar.offsetHeight });
     Object.assign(BOX.el.style, { left: seat.left + "px", top: seat.top + "px", width: seat.width + "px",
                                   height: seat.height + "px", visibility: "" });
-    // shown: its lines to the card
+    // shown: its line to the card
     magicLine(rect, seat);
   }
   BOX.photo.addEventListener("load", placeBox);
   addEventListener("resize", placeBox);
-  // copied from index.html, where these live inline: the lines from the card
-  // to its box, the ones every box draws, as the owner chose them in the
-  // connector mock (m1237, mock-box-connector-20261013.html: Two lines,
-  // Dashed, n = 52). two level dashed lines across the gap, with no tabs, each
-  // from the card's right edge to the box's left edge and no further:
-  //   the first sits a share of the box's height down from its top and the
-  //     second the same share up from its foot: the mock's n of 52 on its box
-  //     488 high, so the two keep the same look on a box of any size and never
-  //     meet
-  //   each is dashes 6 long with gaps of 4, 4/3 wide, with flat ends, in the
-  //     card's edge colour, counted from the box's edge, so a whole dash ends
-  //     exactly at it
-  // a gap narrower than 8 px gives null, and no line is drawn
-  const TWO = { gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 };
-  function magicTwo(card, box){
+  // copied from index.html, where these live inline: the line from the card
+  // to its box, the one every box draws, as the owner chose it in m1497
+  // (views.html, view 5: one middle line). one level solid line across the
+  // gap at exactly the middle of the box's height, from the card's right edge
+  // to the box's left edge and no further, 4/3 wide, with flat ends, in the
+  // card's edge colour. a gap narrower than 8 px gives null, and no line is
+  // drawn
+  const LINE = { gap: 8, width: 4 / 3 };
+  function magicMiddle(card, box){
     const cr = card.left + card.width;
-    if (box.left - cr < TWO.gap) return null;
-    const n = box.height * TWO.share;
-    const ys = [box.top + n, box.top + box.height - n];
-    return { ys, from: cr, to: box.left };
+    if (box.left - cr < LINE.gap) return null;
+    return { y: box.top + box.height / 2, from: cr, to: box.left };
   }
   function magicLine(card, box){
-    const two = magicTwo(card, box);
-    if (!two) return;
-    // the card's own edge colour, read off the card, so the lines are always it
+    const mid = magicMiddle(card, box);
+    if (!mid) return;
+    // the card's own edge colour, read off the card, so the line is always it
     const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-    // each path starts at the box's edge, where its dashes are counted from. both
-    // are one group, which wears the shadow (#mbline.on > g)
-    BOX.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
-      two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
-      '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+    // in a group, which wears the shadow (#mbline.on > g)
+    BOX.line.innerHTML = '<g><path d="M' + mid.from.toFixed(2) + ' ' + mid.y.toFixed(2) + 'L' + mid.to.toFixed(2) + ' ' +
+      mid.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + LINE.width + '" stroke-linecap="butt"/></g>';
     BOX.line.classList.add("on");
   }
 
@@ -1505,7 +1495,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     watchBand(el);
     watchRise(replyview);
     watchRise(ta);
-    watchReading(el);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(el.tick);
     return el;
   }
@@ -1610,7 +1599,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
         ta.focus();
       }
     });
-    ta.addEventListener("input", () => { el.tick(); noteTyping(ta); });
+    ta.addEventListener("input", () => el.tick());
     // Enter sends and Shift + Enter is a new line. Control + Shift + Enter
     // with the box empty only moves (composerEnter in index.html); with words
     // in it, it sends them and stays, since the card that has waited longest is
@@ -1734,18 +1723,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
     item.field = page.field;
     card.pending.push(item);
     // nothing stands between the send and its answer: no Delivered, no Read
-    // and no working spinner. the send ends the typing, so the two quiet
-    // seconds the board leaves after the last key (TYPE_QUIET_MS in
-    // card-logic.js) do not hold the answer back
-    el.ta.typedAt = 0;
+    // and no working spinner
     answerOnLanding(card);
     return true;
   }
   // the answer comes the moment the send's flight has landed (SENT_FLIGHT_MS,
-  // 650ms). the board holds a new answer while a bubble is in flight
-  // (turnHolding), and an answer drawn sooner would take the bubble the flight
-  // is landing on away and cut the flight short. it comes once, after the last
-  // of a run of sends, and answers them all
+  // 650ms): an answer drawn sooner would take the bubble the flight is landing
+  // on away and cut the flight short. it comes once, after the last of a run
+  // of sends, and answers them all
   function answerOnLanding(card){
     const el = card.el;
     cancelAnimationFrame(card.replyTimer);
@@ -1798,8 +1783,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function land(card, b){
     const el = card.el;
     const turn = turnBegin(el, b);
-    if (turn === TURN_HELD){ card.held = b; return; }
-    card.held = null;
+    if (turn === TURN_WAIT){ card.waiting = b; return; }
+    card.waiting = null;
     keepHistory(card);
     render(el, pageRaw(card, card.pages.length - 1));
     if (!turn) headOnSwap(el, b);
@@ -1816,9 +1801,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
     caretQueue();
     paintTickets();
   }
-  // a new answer held back while the reader was busy with the card is drawn
-  // once they have let it be (turnHold in card-logic.js)
-  turnAgain = () => { for (const card of cards) if (card.held) land(card, card.held); };
+  // a new answer that waited for a merge of the waiting bubbles is drawn once
+  // the merge has ended (turnWaits in card-logic.js)
+  turnAgain = () => { for (const card of cards) if (card.waiting) land(card, card.waiting); };
 
   // ---- the reply history --------------------------------------------------------
   // the board asks itself for a card's older replies (histList in
@@ -2083,8 +2068,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
       name.addEventListener("keyup", e => { if (e.key === "Enter" || e.key === " ") release(); });
     }
   }
-  // a ticket's age is redrawn when its minute turns, as the board's readings
-  // redraw it; the signature leaves every other pass untouched
+  // a ticket's age is redrawn when its minute turns, by this page's own 10
+  // second pass; the signature leaves every other pass untouched
   setInterval(paintTickets, 10000);
 
   // the done chord, Control + Shift + Backspace or Delete, is the page's on

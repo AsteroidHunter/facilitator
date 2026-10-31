@@ -7,7 +7,9 @@ where it must never take a server lane's path for a folder there.
             (the key, the door, no proxy) for the account alone, and never
             prints the key; a join the board refuses, no server key, or no
             board says so; a ready join gives the first word of the name the
-            board sent, and none for no name or a join that is not ready
+            board sent, and none for no name or a join that is not ready; a
+            ready join whose key is not the shape of the board's keys keeps
+            nothing and says so
   wait      a claim is confirmed before it is printed, without its receipt;
             each /wait call is at most WAIT_CYCLE seconds and the lane is
             looked at once, not before every call; a held card, a missing
@@ -15,7 +17,15 @@ where it must never take a server lane's path for a folder there.
   drop      with the board out of reach, a wait keeps trying until its own
             deadline and then says link_down; the board back within it
             delivers
+  reply     wait --reply reads /fresh first and posts the reply as it came
+            on standard input only when nothing came, then listens as wait
+            does; a message on the card, another card held or a widget
+            message posts nothing and is given back; a refused or cut reply
+            listens for nothing; an empty reply calls nothing
   proxy     a proxy in the account's settings is never used
+  blocked   a call the operating system or a sandbox blocks says
+            permission_denied at once, from inspect, wait and wait --reply,
+            and is never taken for link_down
   mac       on the Mac the helper resolves only lanes whose folders are here
 
     python3 -B -m unittest tests/test_onboard_remote.py
@@ -25,6 +35,7 @@ import http.server
 import importlib.util
 import json
 import os
+import secrets
 import shutil
 import socket
 import stat
@@ -41,6 +52,15 @@ CLONE = HERE.parent.parent
 HELPER = CLONE / ".agents" / "skills" / "facilitator" / "scripts" / "onboard.py"
 KEY = "k-" + "x" * 40
 SERVER_KEY = "s-" + "y" * 40
+# the helper run as a sandbox would let it: every connect refused with EPERM,
+# as macOS and Linux refuse one the sandbox does not allow
+BLOCKED_RUN = (
+    "import errno, runpy, socket, sys\n"
+    "def refuse(self, *args):\n"
+    "    raise PermissionError(errno.EPERM, 'Operation not permitted')\n"
+    "socket.socket.connect = refuse\n"
+    "sys.argv = sys.argv[1:]\n"
+    "runpy.run_path(sys.argv[0], run_name='__main__')\n")
 
 
 class Board(http.server.ThreadingHTTPServer):
@@ -49,7 +69,7 @@ class Board(http.server.ThreadingHTTPServer):
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    answers = {}     # route without query -> (status, body)
+    answers = {}     # route without query -> (status, body); a status of None cuts the call
     seen = []
 
     def log_message(self, *args):
@@ -61,6 +81,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
         Handler.seen.append((self.command, self.path, self.headers.get("authorization"), body))
         status, payload = Handler.answers.get(route, (404, {"error": "not found"}))
+        if status is None:
+            return      # the call is cut: the connection closes with no answer
         raw = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("content-type", "application/json")
@@ -111,10 +133,11 @@ class OnAServer(unittest.TestCase):
         self.board = Board(("127.0.0.1", self.port), Handler)
         threading.Thread(target=self.board.serve_forever, daemon=True).start()
 
-    def run_helper(self, *words, timeout=60, **env):
-        r = subprocess.run([sys.executable, "-B", str(self.script), *words], cwd=self.project,
+    def run_helper(self, *words, timeout=60, stdin=None, blocked=False, **env):
+        start = [sys.executable, "-B", "-c", BLOCKED_RUN] if blocked else [sys.executable, "-B"]
+        r = subprocess.run([*start, str(self.script), *words], cwd=self.project,
                            env={**os.environ, "HOME": str(self.home), **env}, capture_output=True, text=True,
-                           timeout=timeout)
+                           timeout=timeout, input=stdin)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout, json.loads(r.stdout.strip().splitlines()[-1])
 
@@ -158,6 +181,46 @@ class OnAServer(unittest.TestCase):
                            env={**os.environ, "http_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9"})
         self.assertEqual(json.loads(r.stdout), {"box": None, "messages": []})
         self.assertEqual(Handler.seen[-1][2], "Bearer " + KEY)
+
+    def test_a_ready_join_with_a_key_this_server_cannot_use(self):
+        # a quote and a line break would add curl options of the answer's
+        # choosing to the config every agent command here uses
+        written = self.home / "written-by-the-board-answer"
+        injected = KEY + '"\noutput = "' + str(written) + '"\nheader = "X: y'
+        self.serve()
+        for kind, bad in (("a quote and a line break", injected), ("too short", "short-" + "q" * 13),
+                          ("too long", "long-" + "q" * 96), ("a space", "spaced " + "q" * 30)):
+            with self.subTest(key=kind):
+                Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "server": "lab",
+                                                         "key": bad, "name": "Ada"})
+                printed, said = self.run_helper("inspect")
+                self.assertEqual(said, {"status": "protocol_error", "detail": "join answered a key this server cannot use",
+                                        "remote": True, "server": "lab"})
+                self.assertNotIn(bad, printed)
+                self.assertNotIn(json.dumps(bad)[1:-1], printed)
+                self.assertFalse((self.top / "agents" / "demo.key").exists())
+                self.assertFalse((self.top / "agents" / "demo.curl").exists())
+        self.assertFalse(written.exists())
+        # the shortest and longest the rule takes, and a key as the board makes them
+        for good in ("g" * 20, "g" * 100, secrets.token_urlsafe(32)):
+            with self.subTest(key=len(good)):
+                Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "key": good})
+                self.assertEqual(self.run_helper("inspect")[1]["status"], "ready")
+                self.assertEqual((self.top / "agents" / "demo.key").read_text(), good + "\n")
+
+    def test_save_key_refuses_a_key_this_server_cannot_use(self):
+        spec = importlib.util.spec_from_file_location("onboard_helper_save_key", self.script)
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        rec = {"home": str(self.top), "board": f"http://127.0.0.1:{self.port}"}
+        for bad in (KEY + '"\nheader = "X: y', "q" * 19, "q" * 101, "q" * 20 + " ", None):
+            with self.subTest(key=bad):
+                with self.assertRaises(ValueError):
+                    helper.save_key(rec, "demo", bad)
+                self.assertFalse((self.top / "agents" / "demo.key").exists())
+                self.assertFalse((self.top / "agents" / "demo.curl").exists())
+        helper.save_key(rec, "demo", KEY)
+        self.assertEqual((self.top / "agents" / "demo.key").read_text(), KEY + "\n")
 
     def test_a_join_the_board_refuses(self):
         Handler.answers["/remote/join"] = (401, {"error": "unknown"})
@@ -277,6 +340,122 @@ class OnAServer(unittest.TestCase):
         threading.Timer(4.0, self.serve).start()
         said = self.run_helper("wait", "--owner", "demo", "--timeout", "30")[1]
         self.assertEqual((said["status"], said["messages"]), ("claim", ["later"]))
+
+    # -- reply
+    NOTHING = (200, {"box": "m4", "messages": [], "message_via": [], "message_by": [], "message_agent": []})
+    NEXT = (200, {"box": "m5", "title": "t", "messages": ["next one"], "message_via": [None],
+                  "queued_after": 0, "ack": "tok5"})
+
+    def reply(self, text, card="m4", timeout="20"):
+        return self.run_helper("wait", "--reply", card, "--owner", "demo", "--agent", "opus", "--timeout", timeout,
+                               stdin=text)
+
+    def routes(self):
+        return [r.split("?", 1)[0] for _, r, _, _ in Handler.seen]
+
+    def test_a_reply_with_nothing_new_posts_and_the_next_claim_comes_back(self):
+        self.give_key()
+        Handler.answers.update({"/fresh": self.NOTHING, "/reply": (200, {"ok": True}),
+                                "/remote/lane": self.LANE_FREE, "/wait": self.NEXT,
+                                "/ack": (200, {"ok": True, "box": "m5"})})
+        self.serve()
+        text = "**Done.** The answer, as typed.\n\nSecond paragraph: é\n"
+        printed, said = self.reply(text)
+        self.assertEqual(said["status"], "replied")
+        self.assertEqual((said["box"], said["reply"]), ("m4", {"ok": True}))
+        self.assertEqual(said["next"], {"status": "claim", "owner": "demo", "box": "m5", "title": "t",
+                                        "messages": ["next one"], "message_via": [None], "queued_after": 0})
+        self.assertEqual(self.routes(), ["/fresh", "/reply", "/remote/lane", "/wait", "/ack"])
+        method, route, auth, body = Handler.seen[1]
+        self.assertEqual((method, route, body), ("POST", "/reply?box=m4", text.encode()))
+        self.assertEqual(Handler.seen[0][1], "/fresh?owner=demo")
+        self.assertTrue(all(a == "Bearer " + KEY for _, _, a, _ in Handler.seen))
+        self.assertNotIn(KEY, printed)
+
+    def test_the_listen_after_a_reply_answers_as_wait_does(self):
+        self.give_key()
+        Handler.answers.update({"/fresh": self.NOTHING, "/reply": (200, {"ok": True}),
+                                "/remote/lane": self.LANE_FREE, "/wait": (200, {"idle": True})})
+        self.serve()
+        said = self.reply("The answer.", timeout="2")[1]
+        plain = self.run_helper("wait", "--owner", "demo", "--timeout", "2")[1]
+        self.assertEqual(said["next"], {"status": "idle", "owner": "demo"})
+        self.assertEqual(said["next"], plain)
+
+    def test_anything_new_posts_nothing_and_is_given_back(self):
+        self.give_key()
+        widget = [{"from": "widget", "widget": "issues", "about": "t1", "text": "and this?", "ts": 1.0}]
+        self.serve()
+        for fresh in ({**self.NOTHING[1], "messages": ["a follow-up"], "message_via": [None],
+                       "message_by": [None], "message_agent": [None]},
+                      {**self.NOTHING[1], "box": "m9"},
+                      {**self.NOTHING[1], "widget_messages": widget}):
+            with self.subTest(fresh=fresh):
+                Handler.seen = []
+                Handler.answers.update({"/fresh": (200, fresh), "/reply": (200, {"ok": True})})
+                said = self.reply("A reply written before the news.")[1]
+                self.assertEqual(said, {"status": "fresh", **fresh})
+                self.assertEqual(self.routes(), ["/fresh"])
+
+    def test_a_refused_or_cut_reply_listens_for_nothing(self):
+        self.give_key()
+        # no card held, so the reply goes, to a card that is not there
+        none_held = (200, {"messages": [], "message_via": [], "message_by": [], "message_agent": []})
+        Handler.answers.update({"/fresh": none_held, "/reply": (400, {"error": "bad box"}),
+                                "/remote/lane": self.LANE_FREE, "/wait": self.NEXT})
+        self.serve()
+        said = self.reply("For a card that is not there.", card="m404")[1]
+        self.assertEqual(said, {"status": "reply_failed", "box": "m404", "code": 400, "reply": {"error": "bad box"}})
+        self.assertEqual(self.routes(), ["/fresh", "/reply"])
+        Handler.seen = []
+        Handler.answers["/reply"] = (401, {"error": "this key is not known: join again"})
+        self.assertEqual(self.reply("Refused key.")[1]["code"], 401)
+        self.assertEqual(self.routes(), ["/fresh", "/reply"])
+        # the call cut with no answer: it may have reached the board, so it
+        # is not tried again, and nothing listens
+        Handler.seen = []
+        Handler.answers["/reply"] = (None, None)
+        said = self.reply("Cut on the way.")[1]
+        self.assertEqual((said["status"], said["box"]), ("reply_failed", "m4"))
+        self.assertIn("may or may not have the reply", said["detail"])
+        self.assertEqual(self.routes(), ["/fresh", "/reply"])
+
+    def test_an_empty_reply_calls_nothing(self):
+        self.give_key()
+        self.serve()
+        for text in ("", " \n\t\n"):
+            with self.subTest(text=text):
+                said = self.reply(text)[1]
+                self.assertEqual(said["status"], "empty_reply")
+                self.assertEqual(Handler.seen, [])
+        self.assertFalse((self.home / "link-started").exists())
+
+    def test_a_reply_with_no_key_or_no_board_posts_nothing(self):
+        self.assertEqual(self.reply("No key yet.")[1]["status"], "key_refused")
+        self.give_key()
+        said = self.reply("No board.")[1]
+        self.assertEqual(said["status"], "link_down")
+        self.serve()
+        Handler.answers["/fresh"] = (401, {"error": "this key is not known: join again"})
+        self.assertEqual(self.reply("Key gone.")[1]["status"], "key_refused")
+        self.assertEqual(self.routes(), ["/fresh"])
+
+
+    # -- blocked
+    def test_a_call_the_sandbox_blocks_asks_for_permission_and_is_never_link_down(self):
+        self.serve()     # the board answers; only this process may not reach it
+        said = self.run_helper("inspect", blocked=True)[1]
+        self.assertEqual(said["status"], "permission_denied")
+        self.assertEqual(said["detail"], "Access to the board on the person's Mac was denied by the "
+                                         "operating system or sandbox.")
+        self.give_key()
+        began = time.monotonic()
+        said = self.run_helper("wait", "--owner", "demo", "--timeout", "30", blocked=True)[1]
+        self.assertEqual(said["status"], "permission_denied")
+        self.assertLess(time.monotonic() - began, 10, "a blocked wait kept trying as through a drop")
+        said = self.run_helper("wait", "--reply", "m4", "--owner", "demo", stdin="Blocked.", blocked=True)[1]
+        self.assertEqual(said["status"], "permission_denied")
+        self.assertEqual(Handler.seen, [], "a blocked call reached the board")
 
 
 class OnTheMac(unittest.TestCase):

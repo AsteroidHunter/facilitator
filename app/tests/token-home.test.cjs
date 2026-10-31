@@ -712,7 +712,7 @@ test("the box stands in the home page's wide part, the charts fill it and scroll
   const home = /body\.focus\.home #home\{([^}]*)\}/.exec(HTML)[1];
   assert.match(home, /flex:none; height:var\(--home-chart-h, /);
   assert.doesNotMatch(home, /position|transform|left|top/, "the column places it");
-  assert.match(HTML, /const HOME_LOOK = \{[^}]*chartW: \.35, chartH: \.35 \}/, "the box is 35% of his frame both ways");
+  assert.match(HTML, /const HOME_LOOK = \{[^}]*chartW: \.35, chartH: \.35[,\s]/, "the box is 35% of his frame both ways");
   // the frame the quarter is taken from is the one the page draws
   const frame = /body\.focus #appframe\{([^}]*)\}/.exec(HTML.replace(/\/\*[\s\S]*?\*\//g, ""))[1];
   assert.match(frame, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);

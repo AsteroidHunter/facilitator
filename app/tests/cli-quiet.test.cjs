@@ -1,13 +1,14 @@
 // What `facilitator run` prints. A real run says the board is up and is live,
 // two lines, and names no lane; nothing about the window unless it failed to
-// open; --attach and --spawn add a line per lane they act on; --dry-run keeps
-// its longer account. A broken run.config.json is one plain line naming the
-// file, for every command that reads it.
+// open; --dry-run keeps its longer account. It never types into or starts an
+// agent's session, and a lane's tmux, instruction and prompt, left from older
+// versions, are not read. A broken run.config.json is one plain line naming
+// the file, for every command that reads it.
 //
-// The CLI is driven in-process with stand-ins for the board's answer, tmux, the
-// browser launcher and Popen, so no server starts, no window opens, no tmux
-// session is touched and no port is used. The config-file cases run the real
-// command and end before anything is started.
+// The CLI is driven in-process with stand-ins for the board's answer, the
+// browser launcher and Popen, so no server starts, no window opens and no port
+// is used. The config-file cases run the real command and end before anything
+// is started.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { execFile } = require("node:child_process");
@@ -26,6 +27,8 @@ const INSTRUCTIONS = {
   facilitator: "Attach your board listener: run the RUNBOOK listen loop with owner=facilitator and answer claims per doctrine. Server is already running.",
   example: "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=example and answer claims per doctrine. Server is already running.",
 };
+// lanes as older versions had them, with the tmux, instruction and prompt
+// that run no longer reads
 const LANES = [
   { owner: "facilitator", tmux: "my-facilitator-session", dir: "/tmp/facilitator-lane", instruction: INSTRUCTIONS.facilitator, prompt: "You are the facilitator agent." },
   { owner: "example", tmux: "my-project-session", dir: "/tmp/example-lane", instruction: INSTRUCTIONS.example, prompt: "You are the second agent." },
@@ -63,10 +66,14 @@ function loadCli() {
 
 // One run of cmd_run with everything outside the CLI stood in for. `board` is
 // what the port answers (null for nothing yet, then a board once the launch
-// has been made), `tmux` is live, shell or none, `open` is "ok" or the message
-// `open` prints when it fails.
-async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncovered", tmux = "none",
-                          hasTmux = true, open = "ok", booting = false, sessionExists = false, lands = true } = {}) {
+// has been made), `open` is "ok" or the message `open` prints when it fails.
+// `opens` is what the board answers when asked to open its window: "ok", the
+// message open printed there, or null for a board from before it opened its
+// own window, which leaves the command to open it. `allowed` is macOS's answer
+// to whether this app may control Chrome without asking, false unless a test
+// says, so no run here depends on the Mac's own.
+async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncovered",
+                          open = "ok", booting = false, opens = "ok", allowed = false } = {}) {
   await writeConfig(config);
   const states = {
     uncovered: { boxes: [], queued: 0, listening: { facilitator: false, example: false }, busy: {}, listenerGap: { facilitator: 99999, example: 99999 } },
@@ -77,26 +84,14 @@ async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncov
   const { code, stdout, stderr } = await execFileAsync("python3", ["-c", [
     loadCli(),
     `STATE = json.loads(${JSON.stringify(JSON.stringify(states[board]))})`,
-    `TMUX = ${JSON.stringify(tmux)}`,
     `OPEN = ${JSON.stringify(open)}`,
-    `SESSION_EXISTS = ${sessionExists ? "True" : "False"}`,
-    `LANDS = ${lands ? "True" : "False"}`,
     "CALLS = []",
     "def fake_run(argv, **kw):",
     "    CALLS.append(list(argv))",
     "    ok = types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    if argv[0] == 'open' and OPEN != 'ok':",
     "        return types.SimpleNamespace(returncode=1, stdout='', stderr=OPEN + '\\n')",
-    "    if argv[0] == 'tmux' and argv[1] == 'list-panes':",
-    "        if TMUX == 'none':",
-    "            return types.SimpleNamespace(returncode=1, stdout='', stderr='no server')",
-    "        return types.SimpleNamespace(returncode=0, stdout='%1 ' + ('claude' if TMUX == 'live' else 'zsh') + '\\n', stderr='')",
-    "    if argv[0] == 'tmux' and argv[1] == 'capture-pane':",
-    "        return types.SimpleNamespace(returncode=0, stdout=' '.join(INSTRUCTIONS.values()) if LANDS else '', stderr='')",
-    "    if argv[0] == 'tmux' and argv[1] == 'has-session':",
-    "        return types.SimpleNamespace(returncode=0 if SESSION_EXISTS else 1, stdout='', stderr='')",
     "    return ok",
-    `INSTRUCTIONS = ${JSON.stringify(INSTRUCTIONS)}`,
     "class Child:",
     "    def __init__(self, argv, **kw):",
     "        CALLS.append(['popen'] + list(argv))",
@@ -106,11 +101,19 @@ async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncov
     "                                       STDOUT=subprocess.STDOUT, PIPE=subprocess.PIPE,",
     "                                       SubprocessError=subprocess.SubprocessError)",
     "cli.time = types.SimpleNamespace(sleep=lambda s: None, monotonic=time.monotonic, time=time.time)",
-    `cli.shutil = types.SimpleNamespace(which=lambda name: ${hasTmux ? "'/usr/bin/' + name" : "None"})`,
+    "cli.shutil = types.SimpleNamespace(which=lambda name: '/usr/bin/' + name)",
     `ANSWERS = [None] if ${booting ? "True" : "False"} else []`,
     "def fake_state(port, timeout=2):",
     "    return ANSWERS.pop(0) if ANSWERS else STATE",
     "cli.state = fake_state",
+    `OPENS = ${opens === null ? "None" : JSON.stringify(opens)}`,
+    "def fake_board_window(port, route, body, timeout):",
+    "    CALLS.append(['board', port, route, body.decode()])",
+    "    if OPENS is None:",
+    "        return None",
+    "    return (200, {'opened': True}) if OPENS == 'ok' else (502, {'error': 'could not open Chrome', 'said': OPENS})",
+    "cli.board_window = fake_board_window",
+    `cli.chrome_allowed = lambda: ${allowed ? "True" : "False"}`,
     `cli.cmd_run(${JSON.stringify(args)})`,
     "sys.stdout.flush()",
     "print('CALLS ' + json.dumps(CALLS))",
@@ -126,12 +129,19 @@ async function run(args, { config = { port: PORT, lanes: LANES }, board = "uncov
 }
 
 const opened = calls => calls.filter(c => c[0] === "open");
+const asked = calls => calls.filter(c => c[0] === "board");
 
 test("a run with every lane covered says the board is up and nothing else", async () => {
   const done = await run(["run"], { board: "covered", config: { port: PORT, lanes: [LANES[0]] } });
   assert.deepEqual(done.said, UP, done.stderr);
-  assert.deepEqual(opened(done.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]]);
+  // the board opens its own window, and the command runs nothing for it
+  assert.deepEqual(asked(done.calls), [["board", PORT, "/window/open", BOARD]]);
+  assert.deepEqual(opened(done.calls), []);
   assert.equal(done.stderr, "");
+  // a board from before it opened its own window: the command opens it, as it always did
+  const older = await run(["run"], { board: "covered", opens: null, config: { port: PORT, lanes: [LANES[0]] } });
+  assert.deepEqual(older.said, UP, older.stderr);
+  assert.deepEqual(opened(older.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]]);
 });
 
 test("a run that has to start the board says the same two lines", async () => {
@@ -153,14 +163,22 @@ test("an app_url in the config changes the window, not the address the board is 
   const done = await run(["run"], { board: "covered", config: { port: PORT, app_url: "http://127.0.0.1:9/", lanes: [LANES[0]] } });
   assert.deepEqual(done.said, UP);
   assert.deepEqual(opened(done.calls), [["open", "-na", "Google Chrome", "--args", "--app=http://127.0.0.1:9/"]]);
+  assert.deepEqual(asked(done.calls), [], "the board was asked to open a page not its own");
 });
 
 test("app_fullscreen true starts the window in full screen, and no other value changes the launch", async () => {
-  const full = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
+  // the board reads app_fullscreen itself (board-lock.test.cjs), so the command's ask is the same either way
+  const board = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
+  assert.deepEqual(asked(board.calls), [["board", PORT, "/window/open", BOARD]]);
+  assert.deepEqual(opened(board.calls), []);
+  // and a board from before it did opens it here, full screen as it always did
+  const full = await run(["run"], { board: "covered", opens: null,
+                                    config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
   assert.deepEqual(full.said, UP, full.stderr);
   assert.deepEqual(opened(full.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`, "--start-fullscreen"]]);
   for (const value of [false, "true", 1, null]) {
-    const same = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: value, lanes: [LANES[0]] } });
+    const same = await run(["run"], { board: "covered", opens: null,
+                                      config: { port: PORT, app_fullscreen: value, lanes: [LANES[0]] } });
     assert.deepEqual(opened(same.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]],
       `app_fullscreen ${JSON.stringify(value)} changed the launch`);
   }
@@ -170,133 +188,71 @@ test("a dry run says when the window would be full screen", async () => {
   const full = await run(["run", "--dry-run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
   assert.ok(full.said.includes(`window: would open ${BOARD} as a chromeless full-screen app window`), full.said.join("\n"));
   assert.deepEqual(opened(full.calls), [], "a dry run opened a window");
+  assert.deepEqual(asked(full.calls), [], "a dry run asked the board to open a window");
 });
 
 test("a window that fails to open is one plain line, and is never reported as opened", async () => {
-  const done = await run(["run"], {
-    board: "covered", open: "Unable to find application named 'Google Chrome'", config: { port: PORT, lanes: [LANES[0]] },
-  });
-  assert.deepEqual(done.said, [
-    ...UP,
-    `could not open Chrome (Unable to find application named 'Google Chrome'); open ${BOARD} yourself`,
-  ]);
-  assert.ok(!done.said.some(line => /opened/.test(line)), "a window that failed was called opened");
+  // what open said comes back from the board, and from open run here for a board from before
+  const failed = "Unable to find application named 'Google Chrome'";
+  for (const options of [{ opens: failed }, { opens: null, open: failed }]) {
+    const done = await run(["run"], { board: "covered", config: { port: PORT, lanes: [LANES[0]] }, ...options });
+    assert.deepEqual(done.said, [
+      ...UP,
+      `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`,
+    ], JSON.stringify(options));
+    assert.ok(!done.said.some(line => /opened/.test(line)), "a window that failed was called opened");
+  }
+  // a board that could say nothing of what open printed is still the one line
+  const bare = await run(["run"], { board: "covered", opens: "", config: { port: PORT, lanes: [LANES[0]] } });
+  assert.deepEqual(bare.said, [...UP, `could not open Chrome; open Chrome, then run facilitator run`]);
 });
 
-test("--attach: one line per lane, whether the instruction typed or not", async () => {
-  const typed = await run(["run", "--attach"], { tmux: "live" });
-  assert.deepEqual(typed.said, [
-    ...UP,
-    "lane facilitator: instructed the claude in tmux my-facilitator-session (pane %1)",
-    "lane example: instructed the claude in tmux my-project-session (pane %1)",
-  ]);
-  assert.equal(typed.calls.filter(c => c[0] === "tmux" && c[1] === "send-keys").length, 4, "typing and Enter, twice");
+// after the board says it opened its window, the command brings Chrome to the
+// front from the app it runs in: AppleScript's activate, no address, no code
+const FORWARD = ["/usr/bin/osascript", "-e",
+  'if application "Google Chrome" is running then\n  tell application "Google Chrome" to activate\nend if'];
+const forwarded = calls => calls.filter(c => c[0].endsWith("osascript"));
 
-  const missing = await run(["run", "--attach"], { tmux: "none" });
-  assert.deepEqual(missing.said, [
-    ...UP,
-    `lane facilitator: tmux session my-facilitator-session not found; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.facilitator}`,
-    `lane example: tmux session my-project-session not found; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.example}`,
-  ]);
-
-  const shell = await run(["run", "--attach"], { tmux: "shell" });
-  assert.deepEqual(shell.said, [
-    ...UP,
-    `lane facilitator: no claude pane inside tmux my-facilitator-session; not typing into shells; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.facilitator}`,
-    `lane example: no claude pane inside tmux my-project-session; not typing into shells; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.example}`,
-  ]);
-  assert.equal(shell.calls.filter(c => c[0] === "tmux" && c[1] === "send-keys").length, 0, "typed into a shell");
-
-  const noTmux = await run(["run", "--attach"], { hasTmux: false });
-  assert.deepEqual(noTmux.said, [
-    ...UP,
-    `lane facilitator: tmux session my-facilitator-session not found; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.facilitator}`,
-    `lane example: tmux session my-project-session not found; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.example}`,
-  ]);
+test("Chrome is brought forward once after the board opens its window, and never after a failure", async () => {
+  const lanes = { port: PORT, lanes: [LANES[0]] };
+  const done = await run(["run"], { board: "covered", allowed: true, config: lanes });
+  assert.deepEqual(done.said, UP, done.stderr);
+  assert.deepEqual(forwarded(done.calls), [FORWARD]);
+  assert.deepEqual(opened(done.calls), [], "a window was opened besides the board's");
+  const order = done.calls.filter(c => c[0] === "board" || c[0].endsWith("osascript")).map(c => c[0]);
+  assert.deepEqual(order, ["board", "/usr/bin/osascript"], "Chrome was brought forward before the board answered");
+  // the board could not open Chrome: the same one line, and Chrome is left alone
+  const failed = await run(["run"], { board: "covered", allowed: true, config: lanes,
+                                      opens: "Unable to find application named 'Google Chrome'" });
+  assert.deepEqual(failed.said, [...UP,
+    `could not open Chrome (Unable to find application named 'Google Chrome'); open Chrome, then run facilitator run`]);
+  assert.deepEqual(forwarded(failed.calls), []);
+  // a dry run, a board from before (the command's own open comes forward as it
+  // always did), and a Mac that would have to ask first: nothing is activated
+  for (const [what, args, options] of [["a dry run", ["run", "--dry-run"], {}],
+                                       ["an older board", ["run"], { opens: null }],
+                                       ["macOS would ask", ["run"], { allowed: false }]]) {
+    const other = await run(args, { board: "covered", allowed: true, config: lanes, ...options });
+    assert.deepEqual(forwarded(other.calls), [], `${what}: Chrome was brought forward`);
+  }
 });
 
-test("--attach: text that did not land is said, Enter is not pressed, and the paste line follows", async () => {
-  const done = await run(["run", "--attach"], { tmux: "live", lands: false, config: { port: PORT, lanes: [LANES[0]] } });
-  assert.deepEqual(done.said, [
-    ...UP,
-    "lane facilitator: instruction did not land in pane %1; Enter NOT pressed",
-    `lane facilitator: no reachable session; paste this into its claude, or rerun with --spawn: ${INSTRUCTIONS.facilitator}`,
-  ]);
-  assert.equal(done.calls.filter(c => c[0] === "tmux" && c[1] === "send-keys" && c.includes("Enter")).length, 0, "Enter was pressed");
-});
-
-test("--spawn: one line per lane, and no 'not found' line before it", async () => {
-  const inTmux = await run(["run", "--spawn"], { tmux: "none" });
-  assert.deepEqual(inTmux.said, [
-    ...UP,
-    "lane facilitator: spawned NEW session (tmux facil-facilitator)",
-    "lane example: spawned NEW session (tmux facil-example)",
-  ]);
-  const noTmux = await run(["run", "--spawn"], { hasTmux: false });
-  assert.deepEqual(noTmux.said, [
-    ...UP,
-    "lane facilitator: spawned NEW session (terminal window)",
-    "lane example: spawned NEW session (terminal window)",
-  ]);
-  const there = await run(["run", "--spawn"], { tmux: "shell", sessionExists: true });
-  assert.deepEqual(there.said, [
-    ...UP,
-    "lane facilitator: tmux session facil-facilitator already exists; attach with: tmux attach -t facil-facilitator",
-    "lane example: tmux session facil-example already exists; attach with: tmux attach -t facil-example",
-  ]);
-});
-
-test("--force and --attach together still say one line per lane that is not reached", async () => {
-  const done = await run(["run", "--force", "--attach"], { board: "covered", tmux: "live", config: { port: PORT, lanes: [LANES[0]] } });
-  assert.deepEqual(done.said, [...UP, "lane facilitator: instructed the claude in tmux my-facilitator-session (pane %1)"]);
-});
-
-test("--dry-run keeps its own account, line for line", async () => {
+test("--dry-run keeps its own account, line for line, and names no lane", async () => {
   const idle = await run(["run", "--dry-run"], { board: "uncovered", config: { port: PORT, lanes: LANES }, booting: true });
   assert.deepEqual(idle.said, [
     `server: would start ${path.join(fixtureDir, "server.py")}`,
     `window: would open ${BOARD} as a chromeless app window`,
-    `listener facilitator: not attached. Tell that agent to start listening, or\n  rerun with --attach to type the instruction into its tmux session:\n  ${INSTRUCTIONS.facilitator}`,
-    `listener example: not attached. Tell that agent to start listening, or\n  rerun with --attach to type the instruction into its tmux session:\n  ${INSTRUCTIONS.example}`,
-  ].join("\n").split("\n"));
+  ]);
   assert.deepEqual(opened(idle.calls), [], "a dry run opened a window");
   assert.equal(idle.calls.filter(c => c[0] === "popen").length, 0, "a dry run started the board");
 
-  const heard = await run(["run", "--dry-run"], { board: "covered" });
-  assert.deepEqual(heard.said.slice(2), [
-    "listener facilitator: lane covered (attached right now)",
-    "listener example: lane covered (heard 12 min ago)",
-  ]);
-
-  const up = await run(["run", "--dry-run"], { board: "partial" });
-  assert.deepEqual(up.said.slice(0, 3), [
-    `server: already up on ${PORT}`,
-    `window: would open ${BOARD} as a chromeless app window`,
-    "listener facilitator: lane covered (attached right now)",
-  ]);
-  assert.match(up.said[3], /^listener example: not attached\. Tell that agent to start listening, or$/);
-
-  const attach = await run(["run", "--dry-run", "--attach"], { board: "uncovered", tmux: "live" });
-  assert.deepEqual(attach.said, [
-    `server: already up on ${PORT}`,
-    `window: would open ${BOARD} as a chromeless app window`,
-    "listener facilitator: would send the attach instruction to tmux my-facilitator-session pane %1",
-    "listener example: would send the attach instruction to tmux my-project-session pane %1",
-  ]);
-
-  const missing = await run(["run", "--dry-run", "--attach"], { board: "uncovered", tmux: "none" });
-  assert.deepEqual(missing.said.slice(2, 5), [
-    "listener facilitator: tmux session my-facilitator-session not found",
-    "listener facilitator: no reachable session. Paste this into the right claude yourself,",
-    "  or rerun with --spawn to create a fresh session:",
-  ]);
-
-  const spawn = await run(["run", "--dry-run", "--spawn"], { board: "uncovered", tmux: "none" });
-  assert.deepEqual(spawn.said.slice(2, 4), [
-    "listener facilitator: tmux session my-facilitator-session not found",
-    "listener facilitator: would spawn a NEW claude session in /tmp/facilitator-lane",
-  ]);
-  assert.equal(spawn.calls.filter(c => c[0] === "tmux" && c[1] !== "list-panes").length, 0, "a dry run touched tmux");
+  for (const board of ["covered", "partial", "uncovered", "midclaim"]) {
+    const up = await run(["run", "--dry-run"], { board });
+    assert.deepEqual(up.said, [
+      `server: already up on ${PORT}`,
+      `window: would open ${BOARD} as a chromeless app window`,
+    ], `${board}: ${up.stderr}`);
+  }
 });
 
 // --- run.config.json that cannot be used ---------------------------------
@@ -363,16 +319,23 @@ test("run stops on lanes it cannot use before it starts anything", async () => {
   }
 });
 
-test("a lane missing the key a flag needs is one plain line, not a traceback", async () => {
-  const noInstruction = [{ owner: "facilitator", tmux: "my-facilitator-session" }];
-  const attach = await run(["run", "--attach"], { tmux: "live", config: { port: PORT, lanes: noInstruction } });
-  assert.doesNotMatch(attach.stderr, /Traceback/, attach.stderr);
-  assert.match(attach.stderr, /^run\.config\.json: lane facilitator has no "instruction"$/m, attach.stderr);
-
-  const noDir = [{ owner: "facilitator", instruction: "go", prompt: "p" }];
-  const spawn = await run(["run", "--spawn"], { config: { port: PORT, lanes: noDir } });
-  assert.doesNotMatch(spawn.stderr, /Traceback/, spawn.stderr);
-  assert.match(spawn.stderr, /^run\.config\.json: lane facilitator has no "dir"$/m, spawn.stderr);
+test("lanes from older versions still work: their tmux, instruction and prompt are not read", async () => {
+  // an agent's session would be reached through tmux, or through Terminal by osascript
+  const reached = calls => calls.filter(c => c[0] === "tmux"
+    || (c[0] === "osascript" && c.some(word => String(word).includes('application "Terminal"'))));
+  for (const args of [["run"], ["run", "--attach"], ["run", "--spawn"], ["run", "--force", "--attach"]]) {
+    const done = await run(args, { config: { port: PORT, lanes: LANES } });
+    assert.deepEqual(done.said, UP, `${args.join(" ")}: ${done.stderr}`);
+    assert.equal(done.stderr, "", args.join(" "));
+    assert.deepEqual(reached(done.calls), [], `${args.join(" ")} reached an agent's session`);
+  }
+  const bare = [{ owner: "facilitator" }, { owner: "example", tmux: "my-project-session" }];
+  for (const args of [["run"], ["run", "--attach"], ["run", "--spawn"]]) {
+    const done = await run(args, { config: { port: PORT, lanes: bare } });
+    assert.equal(done.code, 0, `${args.join(" ")}: ${done.stderr}`);
+    assert.deepEqual(done.said, UP, `${args.join(" ")}: ${done.stderr}`);
+    assert.equal(done.stderr, "", args.join(" "));
+  }
 });
 
 test("a config that works is read exactly as before", async () => {

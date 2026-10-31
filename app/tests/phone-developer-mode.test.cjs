@@ -45,6 +45,9 @@ function phone(store = new Map()) {
     context.createDiagnostics = new Map();
     context.innerWidth = 390; context.selectedId = "m12"; context.els = {};
     context.menuOut = () => null;
+    // the live line's probe (phone-line-probe.test.cjs) is told of every switch
+    context.lineChecks = 0;
+    context.lineProbe = { check() { context.lineChecks++; } };
     vm.runInContext(between(html, html.includes("// Developer mode belongs")
       ? "// Developer mode belongs" : "// the phone is where a failure is hardest", "function traceFrameOpportunity"), context);
     vm.runInContext(between(logic, "function settingsPage(root, source, opts){", "\nfunction "), context);

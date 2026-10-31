@@ -15,6 +15,10 @@
 //
 // Its own headless Chrome with its own profile; sandbox ports from the
 // operating system; the fake tailscale first on PATH. No window is opened.
+// The board is locked as a real one is: this file's own calls carry the agent
+// key, and each browser holds the window's cookie for the port it opens, as
+// `facilitator run` leaves one in Chrome. The cookie is the window's sign-in
+// and holds no setting.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const fs = require("node:fs");
@@ -46,6 +50,17 @@ const OLD = {
 };
 
 let place, base, browser, profile, other;
+// the board is locked as a real one is, so each call carries its agent key
+const fetch = (where, init = {}) => globalThis.fetch(where, { ...init, headers: { ...box.keyed(place), ...init.headers } });
+
+// the window's cookie for the board on this port, put in a browser context
+// before it opens the board
+async function windowed(context, port) {
+  const cookie = await box.windowCookie(place, port);
+  const at = cookie.indexOf("=");
+  await context.setCookie({ name: cookie.slice(0, at), value: cookie.slice(at + 1), domain: "127.0.0.1",
+                            path: "/", httpOnly: true, sameSite: "Strict" });
+}
 
 async function cli(lines) {
   const code = [
@@ -159,6 +174,7 @@ test("a board arranged on one port shows the same at the port it moved to, from 
     sessionStorage.setItem("planted", "1");
     for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
   }, OLD);
+  await windowed(browser.defaultBrowserContext(), base);
   await page.goto(oldOrigin + "/", { waitUntil: "domcontentloaded" });
   await ready(page);
   const copied = (await (await fetch(oldOrigin + "/settings")).json()).values;
@@ -219,8 +235,10 @@ test("a board arranged on one port shows the same at the port it moved to, from 
                         `It stays on ${moved}, and run.config.json now says so.`);
   const newOrigin = `http://127.0.0.1:${moved}`;
 
-  // a browser profile with nothing in it, at the new address
+  // a browser profile with nothing in it but the window's cookie for the new
+  // address, at the new address
   const fresh = await browser.createBrowserContext();
+  await windowed(fresh, moved);
   const page2 = await fresh.newPage();
   await page2.setViewport(VIEW);
   await page2.goto(newOrigin + "/", { waitUntil: "domcontentloaded" });

@@ -262,21 +262,24 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   const start = html.indexOf("function magicPlace(){"), fn = html.slice(start, html.indexOf("\n}\n", start));
   const roomAt = html.indexOf("function magicRoom(){"), room = html.slice(roomAt, html.indexOf("\n}\n", roomAt));
   assert.match(room, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
-  assert.match(room, /return \{ S, sr, rect, fit, most: MagicBox\.place\(rect, fit\) \};/);
+  // right of the card, and left of it in the new layout, where the room on the
+  // right is the ticket list's and the typing box's
+  assert.match(room, /const side = document\.body\.classList\.contains\("newlayout"\) \? "left" : undefined;\n  if \(side\) fit\.left = lim\.left - FRAME_CLEAR;/);
+  assert.match(room, /return \{ S, sr, rect, fit, side, most: MagicBox\.place\(rect, fit, undefined, side\) \};/);
   // no room beside the card: hidden where it is, before anything is sized
   // or asked of what it shows, and nothing else is done with it
   assert.match(fn, /const room = magicRoom\(\);\n  if \(!room\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n  const \{ S, rect, fit, most \} = room;\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
-  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
+  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\), room\.side\)/);
   // shown, it draws the line to the card from the card's and the box's own
   // rectangles, with no workspace edge to keep it under
-  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);/);
+  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);\n  if \(room\.side === "left"\) magicLineLeft\(rect, at\);/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
   // still open: hiding it closes nothing and takes nothing off the page, and
   // every fit and every reading of the board place it again
   assert.ok(!/magicOff|magicClose|MB\.el\.classList\.remove/.test(fn), "hiding it puts it away");
   assert.match(html, /magicSync\(\);      \/\/ and the card's magic box follows the card/);
-  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n  \}\n\}/);
+  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n  \}\n(?:  \/\/[^\n]*\n)*  MB\.view\.widgetSync\(b\.magic\);\n\}/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
   // what it shows asks for, in the shared view (card-logic.js): a picture as
   // many of the page's pixels as it has pixels on screen, its size read once off
@@ -302,7 +305,9 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
 test("a page says its own height only when asked, and the phone's page is as it was", () => {
   const box = api();
   const plain = box.pageDoc("<p>x</p>", "w");
-  assert.ok(plain.endsWith('<script>addEventListener("load", () => parent.postMessage("w", "*"))</script><p>x</p>'));
+  // a page of neither kind says its word and goes quiet when hidden, and nothing more
+  assert.ok(plain.endsWith('<script>addEventListener("load", () => parent.postMessage("w", "*"));(() => { const W = "w"; ' +
+    box.PAGE_HUSH + ' })()</script><p>x</p>'));
   assert.ok(!/ResizeObserver/.test(plain));
   const sized = box.pageDoc("<p>x</p>", "w", true);
   assert.match(sized, /parent\.postMessage\(W \+ ' ' \+ h, '\*'\)/);
@@ -677,7 +682,7 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.ok(!/filter/.test(rule), "the svg's own layer wears the filter: " + rule);
   assert.match(html, /\n  body\.focus #mbline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.match(html, /\n  body\.lowered #mbline\.on > g\{filter:none\}/);
-  assert.match(linesCode(), /MB\.line\.innerHTML = '<g>' \+ two\.ys\.map\([\s\S]*?\.join\(""\) \+ '<\/g>';/);
+  assert.match(linesCode(), /MB\.line\.innerHTML = '<g><path d="M' \+ [^;]*stroke-linecap="butt"\/><\/g>';/);
   assert.match(html, /\n  body\.focus:is\(\.home, \.editmode\) #mbline\.on\{display:none\}/);
   const lines = linesCode();
   assert.match(lines, /const ink = getComputedStyle\(document\.querySelector\("main"\)\)\.borderTopColor/);
@@ -710,7 +715,7 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.match(view, /if \(tall > 0 && hooks\.heard && !view\.big\) hooks\.heard\(tall, run\.frame\.clientWidth\);/);
   const measure = html.slice(html.indexOf("function magicMeasure(){"), html.indexOf("function magicDraw("));
   assert.match(measure, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\);/);
-  assert.match(measure, /frame\.srcdoc = MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true\);/);
+  assert.match(measure, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true, false, !!have\.box\.widget\)\);/);
   assert.match(measure, /frame\.inert = true;/);
   assert.match(measure, /visibility: "hidden", pointerEvents: "none"/);
   assert.match(measure, /frame\.remove\(\);/);
@@ -726,18 +731,18 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.equal(ctx.magicHeight("c:3", 393), 0);
 });
 
-// the two lines and their dashes, run outside the page on stand-ins
+// the one line, run outside the page on stand-ins
 const linesCode = () => {
   const html = read("index.html");
-  return html.slice(html.indexOf("const TWO = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
+  return html.slice(html.indexOf("const LINE = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
 };
 // the card and the box as the connector mock has them (m1237,
 // mock-box-connector-20261013.html), in stage pixels: the card at its saved
 // place and size, the box's left edge at 1055.38 and its top at 89.86, 488 high
 const PICK = { card: { left: 466.56, top: 51.84, width: 506.88, height: 760.32 }, box: { left: 1055.38, top: 89.86, width: 344.47, height: 488 } };
-// the lines' levels are fixed distances in the box, so the stand-in needs no
-// element to read: only the svg the lines are drawn into
-const dashed = (scale = 1) => {
+// the line's level is read off the box's own rectangle, so the stand-in needs
+// no element to read: only the svg the line is drawn into
+const lined = (scale = 1) => {
   const svg = () => { const s = { innerHTML: "", ons: 0, classList: { add() { s.ons++; } } }; return s; };
   const MB = { line: svg(), el: {} };
   const ctx = vm.createContext({ MB, stageScale: scale, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)" }),
@@ -746,83 +751,84 @@ const dashed = (scale = 1) => {
   return { ctx, MB };
 };
 // every path drawn: [start x, start y, end x, end y]
-const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.3333333333333333" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
+const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.3333333333333333" stroke-linecap="butt"\/>/g;
 const paths = svg => [...svg.innerHTML.matchAll(PATH)].map(m => m.slice(1, 5).map(Number));
 
-test("the lines are the pick from the connector mock: on its box, 488 high, two dashed lines 52 px down from the top and 52 px up from the foot, from the card's edge to the box's and no further", () => {
-  const { ctx, MB } = dashed();
+test("the line is the pick from m1497 (view 5): one solid line at exactly the middle of the box's height, from the card's edge to the box's and no further", () => {
+  const { ctx, MB } = lined();
   const near = (a, b, d = .01) => Math.abs(a - b) <= d;
   const { card, box } = PICK;
-  const two = ctx.magicTwo(card, box);
-  assert.equal(two.ys.length, 2);
-  assert.ok(near(two.ys[0], box.top + 52, 1e-9) && near(two.ys[1], box.top + box.height - 52, 1e-9), [...two.ys].join());
-  // each starts exactly at the card's right edge and stops at the box's left
+  const mid = ctx.magicMiddle(card, box);
+  assert.equal(mid.y, box.top + box.height / 2);
+  // it starts exactly at the card's right edge and stops at the box's left
   // edge: nothing of it is under either, which shows through whichever is faded
-  assert.equal(two.from, card.left + card.width);
-  assert.equal(two.to, box.left);
+  assert.equal(mid.from, card.left + card.width);
+  assert.equal(mid.to, box.left);
   ctx.magicLine(card, box);
   assert.equal(MB.line.ons, 1);
-  // two horizontal paths, dashes 6 with gaps of 4, 4/3 wide (two thirds of the
-  // 2 the mock drew), flat ends, in the
-  // card's edge colour, and nothing else in the group
+  // one level path, solid, 4/3 wide (two thirds of the 2 the connector mock
+  // drew), flat ends, in the card's edge colour, and nothing else in the group
+  assert.match(MB.line.innerHTML, /^<g><path [^>]*\/><\/g>$/);
   const got = paths(MB.line);
-  assert.equal(got.length, 2, MB.line.innerHTML);
-  assert.match(MB.line.innerHTML, /^<g><path [^>]*\/><path [^>]*\/><\/g>$/);
-  got.forEach(([x1, y1, x2, y2], i) => {
-    assert.ok(near(y1, two.ys[i]) && near(y2, two.ys[i]), "a line is not level at its place: " + [y1, y2]);
-    // each path starts at the box's edge, so its dashes are counted from it
-    // and a whole dash ends exactly there
-    assert.ok(near(x1, box.left) && near(x2, card.left + card.width), "a line runs elsewhere: " + [x1, x2]);
-  });
-  // the same box, the same lines, however often they are drawn
+  assert.equal(got.length, 1, MB.line.innerHTML);
+  const [[x1, y1, x2, y2]] = got;
+  assert.ok(near(y1, mid.y) && near(y2, mid.y), "the line is not level at the box's middle: " + [y1, y2]);
+  assert.ok(near(x1, card.left + card.width) && near(x2, box.left), "the line runs elsewhere: " + [x1, x2]);
+  assert.ok(!/dasharray/.test(MB.line.innerHTML), "the line is dashed");
+  // the same box, the same line, however often it is drawn
   const first = MB.line.innerHTML;
   ctx.magicLine(card, box);
   assert.equal(MB.line.innerHTML, first);
+  // a box left of the card, in the new layout: the same line turned over, from
+  // the card's left edge to the box's right edge, at the box's middle
+  const left = { ...box, left: card.left - 52 - box.width };
+  const turned = lined();
+  turned.ctx.magicLineLeft(card, left);
+  const [[lx1, ly1, lx2, ly2]] = paths(turned.MB.line);
+  assert.ok(near(lx1, card.left) && near(lx2, left.left + left.width), "the left line runs elsewhere: " + [lx1, lx2]);
+  assert.ok(near(ly1, mid.y) && near(ly2, mid.y));
+  assert.equal(paths(turned.MB.line).length, 1, turned.MB.line.innerHTML);
 });
 
-test("the lines sit 52/488 of the box's height from its top and its foot, so they look the same on a box of any size and never meet", () => {
-  assert.equal(vm.runInContext("JSON.stringify(TWO)", dashed().ctx),
-    JSON.stringify({ gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 }));
-  const near = (a, b) => Math.abs(a - b) < 1e-9;
+test("the line sits at the middle of the box's height on a box of any size, at any scale, and that middle is always beside the card", () => {
+  assert.equal(vm.runInContext("JSON.stringify(LINE)", lined().ctx), JSON.stringify({ gap: 8, width: 4 / 3 }));
   const { card, box } = PICK;
-  const ys = (b, scale = 1) => [...dashed(scale).ctx.magicTwo(card, b).ys];
+  const y = (b, scale = 1) => lined(scale).ctx.magicMiddle(card, b).y;
   // the rectangles are in the stage's own pixels: another scale reads the same
-  assert.deepEqual(ys(box, .5), ys(box));
-  assert.deepEqual(ys(box, 2), ys(box));
-  // a share of the box, not a fixed distance: about 10.66% from each end,
-  // mirrored, on a short box, a medium one and a tall one alike
+  assert.equal(y(box, .5), y(box));
+  assert.equal(y(box, 2), y(box));
   for (const height of [40, 90, 110, 200, 488, 600, 900]) {
-    const [top, foot] = ys({ ...box, height });
-    const n = height * 52 / 488;
-    assert.ok(near(top - box.top, n) && near(box.top + height - foot, n), `a box ${height} high: ${[top, foot]}`);
-    assert.ok(near((top - box.top) / height, 52 / 488), "the share moved with the height");
-    // the two never meet: the gap between them is the rest of the box
-    assert.ok(foot - top > height * .78, `a box ${height} high has its lines too close: ${foot - top}`);
+    const at = y({ ...box, height });
+    assert.ok(close(at - box.top, height / 2, 1e-9), `a box ${height} high: ${at}`);
+    const { ctx, MB } = lined();
+    ctx.magicLine(card, { ...box, height });
+    assert.equal(paths(MB.line).length, 1, MB.line.innerHTML);
   }
-  // the short box of the report, about 110 high: about 11.7 px from each end,
-  // 86.6 px apart, where the fixed 52 px had them 6 px apart
-  const [top, foot] = ys({ ...box, height: 110 });
-  assert.ok(Math.abs(top - box.top - 11.72) < .01 && Math.abs(foot - top - 86.56) < .01, [top, foot].join());
-  // every box draws both lines, a short one too
-  const { ctx, MB } = dashed();
-  ctx.magicLine(card, { ...box, height: 90 });
-  assert.equal(paths(MB.line).length, 2, MB.line.innerHTML);
-  assert.ok(!/box\.height \/ 2|2 \* TWO/.test(linesCode()), "the one line at the middle is still there");
+  // the box stands within the card's height wherever MagicBox.place stands it,
+  // words or a picture of any height, so a level line at its middle always
+  // starts on the card's edge
+  for (const w of [1100, 1280, 1512, 1800, 2400])
+    for (const want of [undefined, { height: 60 }, { height: 300 }, { height: 5000 }, { width: 2000, height: 400 }, { width: 300, height: 1200 }]) {
+      const at = place(CARD, fitAt(w), want);
+      if (!at.shown) continue;
+      const m = MIDDLE(at);
+      assert.ok(m > CARD.top && m < CARD.top + CARD.height, `a window ${w} wide: the box's middle ${m} off the card`);
+    }
 });
 
-test("with no room for them no line is drawn: a gap narrower than 8 px", () => {
-  const { ctx, MB } = dashed();
+test("with no room for it no line is drawn: a gap narrower than 8 px", () => {
+  const { ctx, MB } = lined();
   const { card, box } = PICK;
   const edge = card.left + card.width;
-  assert.equal(ctx.magicTwo(card, { ...box, left: edge }), null, "no gap");
-  assert.equal(ctx.magicTwo(card, { ...box, left: edge + 7.9 }), null);
-  assert.ok(ctx.magicTwo(card, { ...box, left: edge + 8 }));
+  assert.equal(ctx.magicMiddle(card, { ...box, left: edge }), null, "no gap");
+  assert.equal(ctx.magicMiddle(card, { ...box, left: edge + 7.9 }), null);
+  assert.ok(ctx.magicMiddle(card, { ...box, left: edge + 8 }));
   ctx.magicLine(card, { ...box, left: edge });
   assert.equal(MB.line.innerHTML, "", "a line was drawn with no gap");
   assert.equal(MB.line.ons, 0);
 });
 
-test("every box draws these same lines: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
+test("every box draws this same line: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
   const html = read("index.html"), server = read("server.py");
   const code = linesCode();
   assert.ok(!/Math\.random/.test(code), "the page picks the line itself");
@@ -832,23 +838,28 @@ test("every box draws these same lines: nothing is picked, kept or read from the
   assert.ok(!/\.2205|\.0601|\.436|\.0413|\.887|\.0959/.test(code), "an old layout's numbers are in the line's code");
   for (const gone of ["MAGIC_LINES", "_magic_lines", "magic_lines_last"])
     assert.ok(!server.includes(gone), gone + " is still in the server");
-  // what a box record keeps is no longer a style
-  assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now\}/);
+  // what a box record keeps is no longer a style: a widget's name and record
+  // revision are all it adds, and only for a widget
+  assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now,\s*\*\*\(\{"widget": widget, "wrev": wrev\} if widget else \{\}\)\}/);
 });
 
-test("the lines are plain dashes: no barbell, tabs, dots, brush, dabs or beads", () => {
-  const html = read("index.html");
+test("the line is plain and single: no second line, dashes, barbell, tabs, dots, brush, dabs or beads", () => {
+  const html = read("index.html"), onboarding = read("onboarding.html");
   for (const gone of ["magicDrone", "DRONE", "Drone", "magicOne", "const ONE = {", "cardTab:", "boxTab:", "rimInk", "barbell"])
     assert.ok(!html.includes(gone), gone + " is still in the page");
-  assert.ok(!/\.083\b/.test(linesCode()), "the barbell's 8.3% is in the lines' code");
-  const { ctx, MB } = dashed();
+  // the two dashed lines (m1237) are gone from the board and its onboarding copy
+  for (const page of [html, onboarding])
+    for (const gone of ["magicTwo", "const TWO = {", "TWO.", "two dashed lines"])
+      assert.ok(!page.includes(gone), gone + " is still in a page");
+  assert.ok(!/\.083\b|share|dash|\.ys\b/.test(linesCode()), "the old lines' numbers are in the line's code");
+  const { ctx, MB } = lined();
   ctx.magicLine(PICK.card, PICK.box);
-  // two straight paths of two points each, nothing else
+  // one straight path of two points, nothing else
   const parts = MB.line.innerHTML.match(/<(path|rect|circle|ellipse)\b/g);
-  assert.deepEqual(parts, ["<path", "<path"], MB.line.innerHTML);
+  assert.deepEqual(parts, ["<path"], MB.line.innerHTML);
   for (const [, d] of MB.line.innerHTML.matchAll(/<path d="([^"]*)"/g))
-    assert.ok(!/[aAcCqQ]/.test(d), "a line's path is not straight: " + d);
-  assert.ok(!/stroke-linecap="round"|stroke-dasharray="0 /.test(MB.line.innerHTML), "the lines are dotted");
+    assert.ok(!/[aAcCqQ]/.test(d), "the line's path is not straight: " + d);
+  assert.ok(!/stroke-linecap="round"|stroke-dasharray/.test(MB.line.innerHTML), "the line is dashed or dotted");
 });
 
 test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {
@@ -1143,8 +1154,12 @@ test("clicking or focusing into the box holds it, and a page in it never takes t
   classes.delete("on");
   fire("pointerdown", { target: cover }); assert.equal(held(), false);
   fire("pointerover", { target: cover }); assert.equal(MB.over, false);
-  // every frame comes with its cover, which is gone while the pointer is over the box
-  assert.equal((read("card-logic.js").match(/view\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 2);
+  // every frame comes with its cover, which is gone while the pointer is over the box:
+  // a site's, and each agent's page, shown or kept (magicView's keep)
+  const logic = read("card-logic.js");
+  assert.equal((logic.match(/view\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 1);
+  assert.equal((logic.match(/const run = \{ frame, cover: h\("div", "mbcover"\),/g) || []).length, 1);
+  assert.equal((logic.match(/view\.body\.append\(run\.frame, run\.cover\);/g) || []).length, 2);
   assert.match(boxSheet(), /\.magicbox \.mbcover\{position:absolute; inset:0\}/);
   assert.match(boxSheet(), /\.magicbox\.over \.mbcover\{display:none\}/);
 });
@@ -1248,10 +1263,466 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
 test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
   const view = read("card-logic.js");
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.holderDoc\(MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall, !!widget\)\)/);
   assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
   assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
+});
+
+// the holder an agent's page stands in, run with stand-ins for its window: the
+// page's frame it makes, the board above it and whatever else posts to it
+function holderSide(page) {
+  const { holderDoc } = api();
+  const doc = holderDoc(page);
+  const scripts = [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+  const up = [], down = [], on = {}, attrs = {}, appended = [];
+  const inner = { postMessage: (...a) => down.push(a) };
+  const frame = { contentWindow: null, srcdoc: "", setAttribute: (k, v) => { attrs[k] = v; },
+    addEventListener: (type, f) => { on["frame " + type] = f; } };
+  const parent = { postMessage: (...a) => up.push(a) };
+  const ctx = vm.createContext({ parent, addEventListener: (type, f) => { on[type] = f; },
+    document: { createElement: tag => (assert.equal(tag, "iframe"), frame),
+      body: { append: f => { appended.push(f); frame.contentWindow = inner; } } } });
+  for (const s of scripts) vm.runInContext(s, ctx);
+  return { doc, scripts, up, down, on, attrs, appended, frame, inner, parent };
+}
+
+test("an agent's page stands in a holder whose policy lets its frame be sent nowhere", () => {
+  const { PAGE_POLICY, PAGE_SANDBOX } = api();
+  // the page sending its own frame away is checked against the frame-src of
+  // the document the frame stands in: the holder's, which is the page's own
+  // policy, frame-src 'none' with it
+  const page = 'x</script><script>top.hacked = 1</script> <!-- y';
+  const h = holderSide(page);
+  assert.ok(h.doc.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PAGE_POLICY}">`));
+  assert.ok(PAGE_POLICY.includes("frame-src 'none'"));
+  assert.match(h.doc, /<meta name="referrer" content="no-referrer">/);
+  // the page is the holder's frame's srcdoc, exactly as given, and nothing in
+  // it can close the holder's script or add one of its own
+  assert.equal(h.scripts.length, 1);
+  assert.ok(h.doc.endsWith("</script>") && h.doc.indexOf("</script>") === h.doc.length - 9);
+  assert.equal(h.frame.srcdoc, page);
+  assert.deepEqual(h.appended, [h.frame]);
+  // the page's frame is sealed as the holder is, scripts and nothing else
+  assert.deepEqual({ ...h.attrs }, { sandbox: PAGE_SANDBOX, referrerpolicy: "no-referrer" });
+  // the holder sizes the frame to itself, with nothing of its own to scroll
+  assert.match(h.doc, /html,body\{margin:0;height:100%;overflow:hidden\}iframe\{display:block;border:0;width:100%;height:100%\}/);
+});
+
+test("the holder hands on what the page and the board post to each other, as it is, and says the page's loads itself", () => {
+  const h = holderSide("<p>x</p>");
+  const port = { id: "port" };
+  // up from the page: words, anything else that can be posted, and its ports
+  for (const data of ["w 120", { jsonrpc: "2.0", id: 1, method: "m" }, 7])
+    h.on.message({ source: h.inner, data, ports: [] });
+  h.on.message({ source: h.inner, data: "w", ports: [port] });
+  assert.deepEqual(h.up.map(a => [a[0], a[1], [...a[2]]]),
+    [["w 120", "*", []], [{ jsonrpc: "2.0", id: 1, method: "m" }, "*", []], [7, "*", []], ["w", "*", [port]]]);
+  // true is the holder's alone: the page saying it is never handed on
+  h.up.length = 0;
+  h.on.message({ source: h.inner, data: true, ports: [] });
+  assert.deepEqual(h.up, []);
+  // down from the board, to the page alone
+  h.on.message({ source: h.parent, data: "w to 40 1", ports: [] });
+  assert.deepEqual(h.down.map(a => [a[0], a[1], [...a[2]]]), [["w to 40 1", "*", []]]);
+  // and nothing from anyone else, either way
+  h.on.message({ source: {}, data: "w to 0 2", ports: [] });
+  assert.equal(h.up.length + h.down.length, 1);
+  // each load of the page's frame is said to the board as true
+  h.on["frame load"]();
+  h.on["frame load"]();
+  assert.deepEqual(h.up.map(a => a.slice(0, 2)), [[true, "*"], [true, "*"]]);
+});
+
+test("the board counts the page's loads as its holder says them, and puts back a page that loaded without its word", () => {
+  const timers = [], frames = [];
+  let onMessage = null;
+  const body = { style: { setProperty() {}, removeProperty() {} }, textContent: "", dataset: {}, append() {},
+    addEventListener() {}, querySelector() { return null; } };
+  const ctx = vm.createContext({
+    MagicBox: api(), getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout: f => timers.push(f), Date,
+    addEventListener: (type, f) => { if (type === "message") onMessage = f; },
+    h: tag => { const f = { listens: [], setAttribute() {}, addEventListener(type) { this.listens.push(type); },
+      clientWidth: 398, isConnected: true, contentWindow: { id: frames.length } }; if (tag === "iframe") frames.push(f); return f; },
+  });
+  vm.runInContext(read("card-logic.js").match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", ctx);
+  const view = ctx.magicView({ querySelector: s => s === ".mbbody" ? body : null, lastElementChild: null }, { placed() {} });
+  view.draw({ kind: "html", html: "<p>x</p>" });
+  const first = view.page;
+  assert.ok(first.frame.srcdoc.startsWith(api().holderDoc("")
+    .slice(0, api().holderDoc("").indexOf("<body>"))), "the page is shown in its holder");
+  assert.ok(!frames.some(f => f.listens.includes("load")), "the holder's own load is not the page's");
+  // a load and its word: the page stays
+  onMessage({ source: first.frame.contentWindow, data: true });
+  onMessage({ source: first.frame.contentWindow, data: first.word });
+  timers.splice(0).forEach(f => f());
+  assert.equal(view.page, first);
+  // true from any other window is nobody's load
+  onMessage({ source: {}, data: true });
+  assert.equal(timers.length, 0);
+  // a load the word does not follow: the page tried to send its frame away,
+  // and a fresh frame with the page takes its place
+  onMessage({ source: first.frame.contentWindow, data: true });
+  timers.splice(0).forEach(f => f());
+  assert.notEqual(view.page, first);
+  assert.equal(view.page.tries, 1);
+  assert.equal(frames.length, 2);
+  // and a page that keeps trying is taken down after three tries
+  for (let i = 0; i < 3; i++){
+    onMessage({ source: view.page.frame.contentWindow, data: true });
+    timers.splice(0).forEach(f => f());
+  }
+  assert.equal(view.page, null);
+});
+
+// the shared view with hooks.keep, against stand-ins for the page: a body that
+// holds its children in order, and frames and covers that can be hidden and
+// taken out. made: the frames made, in order; posted: what each frame was told;
+// doc: the board's document, whose activeElement a frame lets go of as it blurs
+function keptView(hooks) {
+  const timers = [], made = [], posted = [];
+  const doc = { body: { tag: "body" }, activeElement: null };
+  doc.activeElement = doc.body;
+  let onMessage = null;
+  const body = { style: { setProperty() {}, removeProperty() {} }, dataset: {}, childNodes: [],
+    set textContent(v) { this.childNodes = []; }, append(...n) { for (const x of n) { x.parent = this; this.childNodes.push(x); } },
+    appendChild(n) { this.append(n); }, addEventListener() {}, querySelector() { return null; },
+    classList: { remove() {}, add() {} } };
+  const node = (tag, cls) => {
+    const n = { tag, className: cls, style: {}, listens: [], setAttribute() {}, addEventListener() {}, clientWidth: 398,
+      get isConnected() { return body.childNodes.includes(n); },
+      remove() { body.childNodes = body.childNodes.filter(x => x !== n); } };
+    if (tag === "iframe") {
+      n.contentWindow = { id: made.length, postMessage: m => posted.push([n, m]) };
+      n.blur = () => { n.blurs = (n.blurs || 0) + 1; if (doc.activeElement === n) doc.activeElement = doc.body; };
+      made.push(n);
+    }
+    return n;
+  };
+  const ctx = vm.createContext({ MagicBox: api(), getComputedStyle: () => ({ getPropertyValue: () => "0" }), document: doc,
+    setTimeout: f => timers.push(f), Date, navigator: {}, fetch: () => new Promise(() => {}),
+    addEventListener: (type, f) => { if (type === "message") onMessage = f; }, h: node });
+  vm.runInContext(read("card-logic.js").match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", ctx);
+  const view = ctx.magicView({ querySelector: s => s === ".mbbody" ? body : null, lastElementChild: null }, { placed() {}, ...hooks });
+  // a page loading and saying its word, as its holder and the page tell the board
+  const load = run => { onMessage({ source: run.frame.contentWindow, data: true }); onMessage({ source: run.frame.contentWindow, data: run.word }); };
+  const shown = () => body.childNodes.filter(n => n.tag === "iframe" && n.style.display !== "none");
+  return { view, body, made, posted, timers, load, shown, doc, send: (run, data) => onMessage({ source: run.frame.contentWindow, data }) };
+}
+
+test("an agent's page left is kept loaded and hidden, and its card shows it again with no new frame", () => {
+  const k = keptView({ keep: 2, sized: true, heard: () => { throw new Error("a kept page's height was taken"); } });
+  const a = { box: "m1", rev: 3, kind: "html", html: "<p>a</p>" };
+  k.view.draw(a);
+  const first = k.view.page;
+  k.load(first);
+  // words on the next card: the page stays in the body, hidden, out of every
+  // .mbframe and .mbcover rule, and is not the box's page
+  k.view.draw({ box: "m2", rev: 1, kind: "text", text: "words" });
+  assert.equal(k.view.page, null);
+  assert.ok(k.body.childNodes.includes(first.frame) && k.body.childNodes.includes(first.cover));
+  assert.deepEqual([first.frame.className, first.frame.style.display, first.cover.className], ["mbkept", "none", "mbkept"]);
+  assert.deepEqual(Array.from(k.view.kept(), r => [r.key, r.said]), [["m1:3", true]]);
+  // hidden, it has no keys and no height the box could take
+  k.send(first, first.word + " 480");
+  k.send(first, first.word + " back");
+  // back on its card: the same page, shown, and no frame made for it
+  k.view.draw(a);
+  assert.equal(k.view.page, first);
+  assert.equal(k.made.length, 1);
+  assert.deepEqual([first.frame.className, first.frame.style.display, first.cover.className], ["mbframe", "", "mbcover"]);
+  assert.deepEqual(k.shown(), [first.frame]);
+  assert.equal(k.view.kept().length, 0);
+});
+
+test("pages are made ahead hidden, kept up to hooks.keep, and let go with their box", () => {
+  const k = keptView({ keep: 2 });
+  const box = (id, rev) => ({ box: id, rev, kind: "html", html: "<p>" + id + "</p>" });
+  assert.equal(k.view.prepare(box("m1", 1)), true);
+  assert.equal(k.view.prepare(box("m1", 1)), false, "made twice");
+  assert.equal(k.view.prepare({ box: "m9", rev: 1, kind: "markdown", text: "x" }), false, "only an agent's page");
+  assert.equal(k.view.prepare(box("m2", 1)), true);
+  assert.deepEqual(k.shown(), [], "a page made ahead is never shown");
+  // full: a page wanted keeps its place, one that is not makes room
+  assert.equal(k.view.prepare(box("m3", 1), new Set(["m1:1", "m2:1"])), false);
+  assert.equal(k.view.prepare(box("m3", 1), new Set(["m2:1", "m3:1"])), true);
+  assert.deepEqual(Array.from(k.view.kept(), r => r.key), ["m2:1", "m3:1"]);
+  // showing one made ahead makes no frame
+  k.view.draw(box("m3", 1));
+  assert.equal(k.made.length, 3);
+  assert.deepEqual(k.shown(), [k.view.page.frame]);
+  // the card's box filled again: the next revision is made afresh and the last let go
+  k.view.draw(box("m2", 2));
+  assert.equal(k.made.length, 4);
+  assert.deepEqual(Array.from(k.view.kept(), r => r.key), ["m3:1"]);
+  // a box closed or its card done: let go
+  k.view.keepOnly(new Set(["m2:2"]));
+  assert.equal(k.view.kept().length, 0);
+  assert.deepEqual(k.body.childNodes.filter(n => n.tag === "iframe"), [k.view.page.frame]);
+  // a kept page that loads without its word (sent its frame away) is let go,
+  // where the page shown is put back
+  k.view.prepare(box("m5", 1));
+  const run = k.view.kept()[0];
+  assert.equal(run.key, "m5:1");
+  const frame = k.made[k.made.length - 1];
+  k.send({ frame }, true);
+  k.timers.splice(0).forEach(f => f());
+  assert.equal(k.view.kept().length, 0);
+  assert.ok(!k.body.childNodes.includes(frame));
+});
+
+test("with no keep the view keeps nothing, as before", () => {
+  const k = keptView({});
+  k.view.draw({ box: "m1", rev: 1, kind: "html", html: "<p>a</p>" });
+  k.load(k.view.page);
+  k.view.clear();
+  assert.deepEqual(k.body.childNodes, []);
+  assert.equal(k.view.prepare({ box: "m1", rev: 1, kind: "html", html: "x" }), false);
+});
+
+test("a kept widget page is answered its record and keeps its memory, but sends nothing", () => {
+  const k = keptView({ keep: 2, atBox: () => true });
+  k.view.prepare({ box: "m1", rev: 1, kind: "html", html: "<p>w</p>", widget: "demo" });
+  const frame = k.made[0];
+  const run = { frame };
+  k.send(run, true);
+  // its word, read off the srcdoc the page was given
+  const word = JSON.parse(frame.srcdoc.match(/postMessage\((\\?"magic-[a-z0-9]+\\?")/)[1].replace(/\\"/g, '"'));
+  k.send(run, word);
+  k.send(run, { jsonrpc: "2.0", id: "w1abcdefgh", method: "widget/send", params: { text: "hi", about: "t1" } });
+  assert.deepEqual(k.posted.filter(([, m]) => typeof m === "object").map(([, m]) => m.error && m.error.code), [-32001], "a kept page sent");
+});
+
+// a page's word, read off the srcdoc it was given
+const wordOf = frame => JSON.parse(frame.srcdoc.match(/postMessage\((\\?"magic-[a-z0-9]+\\?")/)[1].replace(/\\"/g, '"'));
+
+test("a page hidden while it has the keys lets go of them, whichever way its card goes", () => {
+  const k = keptView({ keep: 2 });
+  const a = { box: "m1", rev: 1, kind: "html", html: "<textarea></textarea>" };
+  // every way the box goes reaches the view as its clear (the box off: closed
+  // by the agent or the cross, the card done, another project, an expanded
+  // box put back first) or as the next card's draw (words, another page)
+  const ways = { "the box off": () => k.view.clear(), "words on the next card": () => k.view.draw({ box: "m2", rev: 1, kind: "text", text: "w" }),
+    "a page on the next card": () => k.view.draw({ box: "m3", rev: 1, kind: "html", html: "<p>b</p>" }) };
+  for (const [way, leave] of Object.entries(ways)) {
+    k.view.draw(a);
+    const run = k.view.page;
+    k.load(run);
+    k.doc.activeElement = run.frame;   // the person typing in it
+    leave();
+    assert.equal(run.frame.style.display, "none", way);
+    assert.equal(k.doc.activeElement, k.doc.body, way + ": the keys are the board's again");
+    assert.ok(k.view.kept().some(r => r.key === "m1:1"), way + ": and the page is still kept");
+  }
+  // a page hidden without the keys leaves them where they are, and a page made
+  // ahead never has them
+  const field = { tag: "textarea" };
+  k.view.draw(a);
+  const run = k.view.page;
+  k.doc.activeElement = field;
+  const blurs = run.frame.blurs;
+  k.view.clear();
+  assert.equal(k.doc.activeElement, field);
+  assert.equal(run.frame.blurs, blurs);
+  k.view.prepare({ box: "m4", rev: 1, kind: "html", html: "<p>c</p>" });
+  assert.equal(k.made[k.made.length - 1].blurs, undefined);
+});
+
+test("every way the box goes on the Mac and the phone passes through the view's clear, where a page is hidden", () => {
+  const html = read("index.html"), m = read("m.html"), logic = read("card-logic.js");
+  // the Mac: the box off (another card or project, the card done) and its sink
+  // (closed by the agent or the cross), which ends in it; expanded, it is put back first
+  assert.match(html, /function magicOff\(keep\)\{\n  if \(!MB\.el\) return;\n  if \(!keep\) magicSmall\(\);[\s\S]*?\n  MB\.view\.clear\(\);\n\}/);
+  assert.match(html, /function magicSink\(\)\{\n  magicSmall\(\);\n  boxSink\(MB, magicOff\);\n\}/);
+  // the phone: the box off, and another card's box drawn, each put back first
+  assert.match(m, /function phoneMagicOff\(\)\{\n  phoneMagicSmall\(\);[\s\S]*?\n  PB\.view\.clear\(\);/);
+  assert.match(m, /if \(PB\.id !== id\)\{ phoneMagicSmall\(\); PB\.view\.clear\(\);/);
+  // the view hides a page in one place, and nothing else takes a frame out of sight
+  assert.equal((logic.match(/"mbkept"/g) || []).length, 1);
+  assert.match(logic, /const hide = \(run, on\) => \{\n    if \(on && document\.activeElement === run\.frame\) run\.frame\.blur\(\);/);
+});
+
+test("a kept page is told to go quiet as it is hidden and to carry on as it is shown; one with frames of its own goes", () => {
+  const k = keptView({ keep: 3 });
+  const said = run => k.posted.filter(([f, m]) => f === run.frame && typeof m === "string").map(([, m]) => m.slice(run.word.length + 1));
+  const a = { box: "m1", rev: 1, kind: "html", html: "<p>a</p>" };
+  k.view.draw(a);
+  const run = k.view.page;
+  k.load(run);
+  assert.deepEqual(said(run), [], "the page shown is never hushed");
+  k.view.clear();
+  assert.deepEqual(said(run), ["hush"]);
+  k.view.draw(a);
+  assert.deepEqual(said(run), ["hush", "sound"]);
+  // a page made ahead is told once it has loaded, the first it can hear it
+  k.view.prepare({ box: "m2", rev: 1, kind: "html", html: "<p>b</p>" });
+  const ahead = { frame: k.made[k.made.length - 1] };
+  ahead.word = wordOf(ahead.frame);
+  const before = said(ahead).length;
+  k.load(ahead);
+  assert.deepEqual(said(ahead).slice(before), ["hush"]);
+  // a page that has made frames of its own, which its hush cannot reach, goes
+  // with its card as every page did before
+  k.view.draw({ box: "m3", rev: 1, kind: "html", html: "<p>c</p>" });
+  const deep = k.view.page;
+  k.load(deep);
+  deep.frame.contentWindow[0] = { length: 1 };
+  k.view.clear();
+  assert.ok(!k.body.childNodes.includes(deep.frame));
+  assert.ok(!k.view.kept().some(r => r.key === "m3:1"));
+  assert.deepEqual(Array.from(k.view.kept(), r => r.key).sort(), ["m1:1", "m2:1"]);
+});
+
+// the page's hush (MagicBox.PAGE_HUSH) run in a realm of stand-ins, as it
+// stands in a page ahead of the agent's script: Web Audio nodes joined in a
+// graph that ends at each context's own output, gains whose level is the last
+// one set, and a clock every context shares (now); clips that play and pause,
+// with their muted on their kind as a browser's, firing play, in the document,
+// on the window; and speech. The board's words come from the page's parent.
+// loud(node): how loud a sound from that node reaches the speakers, the gains
+// on its way multiplied, the loudest way if it goes more than one
+function hushRealm() {
+  const win = { play: [], message: [] }, parent = {}, clock = { now: 0 };
+  class AudioNode {
+    constructor(context) { this.context = context; this.to = new Set(); }
+    connect(t) { if (t.context !== this.context) throw new Error("another context's node"); this.to.add(t); return t; }
+    disconnect(t) { if (t === undefined) return this.to.clear(); if (!this.to.delete(t)) throw new Error("not joined to it"); }
+  }
+  class AudioDestinationNode extends AudioNode {}
+  class Param {
+    constructor(v) { this.value = v; this.set = []; }
+    cancelScheduledValues() {}
+    setTargetAtTime(v, t) { this.set.push([v, t]); }
+    get level() { return this.set.length ? this.set[this.set.length - 1][0] : this.value; }
+  }
+  class GainNode extends AudioNode { constructor(c) { super(c); this.gain = new Param(1); } }
+  class BaseAudioContext {
+    constructor() { this.state = "running"; this.destination = new AudioDestinationNode(this); this.resumes = 0; }
+    get currentTime() { return clock.now; }
+    createGain() { return new GainNode(this); }
+    createOscillator() { return new AudioNode(this); }
+    suspend() { this.state = "suspended"; return Promise.resolve(); }
+    resume() { this.resumes++; this.state = "running"; return Promise.resolve(); }
+    close() { this.state = "closed"; return Promise.resolve(); }
+  }
+  class AudioContext extends BaseAudioContext {}
+  class OfflineAudioContext extends BaseAudioContext {}
+  class HTMLMediaElement {
+    constructor(inDoc) { this.paused = true; this.isConnected = !!inDoc; this.real = false; this.plays = 0; }
+    get muted() { return this.real; }
+    set muted(v) { this.real = !!v; }
+    play() { this.plays++; if (this.paused) { this.paused = false; this.fire(); } return Promise.resolve(); }
+    pause() { this.paused = true; }
+    // a play event, from play() or the browser's own autoplay
+    fire() { if (this.isConnected) for (const f of win.play) f({ target: this }); }
+  }
+  class SpeechSynthesis {
+    constructor() { this.speaking = false; this.pending = false; this.heard = []; this.cancels = 0; }
+    speak(u) { this.heard.push(u); this.speaking = true; }
+    cancel() { this.speaking = false; this.cancels++; }
+  }
+  const media = [];
+  const realm = { AudioNode, AudioDestinationNode, GainNode, BaseAudioContext, AudioContext, webkitAudioContext: AudioContext, OfflineAudioContext,
+    HTMLMediaElement, Element: class {}, SpeechSynthesis, speechSynthesis: new SpeechSynthesis(), parent,
+    document: { querySelectorAll: () => media.filter(x => x.isConnected) },
+    addEventListener: (t, f) => { if (win[t]) win[t].push(f); } };
+  realm.window = realm;
+  const ctx = vm.createContext(realm);
+  vm.runInContext("(() => { const W = \"w\"; " + api().PAGE_HUSH + " })()", ctx);
+  const loud = node => {
+    if (node instanceof AudioDestinationNode) return 1;
+    const by = node instanceof GainNode ? node.gain.level : 1;
+    return Math.max(0, ...[...node.to].map(t => by * loud(t)));
+  };
+  return { ctx, clock, loud, synth: realm.speechSynthesis,
+    clip: inDoc => { const c = new HTMLMediaElement(inDoc); media.push(c); return c; },
+    tell: (data, source = parent) => { for (const f of win.message) f({ source, data }); } };
+}
+
+test("a hushed page is muted and runs on: nothing it starts while hidden comes late, and what still sounds is heard as it is shown", async () => {
+  const r = hushRealm(), { ctx, loud } = r;
+  // what the page has going as the person leaves its card: a tone through a
+  // gain of its own, two clips, and words
+  const a = new ctx.AudioContext(), tone = a.createOscillator(), soft = a.createGain();
+  soft.gain.value = 0.5;
+  assert.equal(tone.connect(soft).connect(a.destination), a.destination, "joined as before, the context's own output given back");
+  assert.equal(loud(tone), 0.5);
+  const c1 = r.clip(true), c2 = r.clip(false);
+  c1.play(); c2.play();
+  r.synth.speak("words under way");
+  // hushed: nothing is heard, and nothing is stopped
+  r.tell("w hush");
+  assert.equal(loud(tone), 0, "the tone is not heard");
+  assert.equal(a.state, "running", "and its context, its clock with it, runs on");
+  assert.deepEqual([c1.paused, c2.paused, c1.real, c2.real], [false, false, true, true], "the clips play on, muted");
+  assert.deepEqual([c1.muted, c2.muted], [false, false], "the page reads its own muted");
+  assert.equal(r.synth.cancels, 1, "speech under way cut off");
+  // a timer of the page's meanwhile: a beep on the running context, a new
+  // context, a resume, a clip it plays, one the browser starts by itself, and words
+  r.clock.now = 4;
+  const beep = a.createOscillator();
+  beep.connect(a.destination);
+  const d = new ctx.AudioContext(), dTone = d.createOscillator();
+  dTone.connect(d.destination);
+  await a.resume();
+  const c3 = r.clip(false), c4 = r.clip(true);
+  await c3.play();
+  c4.paused = false; c4.fire();
+  r.synth.speak("said while hidden");
+  assert.deepEqual([loud(beep), loud(dTone), a.currentTime, d.state, a.resumes], [0, 0, 4, "running", 1], "each runs at once, unheard, on the page's own clock");
+  assert.deepEqual([c3.paused, c3.real, c3.plays, c4.real], [false, true, 1, true], "a clip played meanwhile plays at once, muted");
+  assert.deepEqual(r.synth.heard, ["words under way"], "words said meanwhile are not said");
+  // the page muting a clip meanwhile is kept as its own
+  c1.muted = true;
+  assert.deepEqual([c1.muted, c1.real], [true, true]);
+  // words not from its parent, or with another word, change nothing
+  r.tell("w sound", {});
+  r.tell("x sound");
+  assert.equal(loud(tone), 0);
+  // shown again: heard as it is now, and nothing held back is played
+  r.clock.now = 6;
+  r.tell("w sound");
+  assert.deepEqual([loud(tone), loud(beep), loud(dTone)], [0.5, 1, 1], "what is still sounding is heard");
+  assert.deepEqual([c1.real, c2.real, c3.real, c4.real], [true, false, false, false], "each clip as the page has it");
+  assert.deepEqual([c1.plays, c2.plays, c3.plays, a.resumes], [1, 1, 1, 1], "nothing was played or resumed for the page");
+  assert.deepEqual(r.synth.heard, ["words under way"], "and the words said meanwhile never are");
+  r.synth.speak("said when shown");
+  assert.deepEqual(r.synth.heard, ["words under way", "said when shown"]);
+  // a page shown plays at once, as any page does
+  const c5 = r.clip(true);
+  c5.play();
+  assert.deepEqual([c5.paused, c5.real], [false, false]);
+});
+
+test("a hushed page's own output takes its sounds off it and back as it would, and an offline context is its own", () => {
+  const r = hushRealm(), { ctx, loud } = r;
+  const a = new ctx.AudioContext(), tone = a.createOscillator();
+  tone.connect(a.destination);
+  r.tell("w hush");
+  tone.disconnect(a.destination);
+  tone.connect(a.destination);
+  assert.equal(loud(tone), 0);
+  r.tell("w sound");
+  assert.equal(loud(tone), 1);
+  tone.disconnect();
+  assert.equal(loud(tone), 0, "taken off everything");
+  assert.throws(() => tone.disconnect(a.destination), /not joined/, "taken off its output when it is not on it");
+  assert.throws(() => tone.connect(new ctx.AudioContext().destination), /another context/);
+  // a page rendering sound to a file, never to the speakers, renders it as it is
+  const off = new ctx.OfflineAudioContext(), drawn = off.createOscillator();
+  drawn.connect(off.destination);
+  assert.ok(drawn.to.has(off.destination));
+  r.tell("w hush");
+  assert.equal(loud(drawn), 1);
+});
+
+
+test("every page the board makes carries the hush, the Mac's, the phone's and a widget's", () => {
+  const { pageDoc, PAGE_HUSH } = api();
+  for (const doc of [pageDoc("<p>x</p>", "w", true), pageDoc("<p>x</p>", "w", false, true), pageDoc("<p>x</p>", "w", false, false, true)]) {
+    const at = doc.indexOf(PAGE_HUSH);
+    assert.ok(at > 0 && at < doc.indexOf("<p>x</p>"), "ahead of the agent's own page");
+  }
 });
 
 test("the board's own policy holds nothing a sealed page would inherit and be stopped by", () => {
@@ -1341,7 +1812,7 @@ function phoneBoxScript(page, { drawn = true } = {}) {
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
     magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false,
-      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {} }),
+      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {}, widgetSync() {}, keepOnly() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
     menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
     drawerOpen: () => classes.has("open"),
@@ -1612,7 +2083,8 @@ test("people and agents know it as the magic box: the pages' labels, the command
   assert.match(skill, /the runbook's "The magic box" section/);
   // what the board says back to an agent, in the same name
   const server = read("server.py");
-  assert.ok(!/side[ -]?note/i.test(server), "the server still says side note");
+  // from a word's start, so a comment's "beside notes" is not the old name
+  assert.ok(!/\bside[ -]?note/i.test(server), "the server still says side note");
   for (const words of ["this card has no magic box", "the box would be empty", "the box could not be written",
     "a website box takes one web address on one line", "this card's box holds no picture"])
     assert.ok(server.includes(`"${words}"`), words);
@@ -1773,35 +2245,38 @@ test("a pull from the right edge on a card with no box dips the card once, and n
   assert.ok(dipped(), "the mouse follows the same rule, once its touch's leftovers are past");
 });
 
-// the phone's box script with every box a picture: what it fetched (asked),
-// the pictures it let go (revoked), and pictures that come only when the test
-// lets them (slow), each read as 640 x 400
+// the phone's box script with every box a picture: what it fetched or loaded
+// (asked), and pictures that come only when the test lets them (slow), each
+// read as 640 x 400. a picture is loaded from its own address, never fetched
+// into a copy of the page's own
 function phoneBoxPictures({ slow = false } = {}) {
   const page = phoneBoxScript(read("m.html"), { drawn: false });
   const { ctx } = page;
-  const asked = [], revoked = [], waiting = [];
-  let made = 0;
+  const asked = [], waiting = [];
   ctx.fetch = url => {
     asked.push(url);
+    if (url.startsWith("/magic/img")) return Promise.reject(new Error("a picture fetched into a copy: " + url));
     const id = new URL(url, "http://phone").searchParams.get("box");
-    if (url.startsWith("/magic/img")) {
-      const picture = { ok: true, blob: async () => ({}) };
-      return slow ? new Promise(r => waiting.push(() => r(picture))) : Promise.resolve(picture);
-    }
     const rev = ctx.lastState.boxes.find(b => b.id === id).magic.rev;
     return Promise.resolve({ ok: true, json: async () => ({ box: id, rev, kind: "image", src: `/magic/img?box=${id}&rev=${rev}` }) });
   };
-  ctx.URL = { createObjectURL: () => "blob:" + ++made, revokeObjectURL: u => revoked.push(u) };
-  ctx.Image = class { decode() { return Promise.resolve(); } get naturalWidth() { return 640; } get naturalHeight() { return 400; } };
+  ctx.Image = class {
+    set src(url) {
+      asked.push(url);
+      const load = () => this.onload && this.onload();
+      if (slow) waiting.push(load); else Promise.resolve().then(load);
+    }
+    decode() { return Promise.resolve(); } get naturalWidth() { return 640; } get naturalHeight() { return 400; }
+  };
   const fetched = kind => asked.filter(u => u.startsWith("/magic/" + kind)).map(u => new URL(u, "http://phone").searchParams.get("box"));
   const near = (build, keep = build) => { ctx.nearbyCards = () => ({ build: new Set(build), keep: new Set(keep) }); };
   const tick = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
   const land = async () => { while (waiting.length) waiting.shift()(); await tick(); };
-  return { ...page, asked, revoked, fetched, near, tick, land };
+  return { ...page, asked, fetched, near, tick, land };
 }
 
 test("the phone fetches boxes only for the cards it builds, once for each revision, and lets go of the ones it no longer keeps", async () => {
-  const { ctx, PB, draws, fetched, near, tick, revoked } = phoneBoxPictures();
+  const { ctx, PB, draws, fetched, near, tick } = phoneBoxPictures();
   const card = (id, more = {}) => ({ id, owner: "p", done: false, magic: { open: true, rev: 1 }, ...more });
   ctx.lastState = { boxes: ["a", "b", "c", "d", "e", "f", "g"].map(id => card(id)).concat(
     card("shut", { magic: { open: false, rev: 1 } }), card("done", { done: true }), card("other", { owner: "q" }),
@@ -1818,17 +2293,23 @@ test("the phone fetches boxes only for the cards it builds, once for each revisi
   await tick();
   assert.equal(fetched("body").length, 3, "a box was fetched again at the same revision");
   // a new revision on a card beside it: that box alone, once, and its old picture let go
+  const oldC = PB.bodies.get("c");
+  assert.ok(oldC.seen, "a picture fetched was not kept");
   ctx.lastState.boxes.find(b => b.id === "c").magic = { open: true, rev: 2 };
   ctx.reachCards(); ctx.reachCards();
   await tick();
   assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c"]);
-  assert.equal(revoked.length, 1, "the old revision's picture was kept");
-  // the card on show's box is drawn at once, picture and size in hand
+  assert.equal(oldC.seen, null, "the old revision's picture was kept");
+  assert.equal(PB.bodies.get("c").seen.src, "/magic/img?box=c&rev=2", "the new revision's picture");
+  // the card on show's box is drawn at once, picture and size in hand, the
+  // picture shown from its own address, which the server sandboxes
   ctx.select();
   assert.equal(draws.length, 1, "the box waited for a fetch it already had");
   assert.deepEqual([...draws[0][1].natural], [640, 400]);
+  assert.equal(draws[0][1].src, "/magic/img?box=b&rev=1", "the picture is shown from a copy of the page's own");
   // a swipe to c: d is built and fetched, a leaves the cards kept and is let go; f, never
   // near, and g, kept but never built, are never fetched
+  const oldA = PB.bodies.get("a");
   ctx.shownId = "c";
   near(["b", "c", "d"], ["b", "c", "d", "e"]);
   ctx.select();
@@ -1837,7 +2318,7 @@ test("the phone fetches boxes only for the cards it builds, once for each revisi
   await tick();
   assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c", "d"]);
   assert.ok(!PB.bodies.has("a"), "a card no longer kept still holds its box");
-  assert.equal(revoked.length, 2, "its picture was kept");
+  assert.equal(oldA.seen, null, "its picture was kept");
   assert.ok(!fetched("body").some(id => ["e", "f", "g", "shut", "done", "other", "none"].includes(id)), "a box fetched for a card never built");
   // while a pull or a swipe is going, the building waits, and the fetching with it
   ctx.pullGoing = () => true;
@@ -2560,7 +3041,7 @@ test("a picture clicked open in the box expands it through the page, a picture i
 test("both pages hand the view their expand, say when the box is moving, and show the words again as it lands", () => {
   const html = read("index.html"), page = read("m.html");
   assert.match(html, /expand: from => \{ magicBig\(from\); return MB\.view\.big; \},\s*moving: \(\) => !!MB\.move,/);
-  assert.match(page, /expand: from => \{ phoneMagicBig\(from\); return PB\.view\.big; \},\s*moving: \(\) => !!PB\.move \}\);/);
+  assert.match(page, /expand: from => \{ phoneMagicBig\(from\); return PB\.view\.big; \},\s*moving: \(\) => !!PB\.move,/);
   // the Mac: the words come back as the box lands beside the card, or at once when it does not travel
   const { ctx, MB } = boardBig();
   const solos = [];

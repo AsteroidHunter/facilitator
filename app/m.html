@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<!-- maximum-scale=1: iOS zooms the whole page in when a text field set under
+     16px takes the caret, by 16 over the field's size, and it zooms no
+     further than this limit allows. a field in a page in the magic box counts
+     too, since the zoom is the phone page's and never the frame's, and the
+     pinch guard below then leaves no way back out. so no field, the board's
+     or an agent's, ever zooms the page. iOS still lets a pinch go past the
+     limit, which the guard stops as before; the box's own picture zoom is its
+     script's, which this leaves alone -->
 <title>facilitator</title>
-<script src="/card-markdown.js"></script>
-<script src="/card-logic.js"></script>
-<script src="/magic-box.js"></script>
-<script>installCardPageGuard();</script>
-<script>watchPictures();</script>
 <!-- the phone page. the same board, drawn for a phone: one card filling the
      screen from the top down to a row of four glass buttons along the bottom
      (the card list, the open project, a new card and the settings), the card
@@ -1821,16 +1824,6 @@
      card-tokens.css -->
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
-<script id="page-zoom-guard">
-// manipulation permits pinching, so cancel iOS's zoom gesture defaults.
-// Capture also covers gestures over controls that stop propagation. Ordinary
-// touch and click events keep their existing scrolling and ticket-tap paths.
-function preventPagePinch(event){
-  if (event.cancelable) event.preventDefault();
-}
-for (const type of ["gesturestart", "gesturechange"])
-  document.addEventListener(type, preventPagePinch, { capture: true, passive: false });
-</script>
 </head>
 <body>
 
@@ -1869,6 +1862,26 @@ for (const type of ["gesturestart", "gesturechange"])
   if (navigator.standalone) {
     document.documentElement.style.setProperty("--screen-h", screen.height + "px");
   }
+</script>
+<!-- the shared card scripts, the page guard, the picture watcher and the pinch
+     guard. they stand here rather than in the head so the curtain is drawn
+     before any of them is fetched or run, and still ahead of the page's own
+     markup and every other script, so the guards are in place before any field,
+     drawer or handler exists -->
+<script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
+<script src="/magic-box.js"></script>
+<script>installCardPageGuard();</script>
+<script>watchPictures();</script>
+<script id="page-zoom-guard">
+// manipulation permits pinching, so cancel iOS's zoom gesture defaults.
+// Capture also covers gestures over controls that stop propagation. Ordinary
+// touch and click events keep their existing scrolling and ticket-tap paths.
+function preventPagePinch(event){
+  if (event.cancelable) event.preventDefault();
+}
+for (const type of ["gesturestart", "gesturechange"])
+  document.addEventListener(type, preventPagePinch, { capture: true, passive: false });
 </script>
 
 <div id="page">
@@ -1965,6 +1978,11 @@ for (const type of ["gesturestart", "gesturechange"])
           <label class="setlabel" for="setformat"><span>Format text while typing</span>
             <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</small></label>
           <input type="checkbox" role="switch" id="setformat">
+        </div>
+        <div class="setrow">
+          <label class="setlabel" for="setcurses"><span>Replace curse words</span>
+            <small class="sethelp">Curse words in the messages you send are saved as [expletive], so the board, its history and agents only see the tag. Messages sent before stay as they are.</small></label>
+          <input type="checkbox" role="switch" id="setcurses">
         </div>
       </div>
       <div data-section="notifications" data-label="Notifications">
@@ -2526,9 +2544,6 @@ function makeBox(b){
   };
   ta.addEventListener("input", () => {
     clearPhoneEnterAgain();
-    // the moment of the last key, which is what holds a new answer back while
-    // the reader is typing (turnHolding in card-logic.js)
-    noteTyping(ta);
     tick(true);
     draftSave(b.id);   // kept on this phone as it is typed (card-logic.js)
   });
@@ -2677,8 +2692,6 @@ function makeBox(b){
   // the answer has scrolled away under the title
   watchBand(els[b.id]);
   watchRise(replyview);
-  // and the reader's own scrolling of the answer, which holds a page turn back
-  watchReading(els[b.id]);
   // and the row's height, on the frame the card is shown
   watchShown(els[b.id]);
   return els[b.id];
@@ -2706,12 +2719,12 @@ function drawCard(el, b, state){
     const rawReply = replyFull(b);
     // a new answer on the card on show turns the page, as it does on the desktop
     // (card-logic.js): the sheet over the page the reader was on is laid before
-    // anything of the new one is drawn, and turnGo below glides it. while the
-    // reader is busy with the card the new answer is held back, and this pass
-    // leaves the answer and both panels exactly as they stand
+    // anything of the new one is drawn, and turnGo below glides it. while it
+    // waits for a merge of the waiting bubbles, this pass leaves the answer and
+    // both panels exactly as they stand
     const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-    const held = turn === TURN_HELD;
-    if (!held && el.reply.dataset.raw !== rawReply){
+    const waits = turn === TURN_WAIT;
+    if (!waits && el.reply.dataset.raw !== rawReply){
       el.reply.dataset.raw = rawReply;
       delete histCache[b.id];
       if (hist && hist.id === b.id) histExit(b.id);
@@ -2737,17 +2750,17 @@ function drawCard(el, b, state){
     // and clear the panel in view. el.sendGuard is the moment the send landed,
     // and stands at the end of time while one is still in flight
     const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-    if (!held && !stale) syncSentPhone(el, b);
+    if (!waits && !stale){
+      syncSentPhone(el, b);
+      el.sentDrawnAt = state.fetchedAt || 0;   // the reading the panel stands on (sentCatchUp)
+    }
     // and the panel over the answer: the reply the card is showing, and the
     // messages the board recorded that reply was given. while an older page is
     // on show the stepper owns that panel, so the poll leaves it alone and
     // histExit is what hands it back to the live reply. the pass compares the
     // reply's own name, so a poll carrying the same reply again touches no dom
     // at all and nothing near the typing row moves
-    if (!held){
-      el.liveMeta = liveAnswered(b);
-      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
-    }
+    if (!waits && !(hist && hist.id === b.id)) syncAnswered(el, liveAnswered(b));
     // the new page stands under the sheet: the glide and the print
     turnGo(el, turn);
     const cs = cardState(b);
@@ -2787,7 +2800,8 @@ function dropCard(id, gone){
   }
   omniSweepEnd(el);
   turnEnd(el);
-  clearTimeout(el.turnHeld); clearTimeout(el.printTimer);
+  el.turnWait = null;
+  clearTimeout(el.printTimer);
   if (el.bandObserver) el.bandObserver.disconnect();
   if (el.shownObserver) el.shownObserver.disconnect();
   // the row's typed formatting is held by the formatter as well as by this
@@ -2813,7 +2827,6 @@ function seatScroll(el){
   if (!due || !cardLaidOut(el)) return;
   el.scrollDue = null;
   if (el.reply.dataset.raw !== due.raw) return;
-  el.quietScroll = Date.now();
   el.replyview.scrollTop = due.top;
 }
 
@@ -2914,7 +2927,8 @@ function boxHasSelection(el){
 function sentOf(el, id){
   const batch = el.sentItems.slice();
   for (const op of localSends(id))
-    batch.push({ text: op.text, op: op.id, state: op.state, badge: opBadge(op), stage: "local" });
+    batch.push({ text: op.text, ...(typeof op.saved === "string" ? { saved: op.saved } : {}), op: op.id, state: op.state,
+      badge: opBadge(op), stage: "local" });
   return batch;
 }
 function drawSent(el, id, arrive){
@@ -2968,19 +2982,19 @@ function sentMarkAct(el, id, act){
   if (act === "retry") resendOp(op);
   else if (act === "cross") crossOp(op);
 }
-// a new answer held back while the reader was busy is shown by drawing the
-// reading this page already holds, since the board has nothing newer to say
+// a new answer that waited for a merge of the waiting bubbles is shown by
+// drawing the reading this page already holds, since the board has nothing
+// newer to say
 turnAgain = () => { if (lastState) apply(lastState); };
 
 // ---- sending, closing, parking, naming ------------------------------------------
 // what the cross on the card does, and what the key that stands for it does: the
 // card is closed and the next one still open takes the screen, so the screen is
-// never left holding a card that has just gone
-async function closeCard(id){
-  const { order, section } = cardDeparture(lastState, id);
-  await fetch(closeCardUrl(id), { method: "POST" }).catch(() => {});
-  selectNextCard(id, order, section);
-  poll();
+// never left holding a card that has just gone. the card and its ticket in the
+// list leave together on the press, and the board is told after (closeCardNow,
+// card-logic.js)
+function closeCard(id){
+  return closeCardNow(id, card => fetch(closeCardUrl(card), { method: "POST" }));
 }
 function undone(id){
   fetch("/done?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" }).then(() => poll()).catch(() => {});
@@ -3105,13 +3119,15 @@ const OPS_KEY = "pendops";
 // stay in the typing row and the card says why
 const OPS_MAX = 50;
 // how long a send is resent on its own, counted from the press or from the
-// last time the arrow sent it again. well under the two days the board
-// promises to keep a receipt, so every retry still finds its receipt and lands
-// at most once. past this the operation is unsure: nothing more is sent, the
-// words stay on the card, and every reading asks the board for its receipt.
-// OP_TRY_MS and OP_CERTAIN_MS, one try's deadline and how long "unknown" proves
-// the words never landed, are shared with the desktop in card-logic.js
-const OP_GIVE_UP_MS = 12 * 3600 * 1000;
+// last time the arrow sent it again: 15 minutes, so a message never reaches the
+// board long after it was meant. well under the two days the board promises to
+// keep a receipt, so every retry still finds its receipt and lands at most
+// once. past this the operation is unsure: nothing more is sent, the row wears
+// the red mark with its arrow and cross, the words stay on the card, and every
+// reading asks the board for its receipt. OP_TRY_MS and OP_CERTAIN_MS, one
+// try's deadline and how long "unknown" proves the words never landed, are
+// shared with the desktop in card-logic.js
+const OP_GIVE_UP_MS = 15 * 60 * 1000;
 const OP_ASK_MAX = 32;                       // receipts one reading may ask after, the board's own cap
 // pending: being sent and resent. unsure: no more sends, the outcome unknown,
 // kept and asked about. failed: the board refused it or has no receipt inside
@@ -3188,7 +3204,7 @@ function runOps(lane){
       for (;;){
         const op = ops.find(o => o.state === "pending" && laneOf(o) === lane);
         if (!op) return;
-        if (Date.now() - (op.since || op.ts) > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for half a day"); continue; }
+        if (Date.now() - (op.since || op.ts) > OP_GIVE_UP_MS){ markUnsure(op, "no answer from the board for 15 minutes"); continue; }
         if (await tryOp(op) === "retry"){
           op.waiting = true;
           drawOpState(op);
@@ -3360,9 +3376,14 @@ function landSend(op, result){
   const el = ensureCard(op.box);
   if (!el) return;
   if (op.followView?.()) renderTickets(lastState);
-  // saved by the board now: sent, which reads Delivered, until a reading says more
-  el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
+  // saved by the board now: sent, which reads Delivered, until a reading says
+  // more. it keeps its operation id, so the reading that brings the words as
+  // saved, which can differ from the typed ones (_curse_free), finds it in the
+  // bubble it flew into (sentGroups)
+  el.sentItems = [...el.sentItems, { text: op.text, ...(typeof op.saved === "string" ? { saved: op.saved } : {}),
+    op: op.id, stage: "sent" }];
   drawSent(el, op.box);
+  sentCursesRead();   // the next send's saved words, on the board's list as it is now
   el.sendGuard = Date.now();
   if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
   if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
@@ -3453,7 +3474,12 @@ function doSend(id, opts){
   const text = trayMessage(el, typed);
   if (!text){ endPhoneTrace(trace); return; }
   const reopen = boxDone(id);
-  const op = mintOp("send", { box: id, text, reopen });
+  // the words the board will keep, when they are not the ones typed: the
+  // bubble shows them from the press and its flight changes the typed words
+  // to them in the air (sentCurseFree, in card-logic.js); the typed words are
+  // what is sent, and what a take back gives back
+  const saved = sentCurseFree(text);
+  const op = mintOp("send", { box: id, text, reopen, ...(saved !== null ? { saved } : {}) });
   if (!op){
     // the store is full: the words stay in the row, and the card says why.
     // this clears on its own once a reading finds room again
@@ -5958,6 +5984,23 @@ function syncSentPhone(el, b){
   el.sentItems = sentFrom(b);
   drawSent(el, b.id);
 }
+// a send that landed after the reading a card's sent panel was last drawn
+// from. a reading asked before it landed leaves the panel as the send drew it,
+// Delivered (drawCard), and its revision is kept, so the reading after it
+// answers nothing new and draws no card. that answer was asked after the send
+// landed, and says the board's record of the card held here is the board's
+// record now: the panel is drawn from it, so a message read or answered since
+// shows so at once. a card whose new answer waits for a merge is left as it
+// stands, to the pass that draws it (turnAgain)
+function sentCatchUp(asked){
+  for (const [id, el] of Object.entries(els)){
+    if (!(el.sendGuard > (el.sentDrawnAt || 0)) || el.sendGuard > asked) continue;
+    const b = lastState.boxes.find(x => x.id === id);
+    if (!b || el.reply.dataset.raw !== replyFull(b)) continue;
+    syncSentPhone(el, b);
+    el.sentDrawnAt = asked;
+  }
+}
 
 // ---- reading the board -------------------------------------------------------------
 // one reading at a time, each with a deadline, spaced POLL_MS apart while the
@@ -5989,6 +6032,17 @@ let drewBoard = false;
 // card and the title editor that the confirmed answer has just drawn.
 let createRevFloor = null;
 let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
+// the Mac's narrow view reads when the board around it hears the board's live
+// line ring (macHost.listen, at the end of this page), and on the timer only
+// while that line is down, after a reading that did not get through, and while
+// a send waits for its receipt, which only a reading asking after it brings.
+// The phone itself has no line here (pollRings stays null) and reads on the
+// timer as it always has
+let pollRings = null;
+function pollTimed(){
+  return !pollRings || !pollRings.up || pollFails > 0 ||
+    ops.some(o => o.state === "pending" || o.state === "unsure");
+}
 // a timed reading that falls due while a panel on the card runs, or a page turns,
 // is put off a moment and not dropped (cardsMoving in card-logic.js): a reading
 // that brings a change has to be drawn, since the revision it carries is only
@@ -6080,7 +6134,22 @@ function linkTouched(){
   // a touch on the white screen itself is not use of the app
   if (opening && !document.body.classList.contains("down")) opening = false;
 }
+// a 401 is the phone's sign-in ended: signed out, the phone password changed
+// on the Mac, or 30 days unused. The page opens itself again, and the board
+// answers that open with the password page. The mark kept for this tab stops a
+// page that is refused again from opening itself over and over, and the next
+// good reading lets it go (readBoard)
+const SIGNIN_RELOAD_MARK = "facilitator-signin-reload";
+function signinEnded(){
+  try {
+    if (sessionStorage.getItem(SIGNIN_RELOAD_MARK)) return false;
+    sessionStorage.setItem(SIGNIN_RELOAD_MARK, "1");
+  } catch (_) { return false; }
+  location.reload();
+  return true;
+}
 function linkDown(asked, response){
+  if (response && response.status === 401 && signinEnded()) return;
   // an answer that refuses is still an answer: the board is there
   if (response && (response.status === 401 || response.status === 403)){ linkUp(asked); return; }
   if (opening && asked >= openedAt && !document.body.classList.contains("down")){
@@ -6105,7 +6174,7 @@ function poll(){
   pollRun = readBoard().finally(() => {
     pollRun = null;
     if (pollAgain){ pollAgain = false; poll(); }
-    else schedulePoll(pollGap);
+    else if (pollTimed()) schedulePoll(pollGap);
   });
   return pollRun;
 }
@@ -6255,6 +6324,7 @@ async function readBoard(){
     try {
       pollFails = 0; pollGap = POLL_MS;
       linkUp(asked);
+      try { sessionStorage.removeItem(SIGNIN_RELOAD_MARK); } catch (_) {}
       startupAnswered();   // a reading got through: the startup globe turns again
       versionSeen(data.version);
       if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
@@ -6329,6 +6399,7 @@ async function readBoard(){
           const rendering = tracePhone("begin", "render", { rev: lastRev });
           Object.assign(lastState, data.live || {});
           lastState.fetchedAt = asked;
+          sentCatchUp(asked);
           // the board's own clock comes on every answer, changed or not, and a tap
           // names the moment it happened by it
           if (typeof data.now === "number") lastState.now = data.now;
@@ -6382,6 +6453,118 @@ window.addEventListener("online", resume);
 for (const type of ["pointerdown", "touchstart", "keydown", "input"]){
   document.addEventListener(type, linkTouched, { capture: true, passive: true });
 }
+
+// ---- the live line, listened to and not used yet ---------------------------------
+// The board keeps a live line open to each page that listens (GET /events,
+// server.py EventsRoute): one short line, data: {"rev": R, "quiet": "Q"}, the
+// moment the board changes and again every 15 seconds whatever happens. The
+// phone does not act on it yet. It reads the board on its timer exactly as
+// before, and nothing it reads, draws or sends comes from here; this only finds
+// out whether the line reaches the phone, through Tailscale Serve and the
+// phone's door, before the phone comes to rely on it. In developer mode, while
+// the app is on screen, the line is open and the diagnostic history
+// (card-report.js, schema 7) is told:
+//   stream-open  the line opened; ms is how long that took from asking
+//   beat         a line the board wrote: its revision, ms since the line's last
+//                entry, and whether the revision or the mark moved (changed)
+//   stream-lost  the line went, ms since its last entry, and why: error (it
+//                broke and the browser opens it again by itself 3 s later; the
+//                board ends every line after 10 minutes this way), refused (the
+//                answer was not a line, a 401 or a 503, and the browser gave up;
+//                it is asked for again here after 30 s), dead (nothing for 40 s:
+//                closed and asked for again at once), hidden or pagehide (the
+//                app was put away; asked for again when it is back on screen)
+// Every 5 minutes while the line is wanted, and once more when the app is put
+// away, the history sums those entries up and sends them to the board's client
+// log as one linereport (card-report.js lineReport), so hours of normal use show
+// on the Mac whether the line holds. The Mac's narrow view hears the board's
+// line through the board around it and opens none here, and so reports none.
+const LINE_PROBE_DEAD_MS = 40000, LINE_PROBE_CLOSED_MS = 30000, LINE_REPORT_MS = 300000;
+const lineProbe = (() => {
+  let source = null, opened = false, held = null, last = 0, dead = 0, again = 0, reporting = 0;
+  const wanted = () => !macHost && phoneDeveloperMode && !document.hidden && typeof EventSource === "function";
+  const note = (event, detail) => { tracePhone("note", event, detail); };
+  // ms since the line's last entry, and this is the last one now
+  function since(){ const now = performance.now(), gap = now - last; last = now; return gap; }
+  function shut(){
+    clearTimeout(dead); dead = 0;
+    if (source){
+      source.onopen = source.onmessage = source.onerror = null;
+      try { source.close(); } catch (_) {}
+    }
+    source = null; opened = false; held = null;
+  }
+  function lost(why){
+    if (source) note("lifecycle", { lifecycle: "stream-lost", why, ms: since() });
+    shut();
+  }
+  function watch(){
+    clearTimeout(dead);
+    dead = setTimeout(() => { lost("dead"); open(); }, LINE_PROBE_DEAD_MS);
+  }
+  function open(){
+    clearTimeout(again); again = 0;
+    if (source || !wanted()) return;
+    let es = null;
+    try { es = new EventSource("/events"); } catch (_) { return; }
+    source = es; last = performance.now();
+    watch();
+    es.onopen = () => {
+      if (source !== es) return;
+      opened = true;
+      note("lifecycle", { lifecycle: "stream-open", ms: since() });
+    };
+    es.onmessage = e => {
+      if (source !== es) return;
+      watch();
+      let line = null;
+      try { line = JSON.parse(e.data); } catch (_) {}
+      if (!line || !Number.isFinite(line.rev)) return;
+      const changed = !!held && (held.rev !== line.rev || held.quiet !== line.quiet);
+      held = { rev: line.rev, quiet: line.quiet };
+      note("beat", { rev: line.rev, ms: since(), changed });
+    };
+    es.onerror = () => {
+      if (source !== es) return;
+      if (es.readyState === EventSource.CLOSED){
+        lost("refused");
+        again = setTimeout(open, LINE_PROBE_CLOSED_MS);
+        return;
+      }
+      // a line still being asked for that fails is asked for again by the
+      // browser; one that says nothing for 40 s is dead
+      if (!opened) return;
+      opened = false;
+      note("lifecycle", { lifecycle: "stream-lost", why: "error", ms: since() });
+    };
+  }
+  // the report's clock runs only while the line is wanted; put away, the
+  // stretch is reported once with why, and switched off it is not reported
+  function every(){
+    clearTimeout(reporting);
+    reporting = setTimeout(() => { tracePhone("lineReport", "period"); every(); }, LINE_REPORT_MS);
+  }
+  function finish(why){
+    if (!reporting) return;
+    clearTimeout(reporting); reporting = 0;
+    if (why) tracePhone("lineReport", why);
+  }
+  return {
+    // shown again, or developer mode switched: open while wanted, else close
+    check(){
+      if (wanted()){ open(); if (!reporting) every(); return; }
+      clearTimeout(again); again = 0;
+      if (document.hidden){ lost("hidden"); finish("hidden"); } else { shut(); finish(""); }
+    },
+    put(why){ clearTimeout(again); again = 0; lost(why); finish(why); },
+  };
+})();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) lineProbe.put("hidden"); else lineProbe.check();
+});
+window.addEventListener("pagehide", () => lineProbe.put("pagehide"));
+window.addEventListener("pageshow", e => { if (e.persisted) lineProbe.check(); });
+lineProbe.check();
 
 // ---- the last breath ----------------------------------------------------------
 // developer mode only. while the page is on screen, one small record in
@@ -7717,6 +7900,39 @@ function keyBytes(b64url){
 // the editor it is drawn with is fetched once, early, so the row is already
 // wearing it by the time anybody types in it
 ComposeFormat.preload();
+// whether the reader's curse words are saved as [expletive]: the board's
+// expletives setting, "1" for on and absent for off, since the board does the
+// swap for the Mac and this phone alike (_curse_free in server.py). Like the
+// usage switch it is read from the board when the page starts and again when
+// its section is opened, and a flip goes straight back to the board; one the
+// board does not take flips back
+{
+  const curses = document.getElementById("setcurses");
+  let asked = 0;
+  const shown = answer => {
+    if (!answer || !answer.values) return;
+    curses.checked = answer.values.expletives === "1";
+    SENT_CURSES.on = curses.checked;   // what a send's bubble shows at the press (sentCurseFree)
+  };
+  const read = () => {
+    const mine = ++asked;
+    fetch("/settings").then(r => r.ok ? r.json() : null)
+      .then(answer => { if (mine === asked) shown(answer); }, () => {});
+  };
+  curses.addEventListener("change", () => {
+    const on = curses.checked, mine = ++asked;
+    fetch("/settings", { method: "POST", body: JSON.stringify({ expletives: on ? "1" : null }) })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(answer => { if (mine === asked) shown(answer); },
+            () => { if (mine === asked) curses.checked = !on; });
+  });
+  document.querySelector('#setpage .sp-item[data-section="editor"]')?.addEventListener("click", read);
+  read();
+  // the board's word list with it, for the same, and again whenever the app
+  // comes back on screen, since the switch can be flipped on the Mac meanwhile
+  sentCursesRead();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sentCursesRead(); });
+}
 // the profile the Mac keeps (GET /profile): shown here and changed only on the
 // Mac, where it lives. Read when the page starts and again when its section is
 // opened. The picture is the one the Mac drew for it (none until the Mac has
@@ -7781,6 +7997,7 @@ document.getElementById("homeversion").addEventListener("click", () => {
   responseScrollTiming = phoneDeveloperMode ? phoneKeyboardTiming : null;
   try { localStorage.setItem(PHONE_DEVELOPER_KEY, phoneDeveloperMode ? "on" : "off"); } catch (_) {}
   document.body.classList.toggle("phone-developer-mode", phoneDeveloperMode);
+  lineProbe.check();
   if (!phoneDeveloperMode) {
     diagnosticGeneration++;
     createDiagnostics.clear();
@@ -8115,6 +8332,22 @@ if (macHost) {
     },
   };
   macHost.connect(window, adapter);
+  // the board's live line, heard through the board around this page: a ring
+  // reads at once (schedulePoll, which waits out a card's motion or a finger on
+  // the list, and reads nothing while hidden), and while the line is down the
+  // readings go back to the timer (pollTimed). The ages in the ticket list move
+  // with the clock alone, so while the line is up and this view is on screen
+  // the list is drawn again from the reading held every MAC_TICK_MS
+  const MAC_TICK_MS = 30000;
+  pollRings = typeof macHost.listen === "function" ? macHost.listen(window, {
+    held: () => lastRev,
+    read: () => schedulePoll(0),
+    up: () => {},
+    down: () => { if (!pollRun) schedulePoll(pollGap); },
+  }) : null;
+  setInterval(() => {
+    if (pollRings && pollRings.up && !document.hidden && !window.macPhoneInactive && lastState) renderTickets(lastState);
+  }, MAC_TICK_MS);
   addEventListener("pagehide", () => macHost.lost(window));
 }
 </script>
@@ -8182,7 +8415,21 @@ PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
   openSite: url => window.open(url, "_blank", "noopener,noreferrer"),
   escape: () => { if (!cardPictureShown) phoneMagicSmall(true); },
   expand: from => { phoneMagicBig(from); return PB.view.big; },
-  moving: () => !!PB.move });
+  moving: () => !!PB.move,
+  // an agent's page stays loaded, hidden, once its card is left, for the last
+  // three, so going back to a card has it in the drawer as it was, with no
+  // second load and no second reading of a widget's record over the line
+  // (magicView's keep). none are made ahead here, as the Mac's are: the
+  // phone's frames run on the page's own thread, beside its swipes
+  keep: 3,
+  // the owner is at the box, for a widget's message: it is out, in the drawer
+  // or expanded over the page, and nothing else on the page has the keys, so
+  // keys typed on the card below it never count
+  atBox: () => {
+    const live = document.activeElement;
+    return (PB.view.big || (tickets.classList.contains("boxface") && drawerOpen())) &&
+      (PB.el.contains(live) || !live || live === document.body);
+  } });
 // the cross takes a tap and never the keys. with the box out, Tab stays in the
 // drawer (keepTabInMenu) and the cross was its one stop, so a Tab to get back
 // to the reply box put the keys on it and the next space or return shut the
@@ -8230,6 +8477,9 @@ function phoneMagicSync(){
   const b = phoneMagicCard();
   if (!b){ phoneMagicOff(); return; }
   if (PB.id !== b.id || PB.rev !== b.magic.rev) phoneMagicLoad(b.id, b.magic.rev);
+  // a widget's page hears what its agent answered since, a page kept from its
+  // card's last showing as well
+  PB.view.widgetSync(b.magic);
 }
 // the box gone with everything in it, and the drawer back if it was out for it
 function phoneMagicOff(){
@@ -8278,37 +8528,30 @@ function phoneMagicFetch(id, rev){
       if (PB.bodies.get(id) !== ask) return null;
       if (!box){ PB.bodies.delete(id); return null; }
       const seen = box.kind === "image" && box.src ? await phoneMagicPicture(box.src) : null;
-      if (PB.bodies.get(id) !== ask){ if (seen) URL.revokeObjectURL(seen.src); return null; }
+      if (PB.bodies.get(id) !== ask) return null;
       Object.assign(ask, { rev: box.rev, box, seen });
       return ask;
     });
   PB.bodies.set(id, ask);
   return ask.wait;
 }
-// a box's picture as the page's own copy, held in its memory only, decoded and
-// its size read, so the box takes its shape at once (the view's seen). one that
-// will not come is left to the view, which fetches it itself as it always did
+// a box's picture loaded, decoded and its size read, so the box takes its shape
+// at once (the view's seen). from its own address, which the server sandboxes;
+// a blob: copy is this origin's. one that will not load is left to the view,
+// which loads it itself as it always did
 async function phoneMagicPicture(src){
-  try {
-    const r = await fetch(src, { cache: "no-store", credentials: "same-origin" });
-    if (!r.ok) return null;
-    const url = URL.createObjectURL(await r.blob()), img = new Image();
-    img.src = url;
-    await img.decode().catch(() => {});
-    return { src: url, natural: [img.naturalWidth, img.naturalHeight], img };
-  } catch (e) { return null; }
+  const img = new Image();
+  const loaded = await new Promise(done => { img.onload = () => done(true); img.onerror = () => done(false); img.src = src; });
+  if (!loaded) return null;
+  await img.decode().catch(() => {});
+  return { src, natural: [img.naturalWidth, img.naturalHeight], img };
 }
-// a picture let go, and the one the box shows (PB.seen), which is let go only
-// once the box shows another and no card's box still holds it
+// a picture let go, and the one the box shows (PB.seen), held while it shows
 function phoneMagicForget(have){
-  const seen = have.seen;
   have.seen = null;
-  if (seen && seen !== PB.seen) URL.revokeObjectURL(seen.src);
 }
 function phoneMagicShows(seen){
-  const was = PB.seen;
   PB.seen = seen;
-  if (was && was !== seen && ![...PB.bodies.values()].some(h => h.seen === was)) URL.revokeObjectURL(was.src);
 }
 // as the page builds its cards (reachCards): the open box of each card it
 // builds is fetched, and what was fetched for a card it no longer keeps, or
@@ -8318,6 +8561,8 @@ function phoneMagicShows(seen){
 // share the line with the box being looked at
 function phoneMagicAhead(){
   if (!lastState) return;
+  // a kept page goes with its box closed or filled again, or its card done
+  PB.view.keepOnly(new Set(lastState.boxes.filter(x => x.magic && x.magic.open && !x.done).map(x => x.id + ":" + x.magic.rev)));
   const { build, keep } = nearbyCards();
   const open = id => {
     const b = lastState.boxes.find(x => x.id === id);
@@ -8612,6 +8857,17 @@ addEventListener("keydown", e => {
   if (!PB.view.big || e.key !== "Escape" || e.defaultPrevented || imeKey(e)) return;
   e.preventDefault(); e.stopImmediatePropagation();
   if (!e.repeat) phoneMagicSmall(true);
+}, true);
+// control+shift+left and right while it is expanded go to the widget's page in
+// it, which flips its items with them, as they would with the keys in the page
+// (view.widgetKey), and not to the cards behind it; ahead of the drawer's own
+// keys, which would step the card. a box that holds no widget's page, or one
+// put back, leaves the keys as they were
+addEventListener("keydown", e => {
+  if (!PB.view.big || e.altKey || imeKey(e) || cardPictureShown) return;
+  const shortcut = cardShortcut(e);
+  if (!shortcut || shortcut.action !== "navigate" || !PB.view.widgetKey(e)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
 }, true);
 // the cross: the drawer goes back and the box is put away, as the board's
 // cross does; what it held is kept, and the card's agent brings it back by

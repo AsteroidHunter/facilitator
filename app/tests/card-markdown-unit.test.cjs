@@ -84,7 +84,7 @@ test("fences stay separate beside lists and quotes and expose a safe language la
   assert.match(html, /data-language="js&quot; onmouseover=&quot;globalThis\.pwned=1"/);
   assert.match(html, /<span class="codelang">js&quot; onmouseover=&quot;globalThis\.pwned=1<\/span>/);
   assert.doesNotMatch(html, / onmouseover="/);
-  assert.match(html, /<\/div><blockquote><p>quote<\/p><\/blockquote><div class="codeblockwrap" data-language="py">/);
+  assert.match(html, /<\/div><blockquote><p>quote<\/p><\/blockquote><div class="codeblockwrap" data-language="py" data-lines="1">/);
   assert.match(html, /<\/div><blockquote><p>after<\/p><\/blockquote>$/);
 });
 

@@ -1,0 +1,202 @@
+# The curse words the board saves as [expletive] when Settings, Editor,
+# "Replace curse words" is on. expletives.py reads this file and says how
+# each kind of entry is matched; the file is read again when it changes.
+#
+# One entry a line, under one of three headings. An entry is one word of the
+# letters a to z; case does not matter, and # starts a comment.
+#
+#   [anywhere]  a root matched anywhere, even inside a longer word, for roots
+#               no normal English word holds ("unfuckingbelievable" becomes
+#               "un[expletive]believable")
+#   [alone]     a word matched only on its own, for roots that sit inside
+#               normal words ("you ass" becomes "you [expletive]", and
+#               "a classy assessment" is left alone)
+#   [never]     a normal word left as it is although it holds a root above
+#
+# Every letter of a root may repeat ("fuuuck"), and every root takes the
+# endings -s, -es, -ies, -ed, -d, -er, -ers, -ery, -ing, -ings, -in, -in',
+# -y, -ier and -iest, so "fucking" and "asses" need no line of their own.
+#
+# Sources. The swear words and slurs are taken from the English list of "List
+# of Dirty, Naughty, Obscene, and Otherwise Bad Words" by Shutterstock and its
+# contributors, https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
+# (file "en", as of its 2020-07-13 commit), licensed under the Creative Commons
+# Attribution 4.0 International licence, https://creativecommons.org/licenses/by/4.0/
+# Changes: only the swear words and slurs are kept (its sex-act, anatomy,
+# pornography and drug words, and words with a common normal meaning, are
+# left out), multi-word entries are cut to the root they hold, and each word
+# is sorted into the headings below. Added to it: the curse words and spellings
+# a scan of real messages found ("python3 app/expletives.py scan"), common
+# English swear words the list does not have, and the normal words under
+# [never], found by running the list over the system dictionary.
+
+[anywhere]
+# fuck and the words made with it
+fuck
+motherfuck
+clusterfuck
+mindfuck
+fucktard
+# shit and the words made with it
+shit
+bullshit
+horseshit
+batshit
+apeshit
+jackshit
+dipshit
+chickenshit
+# spellings of fuck that hold no normal word
+fukc
+fucj
+# the rest
+cunt
+cocksuck
+asshole
+arsehole
+asshat
+asswipe
+assface
+asslick
+assmunch
+dickhead
+dickface
+dickwad
+douchebag
+goddamn
+goddam
+dammit
+damnit
+jizz
+wetback
+raghead
+towelhead
+bulldyke
+carpetmuncher
+fudgepacker
+jigaboo
+jiggaboo
+jiggerboo
+
+[alone]
+# spellings of fuck
+fck
+fuk
+fcuk
+fuick
+phuck
+# words that sit inside normal words: ass (class, assume, passage), hell
+# (hello, shell), dick (Dickens), cock (peacock, cockpit), crap (scrap), piss,
+# twat, wank (swanky), turd (Saturday), arse (parse)
+ass
+arse
+hell
+damn
+dick
+cock
+crap
+piss
+prick
+twat
+wank
+turd
+# whole words
+assholoe
+dickless
+bitch
+bastard
+bollocks
+bugger
+douche
+dumbass
+jackass
+smartass
+badass
+fatass
+lardass
+kickass
+pussy
+tits
+titty
+titties
+schlong
+slut
+whore
+skank
+tosser
+mofo
+# slurs
+nigger
+nigga
+faggot
+fag
+retard
+spic
+kike
+coon
+darkie
+tranny
+beaner
+paki
+pikey
+gook
+honkey
+slanteye
+
+[never]
+# normal words that hold a root above, or are a root with one of its endings
+scunthorpe
+shiitake
+shitake
+shittah
+shittim
+mishit
+mishits
+cocked
+cocking
+cocky
+cockier
+cockiest
+cocker
+cockers
+dicker
+dickers
+dickered
+dickering
+dicky
+dickies
+pricked
+pricking
+pricks
+pricker
+prickers
+craps
+damning
+fagged
+fagging
+crappies
+beanery
+spices
+spiced
+spicer
+spicers
+spicery
+spicier
+spiciest
+spicy
+spicing
+retarder
+retarders
+retarding
+# names and terms that hold "shit" or "cunt"
+shiite
+shiites
+shiitic
+cushite
+cushites
+cushitic
+brushite
+washita
+bereshith
+placuntitis
+placuntoma

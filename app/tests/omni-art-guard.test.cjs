@@ -213,7 +213,10 @@ test("the pages start the watcher, and the typed page guards its own Omni art", 
   for (const name of ["m.html", "index.html"]){
     const html = fs.readFileSync(path.join(ROOT, name), "utf8");
     assert.ok(html.indexOf("<script>watchPictures();</script>") > html.indexOf("<script>installCardPageGuard();</script>"), name);
-    assert.ok(html.indexOf("<script>watchPictures();</script>") < html.indexOf("</head>"), name);
+    // the Mac board starts it in the head; the phone page just after its
+    // curtain, which no script may hold up, and still ahead of its markup
+    const before = name === "m.html" ? html.indexOf('<div id="page">') : html.indexOf("</head>");
+    assert.ok(html.indexOf("<script>watchPictures();</script>") < before, name);
   }
   const page = fs.readFileSync(path.join(ROOT, "page.html"), "utf8");
   assert.match(page, /function omniArt\(info, cls\)\{\s*const image = h\("img", cls\);\s*omniArtGuard\(image\);/);

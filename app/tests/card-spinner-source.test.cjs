@@ -42,7 +42,10 @@ test("the marks and the spinner are named once, in the sheet, and never again on
     const own = html.replace(/--(bar-mark|cardspin-s):calc\(var\(--full-\1\) \* var\(--rest\)\);/g, "")
       .replace(/--cross-t:calc\(var\(--bar-mark\) \* var\(--cross-weight\)\);/g, "");
     assert.doesNotMatch(own, /--(bar-mark|cardspin-s|cross-t|cross-weight)\s*:/, `${name} sets one of the shared sizes itself`);
-    assert.doesNotMatch(html, /\.cardspin\s*[{,:]/, `${name} carries a rule for the spinner of its own`);
+    // a rule, not a comment: the phone's server-down screen names the sheet's
+    // .cardspin in the comment over its own written-out copy
+    const rules = html.replace(/<style>[\s\S]*?<\/style>/g, sheet => sheet.replace(/\/\*[\s\S]*?\*\//g, ""));
+    assert.doesNotMatch(rules, /\.cardspin\s*[{,:]/, `${name} carries a rule for the spinner of its own`);
     assert.doesNotMatch(html, /histrun/, `${name} still has the run the spinner once stood in`);
     assert.match(html, /:is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/, `${name}: the sun, the cloud and the moon are not sized by the mark size and the chip scale`);
     assert.match(html, /width:var\(--bar-mark\); height:var\(--cross-t\);/, `${name}: the cross is not drawn from the mark size and its thickness`);

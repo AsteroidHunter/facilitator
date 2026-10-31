@@ -460,7 +460,9 @@ test("the served page carries the curtain before any script, and it fetches noth
   const curtain = served.indexOf('<div id="loading"');
   assert.ok(curtain > 0, "the served page has no curtain");
   assert.ok(curtain < served.indexOf("<script"), "the curtain is drawn after the first script");
-  const block = served.slice(curtain, served.indexOf("<div id=\"page\">"));
+  // the curtain is its own element and the screen-height script right after it.
+  // the shared scripts that follow it are the page's, not the curtain's
+  const block = served.slice(curtain, served.indexOf("</script>", curtain) + "</script>".length);
   assert.ok(/<div class="scene">/.test(block) && /<div class="globe">/.test(block), "no globe in the curtain");
   assert.equal(/\ssrc=/.test(block), false, "the curtain asks for a file");
   // the only addresses in it are the two references to the shape written beside them

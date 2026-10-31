@@ -63,9 +63,11 @@ def _load():
 
 
 class Q:
-    """What _post_park reads of a query: one(name, default)."""
+    """What _post_park and _post_send read of a query: one(name, default), and
+    agent, which _query sets on every request (False: the page, his own message)."""
 
-    def __init__(self, **values):
+    def __init__(self, agent=False, **values):
+        self.agent = agent
         self.values = {k: str(v) for k, v in values.items() if v is not None}
 
     def one(self, name, default=""):

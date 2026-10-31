@@ -266,14 +266,14 @@ def fake_windows():
 def fake_close(wid, urls):
     EVENTS.append(['close', wid, list(urls)])
     return OPTS['closeAnswers'].get(str(wid), 'CLOSED')
-def fake_page_urls():
-    EVENTS.append(['chrome_page_urls'])
+def fake_tabs():
+    EVENTS.append(['chrome_tabs'])
     return []
 def fake_open_app(cfg, dry):
     EVENTS.append(['open_app', dry])
 cli.chrome_windows = fake_windows
 cli.close_chrome_window = fake_close
-cli.chrome_page_urls = fake_page_urls
+cli.chrome_tabs = fake_tabs
 cli.open_app = fake_open_app
 
 def fake_run(argv, **kw):
@@ -353,7 +353,7 @@ const slept = events => events.reduce((sum, e) => sum + (e[0] === "sleep" ? e[1]
 const askedChrome = events => events.some(e => e[0] === "chrome_windows" || e[0] === "close");
 
 let sequence = 0;
-async function stop(options = {}, args = ["stop"], { dir = fixtureDir, cli = cliPath } = {}) {
+async function stop(options = {}, args = ["stop"], { dir = fixtureDir, cli = cliPath, env = {} } = {}) {
   const settings = { ...options };
   if (options.lockOffset !== undefined && options.lockOffset !== null) {
     const lockDir = path.join(nestDir, `lock-${sequence += 1}`);
@@ -366,7 +366,7 @@ async function stop(options = {}, args = ["stop"], { dir = fixtureDir, cli = cli
     `    cli.cmd_stop(${JSON.stringify(args)})`,
     "finally:",
     "    say()",
-  ].join("\n"), { dir, cli }).then(ok => ({ ok: true, ...ok }), error => ({ ok: false, ...error }));
+  ].join("\n"), { dir, cli, env }).then(ok => ({ ok: true, ...ok }), error => ({ ok: false, ...error }));
   return { ...done, ...readEvents(done.stdout) };
 }
 
@@ -899,6 +899,21 @@ test("one window is 'Window closed.' and the phone link is mentioned last", asyn
   assert.equal(kinds(run.events).at(-1), "bridge_note");
 });
 
+// TEMPORARY, with the three-day timer it serves (server.py, the idle stop): the
+// stop the board starts itself after three days unused carries the from-board
+// mark, and is the same stop with Chrome and the phone-link note left out
+test("the stop the board starts after three days unused asks Chrome nothing and leaves out the note", async () => {
+  const run = await stop({ chrome: [[11, [boardAt(port)]]], bridge: "NOTE" }, ["stop"],
+                         { env: { FACILITATOR_UPDATE_FROM_BOARD: "1" } });
+  assert.equal(run.ok, true, run.stderr);
+  assert.deepEqual(run.said, ["Board stopped."]);
+  assert.deepEqual(sentTo(run.events), [[4242, TERM]], "the stop sent something other than one SIGTERM");
+  assert.ok(run.events.some((e, i) => e[0] === "listener_pids" && e[1] === port + 1
+    && i > run.events.findIndex(x => x[0] === "kill" && x[2] === TERM)), "the phone's port was not read");
+  assert.equal(askedChrome(run.events), false, "Chrome was asked");
+  assert.equal(kinds(run.events).includes("bridge_note"), false, "the phone link was looked at for a note");
+});
+
 // --- the two Chrome functions themselves, with osascript faked ----------------
 
 async function chromeCases(cases) {
@@ -1106,13 +1121,13 @@ test("stop starts nothing, opens nothing and speaks to no tmux or lane", async (
   const body = source.slice(source.indexOf("def stop_target("), source.indexOf("def cmd_status("))
     .replace(/"""[\s\S]*?"""/g, "").replace(/#[^\n]*/g, "");
   assert.ok(body.includes("def cmd_stop("), "the stop code is not where it was");
-  for (const word of ["Popen", "ensure_server", "start_server", "open_app", "chrome_page_urls", "tmux",
+  for (const word of ["Popen", "ensure_server", "start_server", "open_app", "chrome_tabs", "send_tab", "tmux",
     "send-keys", "write_text", "write_bytes", "os.remove", "unlink", "rmtree", "tailscale serve"]) {
     assert.ok(!body.includes(word), `the stop code reaches ${word}`);
   }
   const run = await stop({ chrome: [[1, [boardAt(port)]]] });
   assert.equal(run.ok, true, run.stderr);
-  assert.equal(kinds(run.events).filter(k => k === "run" || k === "popen" || k === "open_app" || k === "chrome_page_urls").length, 0);
+  assert.equal(kinds(run.events).filter(k => k === "run" || k === "popen" || k === "open_app" || k === "chrome_tabs").length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -1123,7 +1138,9 @@ test("stop starts nothing, opens nothing and speaks to no tmux or lane", async (
 // whole fixture, including the folders the server makes beside itself, lives
 // under one temporary folder that goes at the end whether or not the
 // assertions passed. No window is involved: Chrome is addressed by name, so a
-// real window cannot be isolated from the person's own.
+// real window cannot be isolated from the person's own. The board is locked as
+// a real one is, so the command's own calls to it carry the agent key, and so
+// do this file's.
 
 async function buildLive(ignoreTerm) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-stop-live-")));
@@ -1162,6 +1179,7 @@ function liveProbe(live, code) {
     env: {
       ...process.env,
       FACILITATOR_TEST_PORT: String(live.port),
+      FACILITATOR_TEST_LOCK: "1",
       FACILITATOR_LOG_DIR: path.join(live.root, "logs"),
     },
     timeout: 90000,
@@ -1233,7 +1251,10 @@ test("a real stop: the server goes, both ports free, the lock is released, the s
   async () => {
     const live = await buildLive(false);
     const pid = await startLive(live);
-    const before = await (await fetch(`http://127.0.0.1:${live.port}/state`)).json();
+    const key = (await readFile(path.join(dataOf(live.board), "agent.key"), "utf8")).trim();
+    assert.equal((await fetch(`http://127.0.0.1:${live.port}/state`)).status, 401, "the live board is not locked");
+    const before = await (await fetch(`http://127.0.0.1:${live.port}/state`,
+      { headers: { Authorization: `Bearer ${key}` } })).json();
     assert.equal(before.title, "cli stop fixture");
     assert.equal(await canBind(live.port), false, "the board does not hold its port");
     assert.equal(await canBind(live.port + 1), false, "the board does not hold the phone's port");

@@ -334,6 +334,8 @@ function macPage({ profile }) {
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     waitNewestFirst: () => false, lastState: null, renderCarousel() {},
     SETTINGS_PICTURES: {}, settingsZoneWords: () => "",
+    // what a send's bubble shows of the curse words, tested in curse-words-switch.test.cjs
+    SENT_CURSES: { on: false, switch: null }, sentCursesRead() {},
     // the board's block caret hands its queue over later (index.html), so the page must look it up when it is told
     queueFatCaret: () => { caret.queued++; },
     feedbackBox: (els, opts) => { Object.assign(built, { els, opts }); return { setReady: ready => gate.push(ready) }; },

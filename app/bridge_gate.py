@@ -72,13 +72,25 @@ PAGE_OPENS = frozenset({"/m", "/"})
 # reading back and reopening the cards' magic boxes, which only agents on the
 # Mac do, the Bin, which only the Mac board has, and the update, which only the
 # Mac board asks about and starts. A signed-in phone reads what a box holds and its picture, and closes
-# it, as the board does: those three routes pass. The profile is not here: a
+# it, as the board does: those three routes pass, and so do a widget's own
+# (its record, the person's messages typed in it and its memory). Its agent's
+# answers come only from an agent, never through this gate. The profile is not here: a
 # signed-in phone reads it, and its route refuses a write that did not come from
 # the Mac
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
                         "/onboarding", "/onboarding/sample", "/startup-sound", "/assets/phone_app_on_stand.webp",
-                        "/magic", "/magic/reopen", "/bin", "/bin/restore",
+                        "/magic", "/magic/reopen", "/magic/answer", "/bin", "/bin/restore",
                         "/update", "/update/later"})
+
+
+def _device(headers):
+    """Whose wrong passwords a sign-in counts against: the last entry of
+    X-Forwarded-For, the address Tailscale Serve gives the phone, or "local"
+    for a request with no such header."""
+    value = headers.get(b"x-forwarded-for")
+    if value is None:
+        return "local"
+    return value.decode("latin-1").split(",")[-1].strip()[:64] or "local"
 
 
 def _client_class(headers):
@@ -262,7 +274,7 @@ class BridgeGate:
                 value = json.loads(raw).get("password") if raw is not None else None
             except (ValueError, AttributeError, TypeError):
                 value = None
-            verdict, issued = bridge_auth.login(value)
+            verdict, issued = bridge_auth.login(value, _device(headers))
             if verdict == "ok":
                 await _reply(scope, receive, send, 200, {"ok": True}, extra=(
                     (b"set-cookie", bridge_auth.session_cookie(issued).encode()),))

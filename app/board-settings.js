@@ -3,7 +3,8 @@
  * page.html): where each box sits and how big it is, which boxes are put
  * away, the background colour, the outline's width, formatting while typing,
  * whether the daily usage counts are shared, whether the cards waiting on the
- * reader are listed newest first, the home chart, the typed page's
+ * reader are listed newest first, whether the project tabs wear the new
+ * layout, whether curse words are saved as [expletive], the home chart, the typed page's
  * tasks and the one-time layout passes that go with them. They used to live
  * in each browser's localStorage, which files them under the board's address,
  * so the board opened at another address (a port it moved to) started from
@@ -48,7 +49,7 @@
   // server.py. A lane is any printable text, a box one of the page's ids
   const SETTINGS_KEY = new RegExp("^(?:(?:(?:layoutbak\\.)?(?:pos|size)|hide|show)\\.[^\\x00-\\x1f\\x7f]{1,200}\\.[A-Za-z0-9_-]{1,64}"
     + "|doc\\.tasks\\.[^\\x00-\\x1f\\x7f]{1,200}"
-    + "|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|home\\.chart|folderview"
+    + "|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|newlayout|expletives|home\\.chart|folderview"
     + "|magicrename\\.1|layoutsync\\.1|hideseed\\.1|layoutvisibility\\.[12]|navrestore\\.1)$", "u");
   const SETTINGS_HOLD = 3000;   // ms a window's own write stands over a reading on its way
   const RETRY = 2000;           // ms before a write the board did not answer goes again
@@ -67,6 +68,7 @@
     const unsent = new Map();   // key -> its value, or null for a removal, not sent yet
     let inflight = new Map();   // the batch out now, sent again on leaving in case it is cut off
     const held = new Map();     // key -> until when this window's own write stands
+    const heard = [];           // the page's calls for a reading that changed a value
     let seeding = false, sending = false, asking = false, due = false;
 
     const readLocal = key => { try { return local.getItem(key); } catch (err) { return null; } };
@@ -103,7 +105,8 @@
 
     // a reading of the board's settings: taken in whole, except the keys this
     // window wrote and is still holding or has not sent, and never one older
-    // than what is already here
+    // than what is already here. the keys it changed are handed to the page's
+    // calls (onChange), so what they draw is drawn again with the new values
     function adopt(answer) {
       if (!answer || typeof answer.rev !== "number" || !answer.values || answer.rev < rev) return;
       rev = answer.rev;
@@ -114,7 +117,10 @@
         if (Object.prototype.hasOwnProperty.call(values, key)) next[key] = values[key];
         else delete next[key];
       }
+      const was = values;
       values = next;
+      const changed = [...new Set([...Object.keys(was), ...Object.keys(next)])].filter(key => was[key] !== next[key]);
+      if (changed.length) for (const fn of heard) { try { fn(changed); } catch (err) {} }
     }
 
     function note(key, value) {
@@ -198,6 +204,8 @@
         deps.fetch("/settings").then(r => r.ok ? r.json() : null)
           .then(adopt, () => {}).finally(() => { asking = false; });
       },
+      // fn(keys) is called with the keys a reading from the board changed
+      onChange(fn) { heard.push(fn); },
       flush,
       get rev() { return rev; },
       // true while a write has not been answered: the copy, or any setting

@@ -228,6 +228,54 @@
     "addEventListener('keyup', e => say('up', e), true);" +
     "addEventListener('blur', e => { if (e.target === window) say('up', { key: '' }); }, true);" +
     "})();";
+  // a page kept loaded out of sight (magicView's keep) makes no sound, and
+  // otherwise runs on as if it were shown. The board says the word, a space
+  // and "hush" as it hides the page, and "sound" as it shows it again. Hushed,
+  // the page is muted and nothing more: its Web Audio reaches the speakers
+  // through a gain of its own, which goes to nothing, and its audio and video
+  // are muted, so a sound it starts meanwhile, from a timer, plays unheard when
+  // it would have played and is over, and its clocks and timers keep their
+  // time. Shown again it is heard as it is then: a sound still going is heard
+  // from where it has got to, and nothing it made while hidden comes late.
+  // Speech, which cannot be muted, is cut off, and words it says meanwhile are
+  // never said. A context is reached at its own output, which every sound of it
+  // is joined to, and a clip by its play() or its play event, in the document
+  // and in any shadow root; the page reads its own muted, never the hush's. It
+  // stands ahead of the agent's own script, so every one the page makes is
+  // known. A frame the page makes of its own is out of its reach, and a page
+  // with one is not kept (magicView's keep). Anything in it that fails stops it
+  // alone, never the words after it in the same script
+  const PAGE_HUSH = "(() => { try {" +
+    "let hushed = false; const outs = new Map(), clips = new Set(), quiet = new Map();" +
+    "const put = (o, k, v) => Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true });" +
+    "const AN = window.AudioNode && AudioNode.prototype, AD = window.AudioDestinationNode, BA = window.BaseAudioContext || window.AudioContext || window.webkitAudioContext," +
+    " OA = window.OfflineAudioContext || window.webkitOfflineAudioContext;" +
+    "const level = (g, v) => { try { const p = g.gain, t = g.context.currentTime; p.cancelScheduledValues(t); p.setTargetAtTime(v, t, 0.01); } catch (_) { try { g.gain.value = v; } catch (_) {} } };" +
+    "if (AN && AD && BA) { const join = AN.connect, part = AN.disconnect, gain = BA.prototype.createGain;" +
+    "const out = t => { if (!(t instanceof AD) || (OA && t.context instanceof OA)) return null; let g = outs.get(t);" +
+    "if (!g) { try { g = gain.call(t.context); g.gain.value = hushed ? 0 : 1; join.call(g, t); outs.set(t, g); } catch (_) { return null; } } return g; };" +
+    "put(AN, 'connect', function connect(t) { const g = out(t); if (!g) return join.apply(this, arguments); const a = [...arguments]; a[0] = g; join.apply(this, a); return t; });" +
+    "put(AN, 'disconnect', function disconnect(t) { const g = outs.get(t); if (!g) return part.apply(this, arguments); const a = [...arguments]; a[0] = g; return part.apply(this, a); }); }" +
+    "const MP = window.HTMLMediaElement && HTMLMediaElement.prototype, M = MP && Object.getOwnPropertyDescriptor(MP, 'muted');" +
+    "const mute = m => { if (quiet.has(m)) return; quiet.set(m, M.get.call(m)); M.set.call(m, true); };" +
+    "const drop = () => { for (const m of clips) if (m.paused && !m.isConnected) clips.delete(m); };" +
+    "const heard = m => { if (!M || !M.get || !M.set || !(m instanceof HTMLMediaElement)) return; if (clips.size > 50) drop(); clips.add(m); if (hushed) mute(m); };" +
+    "if (M && M.get && M.set) { const caught = e => heard(e.target);" +
+    "addEventListener('play', caught, true);" +
+    "const AS = Element.prototype.attachShadow;" +
+    "if (AS) put(Element.prototype, 'attachShadow', function attachShadow(o) { const r = AS.call(this, o); r.addEventListener('play', caught, true); return r; });" +
+    "const PL = MP.play; put(MP, 'play', function play() { heard(this); return PL.call(this); });" +
+    "Object.defineProperty(MP, 'muted', { enumerable: true, configurable: true, get() { return quiet.has(this) ? quiet.get(this) : M.get.call(this); }," +
+    " set(v) { if (hushed) heard(this); if (quiet.has(this)) quiet.set(this, !!v); else M.set.call(this, v); } }); }" +
+    "const SP = window.SpeechSynthesis && SpeechSynthesis.prototype, say = SP && SP.speak, cut = SP && SP.cancel;" +
+    "if (SP) put(SP, 'speak', function speak(u) { if (!hushed) return say.call(this, u); });" +
+    "addEventListener('message', e => { if (e.source !== parent || (e.data !== W + ' hush' && e.data !== W + ' sound')) return;" +
+    "const on = e.data === W + ' hush'; if (on === hushed) return; hushed = on;" +
+    "for (const [d, g] of outs) { if (d.context.state === 'closed') outs.delete(d); else level(g, on ? 0 : 1); }" +
+    "if (!on) { for (const [m, v] of quiet) { try { M.set.call(m, v); } catch (_) {} } quiet.clear(); return; }" +
+    "drop(); for (const m of new Set([...clips, ...document.querySelectorAll('audio, video')])) heard(m);" +
+    "if (SP && (speechSynthesis.speaking || speechSynthesis.pending)) cut.call(speechSynthesis); });" +
+    "} catch (_) {} })();";
   // the Mac's box shows no scrollbar inside a page, the board's rule for every
   // scroller (card-tokens.css) restated for the frame, which the board's sheet
   // does not reach. A page wider than the box scrolls sideways inside it, as
@@ -241,27 +289,107 @@
   // there. It stands ahead of the agent's own styles, which may still say
   // otherwise
   const TAPS = "<style>*{touch-action:manipulation}</style>";
+  // a widget's page (an html box its agent named a widget) talks with the
+  // board in plain JSON objects, JSON-RPC 2.0's shape, over the same channel:
+  // a request {jsonrpc, id, method, params} is answered once with {jsonrpc, id,
+  // result} or {jsonrpc, id, error: {code, message}}, and the board's own notes
+  // carry no id. This gives the page one way to do it, window.facilitator,
+  // ahead of the agent's own script:
+  //   facilitator.ready()            -> {thread, trev, state, srev}: what was
+  //                                     said in it so far and its own memory
+  //   facilitator.send(text, about)  -> {id}: the person's message, about one
+  //                                     of the page's own ids; the board takes
+  //                                     it only just after the person's own
+  //                                     click or key in the box
+  //   facilitator.save(state)        -> {srev}: the widget's own memory
+  //   facilitator.on("data", fn)     -> fn({thread, trev}) each time the
+  //                                     agent answers, or another copy of the
+  //                                     page sends, with no reload
+  // It adds no power: a page could post the same objects itself. Its requests
+  // go once the page has said its word on load, so the board has heard the
+  // word first (magicView). The board also hands it control+shift+left and
+  // right typed on the board while the box is expanded (widget/key, with the
+  // key and its modifiers), which never reach a frame without the focus: the
+  // page gets them as a keydown of its own, on what has its focus, so a page
+  // that listens for those keys flips with them and needs nothing more
+  const WIDGET = "(() => {" +
+    "const waiting = new Map(), early = [], heard = { data: [] }; let n = 0, loaded = false, ready = null;" +
+    "const post = m => parent.postMessage(m, '*');" +
+    "const key = p => { if (!p || typeof p !== 'object') return;" +
+    "(document.activeElement || document.body || document).dispatchEvent(new KeyboardEvent('keydown', { key: String(p.key || ''), code: String(p.code || '')," +
+    " ctrlKey: p.ctrlKey === true, shiftKey: p.shiftKey === true, altKey: p.altKey === true, metaKey: p.metaKey === true, repeat: p.repeat === true," +
+    " bubbles: true, cancelable: true, composed: true })); };" +
+    "addEventListener('load', () => { loaded = true; for (const m of early.splice(0)) post(m); });" +
+    "const ask = (method, params) => new Promise((resolve, reject) => {" +
+    "const id = 'w' + (++n).toString(36) + Math.random().toString(36).slice(2, 10); waiting.set(id, { resolve, reject });" +
+    "const m = { jsonrpc: '2.0', id, method, params }; if (loaded) post(m); else early.push(m); });" +
+    "addEventListener('message', e => { const m = e.data;" +
+    "if (e.source !== parent || !m || typeof m !== 'object' || m.jsonrpc !== '2.0') return;" +
+    "if (typeof m.id === 'string' && waiting.has(m.id)) { const w = waiting.get(m.id); waiting.delete(m.id);" +
+    "if (m.error) w.reject(m.error); else w.resolve(m.result); return; }" +
+    "if (m.method === 'widget/data') { for (const fn of heard.data) { try { fn(m.params); } catch (_) {} } }" +
+    "else if (m.method === 'widget/key') key(m.params); });" +
+    "Object.defineProperty(window, 'facilitator', { value: Object.freeze({" +
+    "ready: () => ready || (ready = ask('widget/ready', {}))," +
+    "send: (text, about) => ask('widget/send', { text: String(text == null ? '' : text), about: about == null ? '' : String(about) })," +
+    "save: state => ask('widget/state', { state })," +
+    "on: (what, fn) => { if (heard[what] && typeof fn === 'function') heard[what].push(fn); } }) });" +
+    "})();";
   // word: when given, the page tells the board it is still itself each time it
-  // finishes loading, by posting the word to it. A page that has sent its frame
-  // elsewhere loads without saying it, and the board puts the page back.
+  // finishes loading, by posting the word to it. A page that has tried to send
+  // its frame elsewhere (which its holder refuses, holderDoc) loads without
+  // saying it, and the board puts the page back.
   // sized: the page says its own height too (PAGE_HEIGHT), and relays the
   // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE, PAGE_ESCAPE) and
   // scrolls and says its keys for control+S (PAGE_SCROLL); the Mac's box asks
   // for it. tall: the page says its height and Escape and nothing more, for the
   // phone's drawer, which lays the page out that tall and scrolls the box, and
-  // keeps a second tap from zooming (TAPS)
-  function pageDoc(html, word, sized, tall) {
+  // keeps a second tap from zooming (TAPS). widget: the page is a widget and is
+  // given its way to talk with the board (WIDGET), after the word, so the word
+  // is said first on load. every page with a word goes quiet while the board
+  // keeps it out of sight (PAGE_HUSH)
+  function pageDoc(html, word, sized, tall, widget) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
-    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_ESCAPE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT + PAGE_ESCAPE : "";
+    const told = PAGE_HUSH + (sized ? PAGE_BACK + PAGE_CREATE + PAGE_ESCAPE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT + PAGE_ESCAPE : "");
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
-      (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
+      (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + (widget ? ";" + WIDGET : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
       '<meta name="referrer" content="no-referrer">' + (sized ? CALM : tall ? TAPS : "") + '<script>' + KEYS_GUARD + ZOOM_GUARD + '</script>' + hello +
       String(html == null ? "" : html);
+  }
+  // the page may still send its own frame to another address, carrying
+  // anything in the address: a sandbox lets a frame move itself, no policy in
+  // the page reaches its own frame, and the request is out before the board
+  // could put the page back. What a frame may be sent to is the frame-src of
+  // the document it stands in, which Chrome and Safari check each move of the
+  // frame against before anything is fetched (CSP's frame-src, which
+  // "restricts the URLs which may be loaded into child navigables"). The
+  // board's own page cannot say none there, since a website's box frames the
+  // site. So the page stands in a holder, sealed as the page is (PAGE_SANDBOX)
+  // and under the page's own policy, with its frame-src 'none': the page, a
+  // srcdoc, is never fetched and loads, and every address it sends its frame
+  // to is refused before it is asked for. The page cannot move the holder,
+  // which is not its own frame (its sandbox). The holder hands on whatever the
+  // page and the board post to each other, as it is, so each hears the other
+  // as before, and says true, which it never hands on from the page, each
+  // time the page in it has loaded, which the board takes as the page's load
+  const HOLDER = "<style>html,body{margin:0;height:100%;overflow:hidden}" +
+    "iframe{display:block;border:0;width:100%;height:100%}</style>";
+  function holderDoc(page) {
+    const P = JSON.stringify(String(page)).replace(/</g, "\\u003c");
+    return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
+      '<meta name="referrer" content="no-referrer">' + HOLDER + '<body><script>(() => {' +
+      'const f = document.createElement("iframe");' +
+      'f.setAttribute("sandbox", ' + JSON.stringify(PAGE_SANDBOX) + '); f.setAttribute("referrerpolicy", "no-referrer");' +
+      'addEventListener("message", e => {' +
+      'if (e.source === f.contentWindow && e.data !== true) parent.postMessage(e.data, "*", [...e.ports]);' +
+      'else if (e.source === parent && f.contentWindow) f.contentWindow.postMessage(e.data, "*", [...e.ports]); });' +
+      'f.addEventListener("load", () => parent.postMessage(true, "*"));' +
+      'f.srcdoc = ' + P + '; document.body.append(f); })();</script>';
   }
   // a website runs as itself, on its own origin, which is never the board's;
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, PAGE_HUSH, WIDGET, pageDoc, holderDoc, SITE_SANDBOX };
 })(globalThis);

@@ -42,11 +42,13 @@ function fixture(mode, extra = []) {
     homeOpen: false, drawerOpen: () => drawer, menuOut: () => drawer ? nodes.get('tiksheet') : null,
     localStorage: { getItem: k => stored.get(k), setItem: (k, v) => stored.set(k, v) },
     setTimeout(fn, ms) { timers.set(++timer, { fn, ms }); return timer; }, clearTimeout: id => timers.delete(id),
-    FOCUS: true, macHost: mode === 'narrow Mac' ? {} : null, innerWidth: desktop ? 1440 : 390,
+    FOCUS: true, phoneDeveloperMode: false, macHost: mode === 'narrow Mac' ? {} : null, innerWidth: desktop ? 1440 : 390,
     selectedId: null, activeOwner: 'one', lastState: { boxes: [card('reply', { docked: true }), card('before', { ts: 30 }), card('after', { ts: 1 }), ...extra] },
     els: {}, hist: null, enterAgain: null, phoneEnterAgain: null, autoNext: null, AUTONEXT_MS: 0,
     curWs: () => ({ id: 'work' }), ticketsShown: () => true,
     tracePhone() {}, endPhoneTrace() {}, syncSpinner() {}, h: node,
+    // the list's height and the bin can's place under the pointer are painting too
+    fitTicketList() {}, binCanFollow() {},
     // The page's real renderTickets supplies each section's ordered pool.
     // Only row painting is doubled; drawerRows reads these through the DOM.
     paintPhonePane(pane, pool) {
@@ -68,14 +70,18 @@ function fixture(mode, extra = []) {
   const doubles = Object.fromEntries(['sentLaunch', 'sentTry', 'sentLanded', 'sentFailed', 'syncSpinner', 'focusBoxAtEnd', 'h'].map(k => [k, ctx[k]]));
   vm.runInContext(logic, ctx);
   Object.assign(ctx, doubles);
-  for (const b of ctx.lastState.boxes) ctx.els[b.id] = { ta: { ...composer }, tick() {}, send: {}, sentItems: [], meta: { textContent: '' }, trayItems: [], trayHold: null };
+  for (const b of ctx.lastState.boxes) {
+    const el = ctx.els[b.id] = { ta: { ...composer }, tick() {}, send: {}, sentItems: [], meta: { textContent: '' }, trayItems: [], trayHold: null };
+    // the reply box's editor, which says whether the box holds the focus
+    el.field = { focused: () => ctx.document.activeElement === el.ta };
+  }
   if (desktop) {
     vm.runInContext('poolScope = state => b => b.ws === "work";', ctx);
     for (const name of ['nav', 'enterViewKey', 'deskMessage', 'doSend', 'renderCarousel', 'clearEnterAgain', 'scheduleDesktopAdvance', 'boardAdvance', 'askEnterAdvance']) vm.runInContext(block(html, `${name === 'doSend' ? 'async ' : ''}function ${name}(`), ctx);
     vm.runInContext(between(html, 'const boardShortcutTyping =', '\naddEventListener("keydown", e => {'), ctx);
   } else {
     for (const name of ['navigationPool', 'cardStepTarget', 'stepCard', 'phoneEnterViewKey', 'doSend', 'landSend', 'renderTickets', 'clearPhoneEnterAgain', 'schedulePhoneAdvance', 'phoneAdvance', 'askPhoneEnterAdvance']) vm.runInContext(block(html, `function ${name}(`), ctx);
-    vm.runInContext(between(html, 'const phoneShortcutTyping =', '\n// while the home page'), ctx);
+    vm.runInContext(between(html, 'const phoneShortcutTyping =', '\n// Home shares project switching'), ctx);
     // Includes the actual menu keydown listener, not just its action table.
     vm.runInContext(between(html, 'function drawerPane(){', '\n// a tap anywhere on the card on screen'), ctx);
   }

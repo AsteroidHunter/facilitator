@@ -521,10 +521,16 @@ async function runPageLink(clock) {
   ].join("\n");
   const classes = new Set();
   const line = fakeLine();
-  const page = { line, polls: [], down: () => classes.has("down") };
+  const page = { line, polls: [], reloads: 0, kept: new Map(), down: () => classes.has("down") };
   page.poll = () => new Promise(resolve => page.polls.push({ at: clock.now, resolve }));
   const context = {
     ...timerGlobals(clock), Promise, __page: page,
+    location: { reload: () => { page.reloads++; } },
+    sessionStorage: {
+      getItem: key => (page.kept.has(key) ? page.kept.get(key) : null),
+      setItem: (key, value) => { page.kept.set(key, String(value)); },
+      removeItem: key => { page.kept.delete(key); },
+    },
     document: {
       hidden: false,
       body: { classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c) } },
@@ -581,4 +587,32 @@ test("m.html: the white screen's count runs the readings, and an answered one op
   // and readings are back on their own schedule
   link.schedulePoll(1200);
   assert.notEqual(link.pollTimer, null, "readings did not go back to their own schedule");
+});
+
+test("m.html: a 401 is a sign-in that has ended and opens the page again, once, and a 403 is the board answering", async () => {
+  const clock = fakeClock();
+  const page = await runPageLink(clock);
+  const { link } = page;
+  // the board's door answers the open with the password page
+  link.linkDown(link.openedAt, { status: 401 });
+  assert.equal(page.reloads, 1, "a 401 did not open the page again");
+  assert.equal(page.down(), false, "a 401 brought the white screen up");
+  // refused again before a good reading: no second open, and the refusal is still an answer
+  link.linkDown(link.openedAt, { status: 401 });
+  assert.equal(page.reloads, 1, "a page refused again opened itself again");
+  assert.equal(page.down(), false);
+  // a good reading lets the mark go (readBoard), so a later ended sign-in opens the page again
+  const html = await read("m.html");
+  const reading = functionText(html, "async function readBoard(){", "m.html");
+  assert.match(reading, /linkUp\(asked\);\s*try \{ sessionStorage\.removeItem\(SIGNIN_RELOAD_MARK\); \} catch \(_\) \{\}/,
+    "a good reading does not let the mark go");
+  page.kept.clear();
+  link.linkDown(clock.now, { status: 401 });
+  assert.equal(page.reloads, 2, "a sign-in that ended again did not open the page again");
+  // a 403 is the board refusing one request, not the sign-in: nothing opens again
+  page.kept.clear();
+  link.linkOpened();
+  link.linkDown(link.openedAt, { status: 403 });
+  assert.equal(page.reloads, 2, "a 403 opened the page again");
+  assert.equal(page.down(), false, "a 403 brought the white screen up");
 });

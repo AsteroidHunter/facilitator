@@ -13,6 +13,12 @@ held for as long as the server runs, and names its pid and port.
 Everything the board writes is in data/ at the top of the checkout, beside
 app/, which holds this file and the pages; data_folder.py says what is there.
 
+A board left unused for three days stops itself, the same way `facilitator
+stop` stops it, and leaves data/idle-stop.json for the next `facilitator run`
+or `facilitator status` to say so once (the idle stop, below the board clock).
+The three-day timer is a temporary fix for the Chrome-window version and will
+not be in the native Mac app.
+
 One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
@@ -21,10 +27,54 @@ Every page, script and sheet the board reads from its files (/, /page, /m and th
 shared files they load) is gzip compressed on either port when the request's
 Accept-Encoding takes gzip; pictures go as they are.
 
+On the board's own port every request carries the agent key (data/agent.key,
+sent as a bearer key; data/agent.curl carries it for curl -K) or the board
+window's cookie, except GET /unread; any other is answered by BoardLock alone,
+a page open of / or /m with a page saying to open the board with facilitator
+run and anything else with a 401. The phone's port and the agent door ask as
+they always did.
+
 Endpoints:
   GET  /                    -> index.html, the card board
+  GET  /?launch=CODE        -> a launch code the board put in a window it
+                               opened or sent on, spent: opened as a page it
+                               sets the window's cookie (HttpOnly,
+                               SameSite=Strict) and answers 303 to /, with
+                               the rest of the query, so the code leaves the
+                               address bar. A code is good once, for 60
+                               seconds, and no route ever answers with one
+  POST /window/open         -> the board opens its own window in Chrome, as
+                               `facilitator run` asks it to: the body is the
+                               page (empty for the board's root), only this
+                               board's own page on loopback, in any spelling,
+                               is taken, and the board opens it as
+                               http://127.0.0.1:PORT/ with only the page's
+                               project kept from its query, the window a
+                               chromeless app window on it with a launch
+                               code inside, full screen when run.config.json's
+                               app_fullscreen is true. {opened: true}, or 502
+                               {error, said: the first line open printed},
+                               and then the code is cancelled. With the agent
+                               key only
+  POST /window/relaunch     -> {"tabs": [[window id, place, url], ...]}, the
+                               Chrome tabs showing the board that `facilitator
+                               restart` read: each one is sent, where it is,
+                               to its own page, which loads it again (a
+                               board page, in any loopback spelling, as
+                               http://127.0.0.1:PORT/ with only its project
+                               kept; the config's app_url page as it is;
+                               any other page is left alone). Only while
+                               the board keeps no window cookie, as on the
+                               first restart after an update from before the
+                               lock, does each own page go with a launch code
+                               of its own. {sent: ["SENT", "GONE", "CHANGED" or
+                               null, one per tab]}; the code of every send
+                               that is not SENT is cancelled. With the agent
+                               key only
+  POST /window/launch       -> 410: the board hands out no launch code. With
+                               the agent key only
   GET  /page                -> page.html, the same lanes drawn as one typed page
-  GET  /state               -> full UI state (page polls this), with rev, the
+  GET  /state               -> full UI state (pages read this), with rev, the
                                board's revision: every saved change moves it,
                                and settingsRev, the settings' own revision
                                (see /settings), and onboarding: true while the
@@ -36,7 +86,7 @@ Endpoints:
                                version waits for the person's yes, {running:
                                true} while an update runs (GET /update)
   GET  /state?since=R[&delta=E] -> the same reading for a page that holds one
-                               (the Mac board's poll). since blank, or a reading
+                               (the Mac board). since blank, or a reading
                                this run cannot build on, is the whole reading
                                with epoch beside it. With delta naming this
                                run's epoch and the board still remembering
@@ -82,7 +132,7 @@ Endpoints:
                                could still be sending means it never landed; a
                                much later query cannot tell a never-landed id
                                from one whose receipt has since aged out
-  POST /send?box=ID[&via=mini|voice][&by=agent[&agent=NAME]][&op=OP] -> body = the human's message text (plain text).
+  POST /send?box=ID[&via=mini|voice][&by=agent][&agent=NAME][&op=OP] -> body = the message text (plain text).
                                via states where it was typed: mini is the small
                                card in the corner, voice is words spoken through
                                the voice layer (app/voice), whose reply is read
@@ -95,7 +145,12 @@ Endpoints:
                                by states who sent it, apart from how: by=agent
                                is an agent that put the message on the card for
                                the reader (a voice or text assistant), and agent
-                               is its name, cut to 24 characters. Only the
+                               is its name, cut to 24 characters. Every send an
+                               agent makes (_agent_request: one with the agent
+                               key, or through the agent door) is
+                               stored as an agent's, whether or not it says
+                               by=agent, so only the board's own pages and the
+                               phone send the reader's own words. Only the
                                literal "agent" is stored (as the message's by
                                field, with agent beside it when named), and a
                                message without it is the reader's own, which is
@@ -116,7 +171,17 @@ Endpoints:
                                could still be sending its id, so a retry always
                                finds it rather than landing twice. A send with
                                no op lands as it always did and is never
-                               deduplicated
+                               deduplicated.
+                               With the board's expletives setting on
+                               (Settings, Editor, "Replace curse words"), the
+                               reader's own words are saved with each curse
+                               word on expletives.txt replaced by [expletive]
+                               (_curse_free), so the stored message, its
+                               transcript row and every reading of it hold
+                               only the masked words; an agent's message is
+                               stored as it came. The receipt's fingerprint is
+                               taken over the words as sent. A word list that
+                               cannot be read is a 503 and nothing is stored
   POST /done?box=ID&v=1|0[&sid=S&seq=N] -> mark a box done / not done
   POST /close?box=ID[&sid=S&seq=N] -> atomically close from the authoritative card:
                                a card with a reply, reply count, or pending
@@ -234,7 +299,7 @@ Endpoints:
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
                                into this repo
-  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
+  POST /magic?box=ID&kind=K[&title=T][&widget=NAME] -> fill the card's magic box, the box
                                beside the card on the Mac board (and above
                                it on the phone, pulled in from the right edge),
                                and open it, in place of whatever it held.
@@ -274,7 +339,13 @@ Endpoints:
                                content. The phone bridge refuses every /magic
                                route; the agent door lets an agent on a server
                                fill, close, reopen and read back (GET /magic)
-                               the box of its own lane's cards and no other
+                               the box of its own lane's cards and no other.
+                               widget=NAME (1 to 40 lowercase letters, digits
+                               or -) makes an html page a widget: its page may
+                               talk with the board (see /magic/widget), and the
+                               card's magic field carries widget and wrev too.
+                               The same name on a later page keeps the
+                               widget's record
   POST /magic/close?box=ID  -> hide the box and keep what it holds; {ok, open}.
                                404 when the card has no box
   POST /magic/reopen?box=ID -> show it again; {ok, open}
@@ -286,6 +357,43 @@ Endpoints:
                                {title, description, site} for a website
   GET  /magic/img?box=ID    -> the box's picture, with nosniff and a sandbox
                                policy, as a panel picture is served
+  GET  /magic/widget?box=ID -> a widget's record, as JSON with nosniff: {box,
+                               widget, rev, wrev, thread, trev, state, srev}.
+                               thread is the person's messages typed in it and
+                               the agent's answers, oldest first, each {id, by
+                               (you or agent), about, text, ts[, agent]};
+                               state is the widget's own memory or null. Kept
+                               in magic-boxes/ per card and widget name, across
+                               the box's revisions, and gone with the card.
+                               404 when the box is not a widget
+  POST /magic/send?box=ID&rev=N[&op=OP] -> body = {"text", "about"}: the
+                               person's message typed in a widget, about one
+                               of the agent's own ids (or ""). Only from the
+                               board's own pages and the signed-in phone, never
+                               from an agent (403); the page passes it on only
+                               after the person's own click or key in the box.
+                               Not put on the card: it is kept in the widget's
+                               record, queues the card for its agent under the
+                               typing hold like a message, and reaches it as
+                               widget_messages in /wait and /fresh. 8000
+                               characters at most; one a second and 30 a minute
+                               from one box (429); a page replaced since (rev)
+                               is a 409; op as /send takes it, and its words
+                               lose their curse words as /send's do. {ok, box, id}
+  POST /magic/state?box=ID&rev=N -> body = {"state": {...}}: the widget's own
+                               memory, at most 64 KiB, kept whole. From the
+                               board's own pages and the phone only; wakes no
+                               agent and writes no transcript row. {ok, srev}
+  POST /magic/answer?box=ID&about=A[&agent=NAME] -> body = the agent's answer
+                               (plain text, 8000 characters at most) about one
+                               of its own ids (or ""), shown in the widget's
+                               open page and kept in its record, never on the
+                               card. Only from an agent: a board page and the
+                               phone are refused. It answers the widget
+                               messages about A in the claim the agent holds on
+                               the card, and once that claim holds nothing
+                               else it is let go with the card as it was.
+                               {ok, box, id, answered, released}
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
                                fetched the first time the file navigator opens a file
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
@@ -309,6 +417,10 @@ Endpoints:
                                heatmap and line chart, the pill that switches
                                them, and their sheet, fetched by the board the
                                first time its home page opens
+  GET  /board-line.js, /board-line-worker.js -> the pages' side of the live
+                               line (GET /events): what a page does with each
+                               line it hears, and the shared worker that holds
+                               the one line for every board window of a browser
   GET  /mac-phone-view.js   -> the Mac's retained phone-view host and draft handoff;
                                /m on the local board port allows only same-origin
                                framing, while the root and bridge remain unframeable
@@ -341,9 +453,10 @@ Endpoints:
                                card filling the screen, the card list in a
                                drawer off the left edge; before sign-in the bridge
                                serves m-gate.html with PWA installation steps.
-                               m.html goes out with card-tokens.css's text in
-                               place of its link, so the startup curtain's first
-                               frame needs no second file
+                               m.html goes out with card-tokens.css's and
+                               home-widgets.css's text in place of their links,
+                               so the startup curtain's first frame needs no
+                               second file
   GET  /auth/check          -> bridge session status and password setup status
   POST /auth/login          -> JSON {password}; sets a persistent HttpOnly cookie
   POST /auth/logout         -> invalidates that session and clears its cookie
@@ -383,7 +496,8 @@ Endpoints:
                                signed with a VAPID token openssl produces; the
                                phone's worker uses that event identity directly.
                                A subscription the push service reports gone
-                               (404, 410) is dropped.
+                               (404, 410) is dropped, and so is one whose
+                               bridge session has ended.
                                Each subscribe, unsubscribe, drop and skipped
                                session writes one log line with a short hash of
                                the endpoint and the number now stored
@@ -472,7 +586,11 @@ Endpoints:
                                looks for updates (updatecheck, "0" when off),
                                whether the cards
                                waiting on the reader are listed newest first
-                               (waitnewest, "1" when so), the home chart,
+                               (waitnewest, "1" when so), whether the project
+                               tabs wear the new layout (newlayout, "1" when
+                               so), whether the reader's curse words are saved
+                               as [expletive] (expletives, "1" when so), the
+                               home chart,
                                the typed page's tasks and the one-time layout
                                passes, under the key names and
                                text values the browsers kept them under. They
@@ -504,6 +622,14 @@ Endpoints:
                                whether it was. Answers {ok, rev, values}.
                                Never moves the board's revision, so a box
                                dragged on the desktop sends no phone a new board
+  GET  /expletives          -> {on, rules}: whether "Replace curse words" is on,
+                               and the word list as the pages need it to work
+                               out a send's saved words at the press
+                               (expletives.page_rules: anywhere, alone, never,
+                               endings, infixes, tag, linkTag), or rules null
+                               when the list cannot be read. The board still
+                               does the swap itself (_curse_free), and its
+                               words are the ones kept
   GET  /spotify/session     -> the Spotify sign-in magic box 1 plays with,
                                {access, refresh, expires, scopes}, or {} when
                                none is kept: in settings.json, owner-only, so a
@@ -698,8 +824,19 @@ Endpoints:
                                geometry without draft text. V5 adds response
                                scroll position, heights and finger direction
                                (never coordinates) and the no-scroll reason.
+                               V6 adds the packed keyboard scroll timing. V7
+                               adds the phone's live line (GET /events): when
+                               it opened, each line the board wrote on it (its
+                               revision, the time since the one before and
+                               whether it moved) and when it was lost and why,
+                               and only these reach back 15 minutes.
                                All versions share four writes per minute across
-                               incident reasons.
+                               incident reasons. A linereport (schema 7 only)
+                               sums the same line up for one stretch on screen:
+                               lines, beats (the 15 second repeats), gapMax,
+                               each gap over 20 s and each open and loss with
+                               why, sent in developer mode every 5 minutes on
+                               screen and once when the app is put away.
                                Six more kinds come from the phone alone, each
                                with fixed fields and nothing else: pushreceived
                                (its worker's record of one push, shown or
@@ -717,9 +854,10 @@ Endpoints:
                                for the daily usage counts, at every log level.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
-                               transcript (read by the quick chat panel and the
-                               page view's own stepper); a user message an agent
-                               sent for the reader carries by and agent
+                               transcript (read by the page view's reply
+                               history and the dormant chat in magic box 3); a
+                               user message an agent sent for the reader
+                               carries by and agent
   GET  /history?box=ID      -> {"replies": [...]}: one card's older final
                                replies, oldest first, without the one the card
                                is showing and without its progress notes, at
@@ -896,11 +1034,12 @@ Endpoints:
                                whether its link is connected, and whether the
                                door is listening, for `facilitator remote
                                list`. Local only
-  POST /remote/pair/new[?name=N] -> {code, minutes, port, addresses}: a pairing
-                               code for `facilitator remote pair`, good once
-                               for 10 minutes, with where the door listens.
-                               Local only; the code is kept as its hash and
-                               never written to the log
+  POST /remote/pair/new?name=N -> {code, minutes, port, addresses}: a pairing
+                               code for `facilitator remote pair --name N`,
+                               good once for 10 minutes, for the server named
+                               N, with where the door listens. 400 with no
+                               name. Local only; the code is kept as its hash
+                               and never written to the log
   POST /remote/forget?server=S -> the server off this board, its lanes' keys
                                with it. {ok}. Local only
   The folder picker lists each server beside this Mac (see /machines, /dirs
@@ -938,7 +1077,10 @@ Endpoints:
                                new messages come at once;
                                {"messages": [], "message_via": [], "message_by":
                                [], "message_agent": []} when nothing new or no
-                               card held
+                               card held. widget_messages, as /wait has it,
+                               when anything was typed in the card's widget
+                               since, on the same hold. Agents only, as /wait:
+                               a page asking it is a 403
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
                                queued box owned by O (facilitator or a project
                                lane; defaults to facilitator) + its pending
@@ -955,7 +1097,11 @@ Endpoints:
                                message_agent run beside it the same way: "agent"
                                and the sending agent's name (null when it gave
                                none) for a message an agent sent for the reader
-                               (/send by=agent), null for the reader's own. Also returns
+                               (/send by=agent), null for the reader's own. A
+                               card whose widget has messages waiting adds
+                               widget_messages, each {from: "widget", widget,
+                               about, text, ts}, which are never in messages
+                               (messages may be empty). Also returns
                                {"idle":true} on timeout.
                                A card is not handed out until 3.5 seconds after
                                the reader's last change in its typing box or
@@ -965,7 +1111,11 @@ Endpoints:
                                token and the claim counts as provisional until
                                POST /ack names it. There is no unconfirmed mode.
                                An ack=1 in the query is accepted and ignored, so
-                               a loop that learned the flag still works
+                               a loop that learned the flag still works.
+                               Agents only (_agent_request): no page of the
+                               board asks it, so a page that does, such as a
+                               board link opened in a tab, is a 403 before a
+                               card is claimed
   POST /ack?owner=O&token=T -> confirms the provisional claim that token was
                                minted for and answers {"ok": true}; acking an
                                already confirmed claim again says the same, so a
@@ -975,11 +1125,22 @@ Endpoints:
                                box goes back to the FRONT of its lane's queue and
                                the card falls back to the queued grey, exactly
                                like an unpicked card, never yellow. That clock is
-                               swept wherever the 15 minute steal-back is swept
-                               and on every /state, which the board polls about
-                               once a second, so it runs even with no /wait open.
+                               swept wherever the 15 minute steal-back is swept,
+                               on every reading and every second by the board
+                               clock, so it runs with no /wait open and no page
+                               reading the board.
                                A loop that claims and never acks gets the same
                                card handed back every 90 seconds
+  GET  /events              -> the pages' live line, Server-Sent Events, one way:
+                               retry: 3000, then data: {"rev": R, "quiet": Q}
+                               when it opens, whenever the revision on disk or
+                               the board clock's mark Q of what moves with no
+                               save changes, and every 15 seconds regardless.
+                               A page that holds another R or Q reads the board.
+                               Ends after 10 minutes, on the stop, and through
+                               the phone's door when the sign-in is gone (checked
+                               every beat). 16 lines at once, then 503. Pages
+                               only in use; the agent door does not let it through
   GET  /unread?owner=O      -> {"queued": N, "claimed": M} for that lane: messages
                                still waiting to be handed over, and messages in
                                the claim that lane's agent holds right now. Read
@@ -1109,7 +1270,7 @@ import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urljoin, urlparse, quote
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, quote, unquote_plus
 
 # the owner's servers and their links. A copy of the board without the file,
 # as the tests' fixtures make, has no links, no socket for them and no gate
@@ -1560,7 +1721,7 @@ def _log_file() -> Path:
 # counters die on reload, so a page throwing during boot and reloading in a
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
-CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
+CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident", "linereport",
                 "pushreceived", "notifycheck", "notifylost",
                 "notifytapready", "notifytap", "notifyarrive", "notifyresult")
 # the kind of window a page is open in, and its id for one page load: the same
@@ -1584,7 +1745,18 @@ INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "
                             "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_EVENTS_V3 = INCIDENT_EVENTS | frozenset(("input", "scroll", "frame", "timer", "phase", "poll"))
 INCIDENT_EVENTS_V4 = INCIDENT_EVENTS_V3 | {"enter"}
-INCIDENT_SCHEMA = 6          # what /m/state offers the phone; every older version is still read
+INCIDENT_EVENTS_V7 = INCIDENT_EVENTS_V4 | {"beat"}
+INCIDENT_SCHEMA = 7          # what /m/state offers the phone; every older version is still read
+# v7: the phone's live line (GET /events), as m.html's line probe hears it. Two
+# lifecycle words, the line opened and the line lost, the loss saying why, and a
+# beat for each line the board wrote (its revision, ms since the one before,
+# whether it moved). Only these may reach back past the 120 seconds the rest
+# keep, to 15 minutes, so ten minutes on screen fit in one save
+INCIDENT_STREAM_LIFECYCLES = ("stream-open", "stream-lost")
+INCIDENT_STREAM_WHY = ("error", "refused", "dead", "hidden", "pagehide")
+INCIDENT_BEAT_FIELDS = frozenset(("event", "at", "visible", "online", "resume", "rev", "ms", "changed"))
+INCIDENT_STREAM_AGE = 900000
+INCIDENT_AGE = 120000
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
 INCIDENT_REASONS_V5 = INCIDENT_REASONS + ("no-scroll",)
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
@@ -1681,12 +1853,12 @@ def _incident_valid(page: str, report: dict) -> bool:
     unknown fields and bad types before any part of a batch reaches a log."""
     version = report.get("v")
     fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-    if version in (2, 3, 4, 5, 6): fields.add("build")
-    if version in (3, 4, 5, 6): fields.update(("worker", "session"))
-    if version == 6: fields.add("timing")
-    reasons = INCIDENT_REASONS_V5 if version in (5, 6) else INCIDENT_REASONS
+    if version in (2, 3, 4, 5, 6, 7): fields.add("build")
+    if version in (3, 4, 5, 6, 7): fields.update(("worker", "session"))
+    if version in (6, 7): fields.add("timing")
+    reasons = INCIDENT_REASONS_V5 if version in (5, 6, 7) else INCIDENT_REASONS
     if (page != "phone" or set(report) != fields
-            or type(version) is not int or version not in (1, 2, 3, 4, 5, 6)
+            or type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7)
             or (version >= 2 and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
             or (version >= 3 and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
                                   or not isinstance(report["session"], str) or not INCIDENT_SESSION.fullmatch(report["session"])))
@@ -1695,17 +1867,23 @@ def _incident_valid(page: str, report: dict) -> bool:
             or not _incident_integer(report["lost"], 0, 1000000000)
             or not _incident_integer(report["suppressed"], 0, 1000000000)):
         return False
-    if version == 6 and not _incident_timing_valid(report["timing"]):
+    if version >= 6 and not _incident_timing_valid(report["timing"]):
         return False
     entries = report["events"]
     if not isinstance(entries, list) or not 1 <= len(entries) <= (128 if version >= 3 else 40):
         return False
-    previous = -120000 if version >= 3 else -60000
+    previous = -INCIDENT_STREAM_AGE if version >= 7 else -INCIDENT_AGE if version >= 3 else -60000
     for entry in entries:
         if (not isinstance(entry, dict) or not {"event", "at", "visible", "online", "resume"} <= entry.keys()
                 or not isinstance(entry["event"], str)
-                or entry["event"] not in (INCIDENT_EVENTS_V4 if version >= 4 else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
+                or entry["event"] not in (INCIDENT_EVENTS_V7 if version >= 7 else INCIDENT_EVENTS_V4 if version >= 4
+                                          else INCIDENT_EVENTS_V3 if version == 3 else INCIDENT_EVENTS)
                 or not _incident_integer(entry["at"], previous, 20000 if version >= 3 else 0)):
+            return False
+        stream = (entry["event"] == "beat"
+                  or (entry["event"] == "lifecycle" and entry.get("lifecycle") in INCIDENT_STREAM_LIFECYCLES))
+        if ((entry["at"] < -INCIDENT_AGE and not stream)
+                or (entry["event"] == "beat" and not entry.keys() <= INCIDENT_BEAT_FIELDS)):
             return False
         if entry["event"] == "enter" and not {"step", "branch", "base", "inner", "vh", "vt",
                                                  "scale", "kb", "target", "focus", "draft"} <= entry.keys():
@@ -1719,6 +1897,11 @@ def _incident_valid(page: str, report: dict) -> bool:
                     return False
             elif name in INCIDENT_NUMBERS:
                 if not _incident_integer(value, 0, INCIDENT_NUMBERS[name]):
+                    return False
+            elif version >= 7 and name == "lifecycle" and value in INCIDENT_STREAM_LIFECYCLES:
+                pass
+            elif version >= 7 and name == "why" and entry.get("lifecycle") == "stream-lost":
+                if value not in INCIDENT_STREAM_WHY:
                     return False
             elif name in INCIDENT_CHOICES:
                 if value not in INCIDENT_CHOICES[name]:
@@ -1859,6 +2042,66 @@ def _notice_valid(page: str, report: dict) -> bool:
     return True
 
 
+# What the phone's live line did in one stretch on screen (card-report.js
+# lineReport, sent by m.html's line probe in developer mode every 5 minutes on
+# screen and once when the app is put away). Only under incident schema 7, the
+# one that names the line; an older v is refused. Counts and ms only: lines,
+# the board's 15 second repeats among them, the longest silence between two
+# lines and each one over LINE_REPORT_GAP, and each open and loss with why, at
+# ms into the stretch, which began at start (the phone's clock, ms since 1970)
+LINE_REPORT_FIELDS = ("kind", "v", "build", "n", "unsent", "reason", "start", "ms", "net",
+                      "lines", "beats", "gapMax", "gaps", "stream", "omitted")
+LINE_REPORT_REASONS = ("period", "hidden", "pagehide")
+LINE_REPORT_NETS = ("bluetooth", "cellular", "ethernet", "mixed", "none", "other", "unknown", "wifi", "wimax")
+LINE_REPORT_LIST = 16          # gaps and stream entries each; the rest are counted in omitted
+LINE_REPORT_GAP = 20000        # a gap is listed past this many ms
+LINE_REPORT_DAY = 86400000
+
+
+def _line_report_valid(page: str, report: dict) -> bool:
+    """Exactly the fields a line report has, each a bounded number, a flag or
+    a fixed word, in order of time within its stretch. Anything else refuses
+    the batch."""
+    if (page != "phone" or set(report) != set(LINE_REPORT_FIELDS)
+            or type(report["v"]) is not int or report["v"] != 7
+            or not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])
+            or not _incident_integer(report["n"], 1, 1000000000)
+            or not _incident_integer(report["unsent"], 0, 1000000000)
+            or report["reason"] not in LINE_REPORT_REASONS
+            or not _incident_integer(report["start"], 0, 10000000000000)
+            or not _incident_integer(report["ms"], 0, LINE_REPORT_DAY)
+            or report["net"] not in LINE_REPORT_NETS
+            or not _incident_integer(report["lines"], 0, 1000000)
+            or not _incident_integer(report["beats"], 0, report["lines"])
+            or not _incident_integer(report["gapMax"], 0, LINE_REPORT_DAY)
+            or not _incident_integer(report["omitted"], 0, 1000000000)):
+        return False
+    gaps, stream = report["gaps"], report["stream"]
+    if (not isinstance(gaps, list) or not isinstance(stream, list)
+            or len(gaps) > LINE_REPORT_LIST or len(stream) > LINE_REPORT_LIST):
+        return False
+    previous = 0
+    for gap in gaps:
+        if (not isinstance(gap, dict) or set(gap) != {"at", "ms"}
+                or not _incident_integer(gap["at"], previous, report["ms"])
+                or not _incident_integer(gap["ms"], LINE_REPORT_GAP + 1, report["gapMax"])):
+            return False
+        previous = gap["at"]
+    previous = 0
+    for entry in stream:
+        if not isinstance(entry, dict) or entry.get("event") not in INCIDENT_STREAM_LIFECYCLES:
+            return False
+        lost = entry["event"] == "stream-lost"
+        if (set(entry) != ({"at", "event", "ms", "online", "why"} if lost else {"at", "event", "ms", "online"})
+                or not _incident_integer(entry["at"], previous, report["ms"])
+                or not _incident_integer(entry["ms"], 0, INCIDENT_NUMBERS["ms"])
+                or type(entry["online"]) is not bool
+                or (lost and entry["why"] not in INCIDENT_STREAM_WHY)):
+            return False
+        previous = entry["at"]
+    return True
+
+
 # the page reports that still reach the client file when the level is error: the
 # page's throws, and the phone marker someone asked for by hand
 CLIENT_ERROR_KINDS = ("error", "rejection", "incident")
@@ -1888,6 +2131,8 @@ def _client_key(page: str, report: dict) -> str:
     the same line are one key, however many times they happen."""
     if report["kind"] == "incident":
         return "incident|phone"
+    if report["kind"] == "linereport":
+        return "linereport|phone"
     return "|".join(str(report.get(part, "")) for part in
                     ("kind", "message", "file", "line")) + "|" + page
 
@@ -1898,6 +2143,8 @@ def _client_fields(report: dict) -> dict:
     if report["kind"] == "incident":
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
         return {k: report[k] for k in (*names, "build", "worker", "session", "timing") if k in report}
+    if report["kind"] == "linereport":
+        return {k: report[k] for k in LINE_REPORT_FIELDS if k != "kind"}
     if report["kind"] in NOTICE_FIELDS:
         # a card's id is the line's own box, written beside the kind
         out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k not in ("ago", "box")}
@@ -1968,9 +2215,11 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
                 lost[key] = (count + 1, report)
                 continue
             fields = _client_fields(report)
-            if report["kind"] == "incident":
-                record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, "incident", (), None,
-                                                  extra={"box": report["box"], "fields": {"page": page, **who, **fields}})
+            if report["kind"] in ("incident", "linereport"):
+                # written and flushed before the answer, so the phone's written
+                # count is the file's and not the logging module's hope
+                record = CLIENT_LOGGER.makeRecord(CLIENT_LOGGER.name, logging.INFO, "", 0, report["kind"], (), None,
+                                                  extra={"box": report.get("box", ""), "fields": {"page": page, **who, **fields}})
                 _client_file.emit_confirmed(record)
             else:
                 _client_event(report["kind"], str(report.get("box") or "")[:64], page=page, **who, **fields)
@@ -2088,6 +2337,7 @@ DOOR_PORT, DOOR_LOOPBACK = _door_port()
 LISTEN_BACKLOG = 128
 CONNECTION_LIMIT = 200          # connections open at once before uvicorn answers 503
 WAIT_SLOTS = 8                  # agent long polls held open at once
+STREAM_SLOTS = 16               # pages' live lines (GET /events) held open at once
 READ_SLOTS = 32                 # board readings in flight at once, their sending included
 THREAD_POOL_SIZE = 64           # worker threads the routes' locked work may use
 FIRST_REQUEST_TIMEOUT = 15.0    # seconds a new connection may sit before its request arrives
@@ -2120,6 +2370,15 @@ MAGIC_FETCH_TOTAL = 15.0              # seconds
 MAGIC_REDIRECTS = 5
 MAGIC_PAGE_HEAD = 256 * 1024          # bytes of a page read for its preview
 MAGIC_ADDRESS_MAX = 8192              # bytes of one web address
+# a widget, an html box whose page talks with the board (see the widget
+# below): its name, the ids of the agent's own data its messages are about,
+# and how much a message, an answer and the widget's own memory may hold
+WIDGET_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+WIDGET_ABOUT = re.compile(r"[A-Za-z0-9._-]{1,64}")
+WIDGET_TEXT_MAX = 8000                # characters of one message or answer
+WIDGET_STATE_MAX = 64 * 1024          # bytes of the widget's own memory, as JSON
+WIDGET_SEND_GAP = 1.0                 # seconds between two of the person's messages in one box
+WIDGET_SEND_MINUTE = 30               # and the most of them in a minute
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
 # binary (an ascii-only payload, or bytes that merely validate), so the navigator
@@ -2263,6 +2522,7 @@ LANE_ROUTES = {
     "/reply": "box", "/working": "box", "/ping": "box", "/title": "box", "/testing": "box",
     "/park": "box", "/props": "box", "/context": "box", "/link": "from",
     "/magic": "box", "/magic/close": "box", "/magic/reopen": "box",
+    "/magic/answer": "box", "/magic/widget": "box",
 }
 
 
@@ -2281,20 +2541,491 @@ def _lane_in_touch(ow: str) -> bool:
     return _lane_now() - _lane_heard.get(ow, _lane_start) < LANE_QUIET
 
 
+# ---- who may ask the board's own port ------------------------------------------
+# Every account on this Mac, and any program allowed to connect out, can reach
+# 127.0.0.1, so on its own port the board answers two callers and nobody else
+# (BoardLock): an agent that carries the board's agent key, and the board's own
+# window, which carries the window cookie. The phone's door and the agent door
+# are not this port's: the bridge gate and RemoteGate decide those, as before.
+#
+# The agent key is made at the first start and kept in data/agent.key, with a
+# curl config beside it, data/agent.curl, that sends it as a bearer key and
+# never through a proxy, the way a paired server's lane key goes, so
+# `curl -K data/agent.curl` carries it and it never shows in ps. Both are for
+# this account alone, in a folder for this account alone.
+#
+# The window cookie comes with a launch code, and the board hands that code to
+# nobody: only Chrome ever gets it. `facilitator run` asks the board, with the
+# agent key, to open its window (POST /window/open), and the board opens it in
+# Chrome itself, on /?launch=CODE, full screen when run.config.json says
+# app_fullscreen. After a restart the command reads Chrome's tabs and hands the
+# board the ones showing it (POST /window/relaunch), and the board sends each
+# one, where it is, to its own page again. Only while it keeps no window
+# cookie at all, the first restart after an update from before the lock, does
+# each tab get a code of its own there, which lets those windows in; once any
+# window has been let in, a relaunch makes no code, so a caller naming a tab
+# of a Chrome of its own gets a reload and nothing more. A caller with the
+# key gets a window on the screen and never the code. A code is good once, for
+# LAUNCH_LIFE seconds, and is held in memory alone, and one whose window did
+# not open, or whose send did not end SENT, is cancelled at once. Opening it
+# as a page sets the cookie, HttpOnly and SameSite=Strict, and sends the
+# window on to / so the code leaves the address bar. The board keeps only the
+# cookie's hash, in data/window-keys.json, so that file alone opens nothing.
+#
+# The limit, which no secret sent over a loopback port can close: while the
+# board is down, during a restart say, a program of another account can take
+# its port and catch what the window or an agent sends it. A cookie also
+# belongs to the host and not the port, so Chrome sends the window cookie to
+# every port of 127.0.0.1, and a page another account serves on one of them
+# could catch it when opened in that Chrome. A launch code, last, sits in the
+# arguments of open and of the Chrome it starts while the board opens its
+# window: for under a second, or for that Chrome's whole life when the launch
+# started Chrome, by which time the code is spent. A program of this account
+# reading the process list could take it there and race Chrome to it, and if
+# it wins it gets a window cookie of its own. The window the code was meant
+# for then shows the lock's page, unless its Chrome already holds a window
+# cookie, in which case it just loads the board and nothing on the screen
+# shows the race. A tab sent on after a restart gets its code inside the
+# script osascript reads on its standard input, in no program's arguments.
+AGENT_KEY_PATH = DATA / "agent.key"
+AGENT_CURL_PATH = DATA / "agent.curl"
+WINDOW_KEYS_PATH = DATA / "window-keys.json"
+# the shape of secrets.token_urlsafe(32), the key's own shape: a file holding
+# anything else is made again
+AGENT_KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
+WINDOW_HASH_SHAPE = re.compile(r"[0-9a-f]{64}")
+# a name per port, since a cookie is the host's: two boards on this Mac each
+# keep their own window's, and one never takes the other's place
+WINDOW_COOKIE = f"facilitator_window_{PORT}"
+WINDOW_COOKIE_LIFE = 10 * 365 * 24 * 3600   # seconds, as the phone's sign-in
+WINDOW_KEYS_KEPT = 16       # window cookies the board keeps; a new one past these drops the oldest
+LAUNCH_LIFE = 60.0          # seconds a launch code is good for
+LAUNCHES_HELD = 16          # launch codes waiting at once; a new one past these drops the oldest
+LOCK_REFUSAL = ("this board answers only its own window and agents that carry its key: "
+                "run scripts/onboard.py inspect and put -K and the file it names in front of every curl")
+# the page a page open of / or /m gets without the cookie, which is all it gets
+LOCKED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facilitator</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #F5F4F1;
+         color: #1d1d1f; font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  main { max-width: 30em; padding: 0 28px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 10px; }
+  p { margin: 0; color: #4a4a4f; }
+  code { font: 15px ui-monospace, Menlo, monospace; background: #e9e7e2; padding: 1px 6px; border-radius: 5px; }
+</style>
+</head><body>@AGAIN@<main>
+<h1>Open the board with facilitator run</h1>
+<p>On this Mac the board opens in the window <code>facilitator run</code> opens. Run <code>facilitator run</code> in Terminal and the board comes up there.</p>
+</main></body></html>
+"""
+# a page open another site set off, such as the Spotify sign-in coming back,
+# carries no SameSite=Strict cookie, so the page opens itself once more from
+# its own address, which does carry it. That second open comes from the
+# board's own page, so a window without the cookie is shown the words above
+# and nothing opens a third time
+LOCKED_AGAIN = "<script>location.replace(location.href)</script>"
+
+# whether this run asks callers on its own port for the key or the cookie.
+# main() turns it on for every board it starts, except a test's copy
+# (FACILITATOR_TEST_PORT set) that does not ask for it with
+# FACILITATOR_TEST_LOCK=1. A module a test imports starts nothing and has it off
+_board_lock = False
+_agent_key: str | None = None
+_window_keys: list = []          # [{hash, made}], oldest first
+_launches: dict = {}             # a launch code's hash -> the monotonic time it stops being good
+
+
+def _key_digest(text: str) -> str:
+    return hashlib.sha256(text.encode("latin-1", "replace")).hexdigest()
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Written whole beside itself and moved into place, for this account
+    alone."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", opener=_private_opener) as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _agent_curl(key: str) -> str:
+    return f'header = "Authorization: Bearer {key}"\nnoproxy = "*"\n'
+
+
+def _read_window_keys() -> list:
+    try:
+        raw = json.loads(WINDOW_KEYS_PATH.read_text())
+    except (OSError, ValueError):
+        return []
+    keys = raw.get("keys") if isinstance(raw, dict) else None
+    if not isinstance(keys, list):
+        return []
+    return [k for k in keys if isinstance(k, dict) and isinstance(k.get("hash"), str)
+            and WINDOW_HASH_SHAPE.fullmatch(k["hash"])][-WINDOW_KEYS_KEPT:]
+
+
+def _lock_up() -> None:
+    """As the board starts: whether this run asks for the key and the cookie,
+    the agent key and its curl config, made when there is none and kept after,
+    and the window cookies' hashes. A key that cannot be kept stops the start,
+    since a board that could not be asked for one would answer anybody."""
+    global _board_lock, _agent_key, _window_keys
+    _board_lock = (not os.environ.get("FACILITATOR_TEST_PORT")
+                   or os.environ.get("FACILITATOR_TEST_LOCK") == "1")
+    try:
+        key = AGENT_KEY_PATH.read_text().strip()
+    except OSError:
+        key = ""
+    try:
+        if not AGENT_KEY_SHAPE.fullmatch(key):
+            key = secrets.token_urlsafe(32)
+            _write_private(AGENT_KEY_PATH, key + "\n")
+        try:
+            kept = AGENT_CURL_PATH.read_text() == _agent_curl(key)
+        except OSError:
+            kept = False
+        if not kept:
+            _write_private(AGENT_CURL_PATH, _agent_curl(key))
+        for path in (AGENT_KEY_PATH, AGENT_CURL_PATH):
+            if stat.S_IMODE(path.stat().st_mode) != 0o600:
+                os.chmod(path, 0o600)
+    except OSError as error:
+        raise SystemExit(f"the board could not keep its agent key in {AGENT_KEY_PATH.parent}: "
+                         f"{error.strerror or error}; it stayed down") from None
+    _agent_key = key
+    _window_keys = _read_window_keys()
+
+
+def _keyed(scope: dict) -> bool:
+    """Whether the request carries the board's agent key as its bearer key,
+    compared in constant time."""
+    key = _agent_key
+    if not key:
+        return False
+    wanted = key.encode()
+    for name, value in scope.get("headers") or ():
+        if name.lower() == b"authorization":
+            scheme, _, given = value.strip().partition(b" ")
+            if scheme.lower() == b"bearer" and secrets.compare_digest(given.strip(), wanted):
+                return True
+    return False
+
+
+def _cookie_values(scope: dict, wanted: str) -> list:
+    """Every value the request's cookies give the name wanted. Read by hand,
+    since a cookie another program on 127.0.0.1 set can be one a strict
+    parser gives up on, and that must not hide the board's own."""
+    found = []
+    for name, value in scope.get("headers") or ():
+        if name.lower() != b"cookie":
+            continue
+        for part in value.decode("latin-1").split(";"):
+            key, eq, held = part.strip().partition("=")
+            if eq and key.strip() == wanted:
+                found.append(held.strip())
+    return found
+
+
+def _windowed(scope: dict) -> bool:
+    """Whether the request carries a window cookie the board gave, its hash
+    compared in constant time with each one kept."""
+    kept = [entry["hash"] for entry in _window_keys]
+    if not kept:
+        return False
+    for value in _cookie_values(scope, WINDOW_COOKIE):
+        digest = _key_digest(value)
+        if any(secrets.compare_digest(digest, held) for held in kept):
+            return True
+    return False
+
+
+def _new_window_key() -> str:
+    """A new window cookie's value, its hash kept, the oldest past
+    WINDOW_KEYS_KEPT let go."""
+    global _window_keys
+    value = secrets.token_urlsafe(32)
+    kept = (_window_keys + [{"hash": _key_digest(value), "made": int(time.time())}])[-WINDOW_KEYS_KEPT:]
+    _write_private(WINDOW_KEYS_PATH, json.dumps({"keys": kept}, indent=1) + "\n")
+    _window_keys = kept
+    return value
+
+
+def _new_launch() -> str:
+    """A launch code, good once for LAUNCH_LIFE seconds, kept as its hash."""
+    now = time.monotonic()
+    for held, until in list(_launches.items()):
+        if until <= now:
+            del _launches[held]
+    while len(_launches) >= LAUNCHES_HELD:
+        del _launches[next(iter(_launches))]
+    code = secrets.token_urlsafe(24)
+    _launches[_key_digest(code)] = now + LAUNCH_LIFE
+    return code
+
+
+def _spend_launch(code: str) -> bool:
+    """Whether the code is one the board gave and still good; either way it
+    is good no more."""
+    until = _launches.pop(_key_digest(code), None)
+    return until is not None and time.monotonic() < until
+
+
+def _cancel_launch(code: str) -> None:
+    """The code is good no more: its window did not open, or its send did not
+    end SENT, so nothing is waiting to spend it."""
+    _launches.pop(_key_digest(code), None)
+
+
+# ---- the board's window, opened and sent on by the board itself ---------------
+# The two programs the window goes through, by their full paths so nothing on
+# PATH can stand in for them and catch a code. A test's copy of this file puts
+# stand-ins here, so no test ever opens or asks the real Chrome
+OPEN_PROGRAM = "/usr/bin/open"
+OSASCRIPT_PROGRAM = "/usr/bin/osascript"
+OPEN_WAIT = 30              # seconds `open` may take before the window counts as not opened
+SEND_WAIT = 10              # seconds one tab's send may take
+WINDOW_TABS_MAX = 64        # board tabs one relaunch sends on; any past these are left as they are
+WINDOW_BODY_MAX = 65536     # bytes a window route reads
+WINDOW_ROUTES = frozenset({"/window/open", "/window/relaunch", "/window/launch"})
+LOOPBACK_SPELLINGS = frozenset({"localhost", "::1", "ip6-localhost"})
+# the one part of a board tab's query the board carries on to the page it
+# opens or sends a tab to: a pulled-out window's project, the one query
+# index.html keeps (its other, a Spotify sign-in's code, is spent as the
+# page lands)
+WINDOW_QUERY_KEPT = ("project",)
+# One tab, named by its window's id and its place there, sent to an address
+# as one typed into it, and only while it still shows the page it was read
+# showing. Whether Chrome is running is read by AppleScript itself, which
+# neither starts Chrome nor asks System Events, so the one permission it can
+# need is the one to control Chrome, the one the command's own reading of the
+# tabs has just used: macOS asks it for the app at the head of the process
+# chain, and the board doing this is the one that same command has just
+# started. The window is not brought to the front. The address holds a launch
+# code, and a program's arguments can be read by any program of this account
+# in the process list, so the script goes to osascript on its standard input
+# with no arguments at all: the window's id, the place, the page and the
+# address are written into its first lines (_send_tab_script), as text that
+# no value can end, since only printable ASCII is let in and its backslashes
+# and quotes are escaped.
+SEND_TAB_SCRIPT = "\n".join([
+    '  if not (application "Google Chrome" is running) then return "GONE"',
+    '  tell application "Google Chrome"',
+    '    set candidates to (every window whose id is wanted)',
+    '    if (count of candidates) is not 1 then return "GONE"',
+    '    set win to item 1 of candidates',
+    '    if (count of tabs of win) < place then return "GONE"',
+    '    set seen to (URL of (tab place of win)) as text',
+    '    set agreed to false',
+    '    considering case',
+    '      set agreed to (seen = expected)',
+    '    end considering',
+    '    if not agreed then return "CHANGED"',
+    '    set URL of (tab place of win) to goal',
+    '  end tell',
+    '  return "SENT"',
+    'end run',
+])
+
+
+def _page_key(url: str):
+    """A page reduced to what decides which page it is, as the command reads
+    it: the scheme, the host with every loopback spelling one host, the port
+    with a missing one the scheme's default, and the path with a bare host and
+    a trailing slash both "/". None for anything that is not an http or https
+    page."""
+    try:
+        bits = urlparse((url or "").strip())
+        host = (bits.hostname or "").lower()
+        port = bits.port
+    except ValueError:
+        return None
+    if bits.scheme not in ("http", "https") or not host:
+        return None
+    parts = host.split(".")
+    loopback = host.strip("[]") in LOOPBACK_SPELLINGS or (
+        len(parts) == 4 and parts[0] == "127" and all(p.isdigit() and int(p) < 256 for p in parts))
+    path = "/" + (bits.path or "/").lstrip("/")
+    return (bits.scheme, "loopback" if loopback else host,
+            port or {"http": 80, "https": 443}[bits.scheme], path.rstrip("/") or "/")
+
+
+def _own_page(url: str) -> str | None:
+    """When that address is this board's own page on this Mac's loopback, in
+    any spelling, the board's own address for it, built here and never taken
+    from the caller: http://127.0.0.1:PORT/, the one address the board's
+    port listens on, with only the address's project kept from its query, so a
+    launch code the caller sends is dropped. A caller naming
+    http://[::1]:PORT/, localhost or 127.0.0.2 gets 127.0.0.1, so no code is
+    ever written into an address some other program could listen on. None
+    for any other address, which never gets a code."""
+    if not isinstance(url, str) or re.search(r"[\x00-\x20\x7f]", url):
+        return None
+    if _page_key(url) != ("http", "loopback", PORT, "/"):
+        return None
+    kept = [(name, value) for name, value in parse_qsl(urlparse(url.strip()).query, keep_blank_values=True)
+            if name in WINDOW_QUERY_KEPT]
+    return f"http://127.0.0.1:{PORT}/" + ("?" + urlencode(kept) if kept else "")
+
+
+def _with_launch(page: str) -> tuple:
+    """The board's own page with a new launch code at the end of its query,
+    and the code, so a window that does not take it can cancel it."""
+    code = _new_launch()
+    bits = urlparse(page)
+    return bits._replace(query=(bits.query + "&" if bits.query else "") + "launch=" + code).geturl(), code
+
+
+def _window_config() -> dict:
+    try:
+        cfg = json.loads((DATA / "run.config.json").read_text())
+    except Exception:
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _open_window(page: str) -> tuple:
+    """Open the board's window in Chrome as `facilitator run` always opened
+    it: a new chromeless app window on the page, with a launch code only
+    Chrome sees, and full screen when run.config.json's app_fullscreen is
+    true (a config without it opens as it always did). The answer for the
+    command: opened, or the first line `open` said, so it can say Chrome did
+    not open. A window that did not open leaves its code cancelled."""
+    address, code = _with_launch(page)
+    command = [OPEN_PROGRAM, "-na", "Google Chrome", "--args", f"--app={address}"]
+    if _window_config().get("app_fullscreen") is True:
+        command.append("--start-fullscreen")
+    try:
+        opened = subprocess.run(command, capture_output=True, text=True, timeout=OPEN_WAIT)
+    except subprocess.TimeoutExpired:
+        _cancel_launch(code)
+        return 502, {"error": "could not open Chrome", "said": "open did not finish"}
+    except OSError as error:
+        _cancel_launch(code)
+        return 502, {"error": "could not open Chrome", "said": error.strerror or type(error).__name__}
+    if opened.returncode == 0:
+        return 200, {"opened": True}
+    _cancel_launch(code)
+    lines = (opened.stderr or "").strip().splitlines()
+    return 502, {"error": "could not open Chrome", "said": lines[0] if lines else ""}
+
+
+SCRIPT_TEXT_SHAPE = re.compile(r"[\x20-\x7e]*")   # what a value written into a script may hold
+
+
+def _script_text(value: str) -> str:
+    """A printable ASCII value as an AppleScript string, which nothing in it
+    can end."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _send_tab_script(wid: int, place: int, expected: str, goal: str) -> str:
+    return "\n".join(["on run", f"  set wanted to {int(wid)}", f"  set place to {int(place)}",
+                      f"  set expected to {_script_text(expected)}", f"  set goal to {_script_text(goal)}",
+                      SEND_TAB_SCRIPT])
+
+
+def _send_tab(wid: int, place: int, expected: str, goal: str):
+    """"SENT", "GONE" or "CHANGED" as the send script says, or None when
+    Chrome could not be asked, or a page or address holds anything but
+    printable ASCII (Chrome reads every tab's address as plain ASCII). The
+    script, with the address in it, goes to osascript on its standard input,
+    and osascript is given no arguments."""
+    if not (SCRIPT_TEXT_SHAPE.fullmatch(expected) and SCRIPT_TEXT_SHAPE.fullmatch(goal)):
+        return None
+    try:
+        done = subprocess.run([OSASCRIPT_PROGRAM, "-"], input=_send_tab_script(wid, place, expected, goal),
+                              capture_output=True, text=True, timeout=SEND_WAIT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    answer = done.stdout.strip() if done.returncode == 0 else ""
+    return answer if answer in ("SENT", "GONE", "CHANGED") else None
+
+
+def _relaunch_tabs(tabs: list) -> list:
+    """Send each tab the command read showing the board, where it is, to its
+    own page: for this board's own page, the address _own_page builds,
+    which loads the board again; the page the config's app_url names, as it
+    is. Anything else is not the board's and is left alone (None).
+
+    A launch code goes with the board's own page only while the board keeps
+    no window cookie at all (window-keys.json missing or empty): that is the
+    first restart after an update from a version before the lock, whose
+    windows hold no cookie yet, and this lets them in where they are. It is
+    decided once for the whole relaunch, so every tab of that restart, in
+    any Chrome profile, gets a code of its own. Once any window has been let
+    in, a relaunch makes no code: each tab just loads its page again, so one
+    whose Chrome holds the cookie shows the board, and a tab of some other
+    Chrome a caller names gets a reload and nothing it can spend. A code
+    whose send did not end SENT (a tab gone or changed, or Chrome not asked)
+    is cancelled before the next tab, so it lets nothing in."""
+    app_page = _page_key(_window_config().get("app_url") or "")
+    coded = not _window_keys
+    answers = []
+    for wid, place, url in tabs:
+        own = _own_page(url)
+        if own is not None and not coded:
+            answers.append(_send_tab(wid, place, url, own))
+        elif own is not None:
+            goal, code = _with_launch(own)
+            answer = _send_tab(wid, place, url, goal)
+            if answer != "SENT":
+                _cancel_launch(code)
+            answers.append(answer)
+        elif app_page is not None and _page_key(url) == app_page:
+            answers.append(_send_tab(wid, place, url, url))
+        else:
+            answers.append(None)
+    return answers
+
+
+def _window_tabs(raw: bytes):
+    """The tabs a relaunch names, [[window id, place, url], ...], or None for
+    a body that is not that."""
+    try:
+        tabs = json.loads(raw.decode("utf-8")).get("tabs")
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        return None
+    if not isinstance(tabs, list):
+        return None
+    out = []
+    for tab in tabs[:WINDOW_TABS_MAX]:
+        if not (isinstance(tab, list) and len(tab) == 3 and all(type(n) is int and n > 0 for n in tab[:2])
+                and isinstance(tab[2], str) and len(tab[2]) <= 8192):
+            return None
+        out.append(tab)
+    return out
+
+
 def _agent_request(scope: dict) -> bool:
     """Whether an agent sent this request, rather than one of the board's own
-    pages. A request through the agent door is a server's agent, and one on
-    the phone's port or forwarded by Tailscale Serve is the phone. On the
-    board's own port the Mac board, its phone view and the onboarding run in a
-    browser, which names the page in Origin on every write and in
-    Sec-Fetch-Site on every request, and no script can leave either out;
-    curl, onboard.py, magic.py and the facilitator command send neither."""
+    pages: one that came through the agent door, or that carries the board's
+    agent key (see BoardLock). One on the phone's port or forwarded by
+    Tailscale Serve is the phone, key or not. A test's copy that runs without
+    the lock keeps the reading the key replaced: no Origin and no
+    Sec-Fetch-Site, which a browser sends and curl does not."""
     if scope.get("facilitator.remote"):
         return True
     if _via_gate(scope):
         return False
+    if _keyed(scope):
+        return True
+    if _board_lock:
+        return False
     names = {k.lower() for k, _ in scope.get("headers") or ()}
     return b"origin" not in names and b"sec-fetch-site" not in names
+
+
+# what /wait and /fresh answer a page. They claim a lane's card and hand over
+# the messages waiting on it, which only the lane's agent does, and no page
+# of the board asks either, so one opened from a link in a card claims nothing
+AGENT_ONLY = "only the lane's agent asks this"
 
 
 def _lane_of_request(q: Query) -> str | None:
@@ -2355,13 +3086,18 @@ def _agent_class(owner: str) -> str:
 
 
 # ---- waking the listeners --------------------------------------------------------
-# The agents' long polls wait on the event loop, not on the condition above.
-# Every change to the board comes through _notify: it moves a version number
-# and asks the loop to wake every waiter, and a waiter that reads the version
-# before sleeping and again on waking can never miss a change that landed in
-# between. _LOOP is the running loop, set by the application's lifespan; a
-# change made before it runs, or after it has gone, wakes nobody, and that is
-# right, since nobody is waiting then.
+# The agents' long polls and the pages' live lines (GET /events) wait on the
+# event loop, not on the condition above. Every change to the board comes
+# through _notify: every save that lands calls it (_save), the board clock
+# calls it when a field that moves with no save changes (_board_tick), and a
+# message send and a widget send each call it once more, right after their own
+# save has rung and the typing hold has moved. A typing report (_post_typing)
+# only moves the hold: it never calls _notify, so it wakes no page and no
+# agent. _notify moves a version number and asks the loop to wake every waiter,
+# and a waiter that reads the version before sleeping and again on waking can
+# never miss a change that landed in between. _LOOP is the running loop, set by
+# the application's lifespan; a change made before it runs, or after it has
+# gone, wakes nobody, and that is right, since nobody is waiting then.
 _change_version = 0
 _LOOP = None
 _wakers: set = set()
@@ -3293,6 +4029,10 @@ def _migrate() -> None:
 # save that fails can put memory back to what the disk holds. None until the
 # first durable write of this run, which is the migration's own save
 _last_durable: str | None = None
+# the revision those bytes hold. The pages' live line names this one and never
+# _state's own, which a save moves before its file is written and puts back if
+# the write fails, so the line never names a revision the disk does not hold
+_committed_rev = 0
 # ---- what waits for the commit ----------------------------------------------------
 # A mutation is one held stretch of _lock: change the state, note the events,
 # save. Two kinds of thing must not happen before the save has installed the
@@ -3403,7 +4143,7 @@ def _durable_fsync(fd: int) -> None:
     os.fsync(fd)
 
 
-def _save() -> None:
+def _save(active: bool = True) -> None:
     """The board to disk: a temp file beside it, then one rename, so a reader
     never sees half a state, and so a save that cannot finish leaves the last
     good file exactly as it was.
@@ -3431,8 +4171,16 @@ def _save() -> None:
     flushed does not undo the commit, since the rename has already happened and
     going back to old memory then would lie about the file that is installed,
     but it is written down as a syncfail line rather than passed over. None of
-    this certifies a hardware power cut; it is as far as the calls reach."""
-    global _last_durable
+    this certifies a hardware power cut; it is as far as the calls reach.
+
+    Every save that lands rings: the committed revision moves and _notify
+    wakes the agents' long polls and the pages' live lines (GET /events), so
+    no route has to remember to ring after its save.
+
+    Every save that lands is also activity for the idle stop (_active), and
+    starts its three days again, except one the board makes on its own clock
+    with nobody there, which says active=False (the Bin's daily check)."""
+    global _last_durable, _committed_rev
     _state["rev"] = int(_state.get("rev", 0)) + 1
     payload = json.dumps(_state, indent=1)
     tmp = STATE_PATH.with_suffix(".tmp")
@@ -3457,6 +4205,10 @@ def _save() -> None:
     # not silent either: a folder that cannot be flushed is a durability gap
     # worth a line, even though the commit stands
     _last_durable = payload
+    _committed_rev = _state["rev"]
+    _notify()
+    if active:
+        _active()
     try:
         fd = os.open(STATE_PATH.parent, os.O_RDONLY)
         try:
@@ -3523,10 +4275,14 @@ def _box(bid: str) -> dict | None:
 
 
 def _box_has_content(box: dict) -> bool:
-    """The persisted conversation test used by every destructive close path."""
+    """The persisted conversation test used by every destructive close path.
+    What was said in the card's widget counts: wrev moves with every message
+    and answer in it."""
     return (box.get("replies", 0) > 0 or
             bool((box.get("reply") or "").strip()) or
-            bool(box.get("pending")))
+            bool(box.get("pending")) or
+            bool(box.get("widget_pending")) or
+            bool((box.get("magic") or {}).get("wrev")))
 
 
 def _stamp_rest(box: dict, now: float) -> None:
@@ -3640,7 +4396,7 @@ def _restore_binned(entry: dict) -> dict:
     at = at if isinstance(at, int) and 0 <= at <= len(_state["boxes"]) else len(_state["boxes"])
     _register_owner(card.get("owner", "facilitator"))
     _state["boxes"].insert(at, card)
-    if card.get("pending") and card["id"] not in _state["inbox"]:
+    if (card.get("pending") or card.get("widget_pending")) and card["id"] not in _state["inbox"]:
         _state["inbox"].append(card["id"])
     _log("restore", card["id"], card["title"])
     return card
@@ -3668,12 +4424,13 @@ def _bin_expire(now: float | None = None) -> list:
 
 
 def _bin_clock() -> None:
-    """The Bin's daily check, for a board that stays up for days."""
+    """The Bin's daily check, for a board that stays up for days. Its save is
+    the board's own, made with nobody there, so it is not activity and does
+    not keep a forgotten board up (the idle stop)."""
     while not _STOPPING.wait(BIN_CHECK_EVERY):
         with _lock:
             if _bin_expire():
-                _save()
-                _notify()
+                _save(active=False)
 
 
 def _section_name(card: dict) -> str:
@@ -3924,9 +4681,9 @@ def _pages(owner: str) -> list:
 #                 quiet for LANE_QUIET        lands yours; working/note land at _rest
 #                 /dismiss                 -> _rest, a live flag excepted
 # _rest, the landing rule: pending -> queued, never touched -> new, ball
-# "you" -> yours, else rest. Expiry is swept lazily at /state and /wait,
-# beside the unacked-claim clock, by /working itself and when a quiet lane
-# is heard again (_heard).
+# "you" -> yours, else rest. Expiry is swept every second by the board clock
+# and again at /state and /wait, beside the unacked-claim clock, by /working
+# itself and when a quiet lane is heard again (_heard).
 
 # note stays green, so a card saved in it still leaves it when its flag goes,
 # exactly as it did while /note was taken
@@ -4033,14 +4790,35 @@ def _release_claim(b: dict, for_answer: bool = False) -> str:
     claimed = set(_state["claimed"][ow]) if _state["busy"][ow] == b["id"] else set()
     b["pending"] = [m for m in b["pending"] if m["mid"] not in claimed]
     _consume_claim(b, claimed, for_answer)
+    # the widget messages the claim handed over go with it the same way: a
+    # reply on the card takes them, so they are never handed over again
+    _widget_let_go(b, _state["busy"][ow] == b["id"])
     if _state["busy"][ow] == b["id"]:
         _state["busy"][ow] = None
         _state["claimed"][ow] = []
-    if b["pending"] and b["id"] not in _state["inbox"]:
+    if _waiting(b) and b["id"] not in _state["inbox"]:
         _state["inbox"].append(b["id"])
-    if not b["pending"] and b["id"] in _state["inbox"]:
+    if not _waiting(b) and b["id"] in _state["inbox"]:
         _state["inbox"].remove(b["id"])
     return ow
+
+
+def _waiting(b: dict) -> bool:
+    """Whether anything on the card waits for its agent: the person's
+    messages on the card, or theirs typed in its widget. What puts a card in
+    its lane's queue and keeps it there."""
+    return bool(b["pending"] or b.get("widget_pending"))
+
+
+def _widget_let_go(b: dict, held: bool) -> None:
+    """The widget messages a claim on the card handed over leave the card's
+    widget queue with the claim (held: the lane's claim is this card's);
+    the record of what was handed over goes either way. Callers hold _lock."""
+    handed = set(b.pop("widget_held", None) or [])
+    if held and handed and b.get("widget_pending"):
+        b["widget_pending"] = [m for m in b["widget_pending"] if m.get("wid") not in handed]
+    if "widget_pending" in b and not b["widget_pending"]:
+        del b["widget_pending"]
 
 
 def _sender(m: dict) -> dict:
@@ -4251,24 +5029,24 @@ def _release_unacked() -> None:
         _state["claimed"][ow] = []
         _state["ack"][ow] = None
         box = _box(bid)
-        if box and box["pending"] and bid not in _state["inbox"]:
+        if box and _waiting(box) and bid not in _state["inbox"]:
             _state["inbox"].insert(0, bid)
         _debug("bounce", bid, owner=_owner_word(ow))
         _log("unacked", bid, f"{ow} hand-off unconfirmed after {ACK_GRACE:.0f}s, box re-queued")
         moved = True
     if moved:
         _save()
-        _notify()
 
 
 def _sweep(persist: bool = True) -> bool:
     """The lazy clock behind green: a flag whose lane's agent has gone quiet
     (_lane_in_touch) comes down, and a card whose flag is not live leaves the
     green states, deferred handing its turn over on the way out (a claim still
-    held keeps showing green through _shown's mask regardless). Runs at /state
-    and /wait, exactly where the ack clock is swept, inside /working itself,
-    so a drop or an expiry lands within about a second, and when a quiet lane
-    is heard again (_heard). Callers hold _lock. Ordinarily it saves and
+    held keeps showing green through _shown's mask regardless). Runs every
+    second on the board clock and at /state and /wait, exactly where the ack
+    clock is swept, so a drop or an expiry lands within about a second whether
+    or not anything reads the board, inside /working itself, and when a quiet
+    lane is heard again (_heard). Callers hold _lock. Ordinarily it saves and
     notifies when it moves anything; a route that is already building a
     larger mutation passes persist=False and includes the sweep in its one
     final save."""
@@ -4283,7 +5061,6 @@ def _sweep(persist: bool = True) -> bool:
             moved = True
     if moved and persist:
         _save()
-        _notify()
     return moved
 
 
@@ -4567,7 +5344,8 @@ def _push_turn(bid: str) -> None:
     Runs on its own thread: it reads the subscriptions under the lock, checks
     that Tailscale is connected and serving this board before each send, talks
     to push services with the lock released, and takes it again only to keep
-    successes or drop subscriptions the services report gone."""
+    successes or drop subscriptions the services report gone and the ones
+    whose sign-in has ended."""
     with _lock:
         subs = list(_state.get("push_subs", []))
         box = _box(bid)
@@ -4575,13 +5353,19 @@ def _push_turn(bid: str) -> None:
                              separators=(",", ":")).encode()
     gone = []
     gone_status = {}
+    ended = set()   # (endpoint, session) of the ones whose sign-in has ended
     worked = None
     for sub in subs:
-        # A sign-out or password change invalidates delivery as well as HTTP
-        # access. Pre-upgrade subscriptions have no session and are skipped.
+        # A sign-out, a password change or 30 days unused ends a sign-in, and
+        # with it delivery as well as HTTP access. Its subscription is skipped,
+        # said so once, and dropped below; a phone that signs in again sends
+        # its subscription again. Pre-upgrade subscriptions have no session and
+        # go the same way.
         if _BRIDGE_AUTH is None or not _BRIDGE_AUTH.has_session_digest(sub.get("session")):
             _info("pushsession", bid, rec=_push_rec(sub.get("endpoint", "")),
                   reason="no live session", count=len(subs))
+            if _BRIDGE_AUTH is not None:
+                ended.add((sub.get("endpoint"), sub.get("session")))
             continue
         # Probe immediately before every service call. A bridge can go down
         # while an earlier phone's push service is answering, and that must
@@ -4607,17 +5391,20 @@ def _push_turn(bid: str) -> None:
         if code in (404, 410):
             gone.append(sub["endpoint"])
             gone_status[sub["endpoint"]] = code
-    if gone or worked:
+    if gone or worked or ended:
         with _lock:
             if worked:
                 # what the next start line reads, so a board coming back up can
                 # say when a phone was last actually reached
                 _state["push_last_ok"] = {"ts": time.time(), "host": worked}
             dropped = []
-            if gone:
+            if gone or ended:
                 held = _state.get("push_subs", [])
                 dropped = [s["endpoint"] for s in held if s.get("endpoint") in gone]
-                _state["push_subs"] = [s for s in held if s.get("endpoint") not in gone]
+                # an ended one goes only if it still names the ended sign-in: a
+                # phone that signed in again meanwhile has sent a new record
+                _state["push_subs"] = [s for s in held if s.get("endpoint") not in gone
+                                       and (s.get("endpoint"), s.get("session")) not in ended]
             _save()
             for endpoint in dropped:
                 _info("pushgone", bid, rec=_push_rec(endpoint), status=gone_status[endpoint],
@@ -4783,7 +5570,7 @@ def _phone_box(b: dict) -> dict:
 def _live_section() -> dict:
     now = time.time()
     return {
-        "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
+        "listening": _listening(),
         "listenerGap": {ow: round(now - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
         "agents": {ow: {
             "name": _agent_names.get(ow) or "claude",
@@ -4987,6 +5774,11 @@ def _ui_state() -> dict:
                 # entries queued before times were recorded, which the
                 # page shows unstamped
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
+                # the operation id each queued message was sent under, or null
+                # for one that came without: the page keeps its own sent bubble
+                # by it, as the phone does, since the words saved can differ
+                # from the words typed (_curse_free)
+                "pendingOps": [m.get("op") for m in b["pending"]],
                 # who sent each, matching pendingTexts one to one: "agent" for
                 # a message an agent sent for the reader, null for the reader's
                 # own. the bubble holding an agent's message carries the robot
@@ -5083,7 +5875,7 @@ def _ui_state() -> dict:
         # the one tab bar both pages draw: the lane order and the lanes that
         # are closed. An empty order means no arrangement has been saved
         "tabs": st.get("tabs", {"order": [], "closed": []}),
-        "listening": {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS},
+        "listening": _listening(),
         "everListened": st.get("ever_listened", {}),
         "workspaces": st.get("workspaces", {}),
         # each project's view pages, in the order the foot of the workspace
@@ -5092,32 +5884,44 @@ def _ui_state() -> dict:
         "pages": st.get("pages", {}),
         # the quick notes without their words: enough for a card to show that a
         # note is attached to it. the words travel only on the note routes, so
-        # a reading taken every second never carries them
+        # a reading, taken far more often, never carries them
         **({"quicknotes": [_quicknote_meta(n) for n in st.get("quicknotes", [])]} if QUICK_NOTES_ON else {}),
         "listenerGap": {ow: round(time.time() - _last_wait.get(ow, 0.0), 1) for ow in OWNERS},
-        # the row tag's truth: the lane's last stated agent name, and alive
-        # meaning connected now, seen within the steal window, or holding a card
-        "agents": {ow: {
-            "name": _agent_names.get(ow) or "claude",
-            "alive": _waiters.get(ow, 0) > 0
-                     or (time.time() - _last_wait.get(ow, 0.0)) < 900
-                     or bool(st["busy"].get(ow)),
-            # alive but absent from the listening call for over a minute,
-            # holding nothing and with no live job registered: the agent is
-            # working off the record and the bar says so
-            "offrecord": _waiters.get(ow, 0) == 0 and st["busy"].get(ow) is None
-                         and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
-                         and not any(
-                             _flag_live(b)
-                             for b in st["boxes"] if b.get("owner", "facilitator") == ow),
-        } for ow in OWNERS},
+        "agents": _agents_reading(),
     }
 
 
+def _listening() -> dict:
+    """Whether each lane has a listener's /wait open now. Callers hold _lock."""
+    return {ow: _waiters.get(ow, 0) > 0 for ow in OWNERS}
+
+
+def _agents_reading() -> dict:
+    """The row tag's truth, as the board's reading carries it: the lane's last
+    stated agent name, and alive meaning connected now, seen within the steal
+    window, or holding a card. Callers hold _lock."""
+    st = _state
+    return {ow: {
+        "name": _agent_names.get(ow) or "claude",
+        "alive": _waiters.get(ow, 0) > 0
+                 or (time.time() - _last_wait.get(ow, 0.0)) < 900
+                 or bool(st["busy"].get(ow)),
+        # alive but absent from the listening call for over a minute,
+        # holding nothing and with no live job registered: the agent is
+        # working off the record and the bar says so
+        "offrecord": _waiters.get(ow, 0) == 0 and st["busy"].get(ow) is None
+                     and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
+                     and not any(
+                         _flag_live(b)
+                         for b in st["boxes"] if b.get("owner", "facilitator") == ow),
+    } for ow in OWNERS}
+
+
 # ---- what the Mac board reads, lean ---------------------------------------------
-# The Mac page reads the whole board every 1.2 s, and on a board of about a
-# thousand cards that is 2.4 MB a time for the page to take in, almost all of it
-# what it already holds. So it reads the way the phone does: it names the
+# The Mac page reads the board whenever its live line says the board changed,
+# and every 1.2 s while that line is down, and on a board of about a thousand
+# cards the whole board is 2.4 MB a time for the page to take in, almost all of
+# it what it already holds. So it reads the way the phone does: it names the
 # revision it holds (since) and the run that reading came from (delta, this
 # run's PHONE_EPOCH), and when the board still remembers what it sent at that
 # revision the answer is only what differs. The cards by the phone's rule, a
@@ -5281,13 +6085,14 @@ def _get_compose_format(q: Query, _):
 
 
 def _sweep_clocks() -> None:
-    """The two lazy clocks a reading runs before it answers: the unconfirmed
-    hand-off clock and the working flags' lanes going quiet. Callers hold
-    _lock. Either can move a card and save; if that save fails, the state has
-    already been put back to the file and the failure written down, and the
-    reading answers that restored board rather than failing too. A reader
-    must not be blacked out by a disk the commands are already refusing; the
-    clock runs again on the next reading and lands when the disk is back."""
+    """The two clocks the board clock runs every second, and a reading again
+    before it answers: the unconfirmed hand-off clock and the working flags'
+    lanes going quiet. Callers hold _lock. Either can move a card and save; if
+    that save fails, the state has already been put back to the file and the
+    failure written down, and the reading answers that restored board rather
+    than failing too. A reader must not be blacked out by a disk the commands
+    are already refusing; the clock runs again on the next pass and lands
+    when the disk is back."""
     try:
         _release_unacked()
         _sweep()
@@ -5295,12 +6100,217 @@ def _sweep_clocks() -> None:
         pass
 
 
+# ---- the board clock ------------------------------------------------------------
+# One thread that keeps the board's own time, so nothing waits on a page
+# reading the board: every BOARD_TICK, under the lock, it runs the 90 second
+# hand-off clock and the 10 minute green clock (_sweep_clocks), each of which
+# saves when it moves a card and so rings, and then works out the mark of what
+# the readings carry that moves with no save at all (_quiet_fields). When that
+# mark changes it rings too. The pages' live line (GET /events) sends the
+# committed revision and this mark, so between them every field a reading
+# carries is covered: saved, marked, or worked out on the page from the time
+# (now, listenerGap). The readings still sweep the clocks themselves, which
+# finds nothing to move when the clock has just run.
+
+BOARD_TICK = 1.0     # seconds between the board clock's passes
+_quiet = ""          # the mark as the board clock last worked it out
+
+
+def _quiet_fields() -> dict:
+    """What the readings carry that moves with no save, as they carry it:
+    who is listening, each lane's agent (its name, alive and off the
+    record), each server's link, what is off while Serve is held, the update,
+    the onboarding, the settings' own revision and the version a phone
+    reloads onto. Callers hold _lock."""
+    return {
+        "listening": _listening(),
+        "agents": _agents_reading(),
+        "remote": _remote_reading(),
+        "phoneOff": _serve_hold,
+        "update": _update_reading(),
+        "onboarding": _profile_needed(),
+        "settingsRev": _settings_rev(),
+        "version": _reading_version(),
+    }
+
+
+def _quiet_mark() -> str:
+    """A short mark of _quiet_fields: twelve hex characters that move when any
+    of them does. Callers hold _lock."""
+    text = json.dumps(_quiet_fields(), sort_keys=True, separators=(",", ":"))
+    return hashlib.blake2b(text.encode(), digest_size=6).hexdigest()
+
+
+def _board_tick() -> None:
+    """One pass of the board clock: the two clocks, then the mark, rung when
+    it moved. Callers hold _lock."""
+    global _quiet
+    _sweep_clocks()
+    mark = _quiet_mark()
+    if mark != _quiet:
+        _quiet = mark
+        _notify()
+
+
+def _board_clock() -> None:
+    """The board clock's thread, from the start until the stop. A pass that
+    fails is written down once for each kind of failure and the clock goes on;
+    while it fails the readings still run the two clocks, as they did before
+    there was a board clock. Each pass also looks at the idle stop's three
+    days (_idle_tick), on its own, so a pass that fails cannot keep a
+    forgotten board up."""
+    said: set = set()
+    while True:
+        try:
+            with _lock:
+                _board_tick()
+        except Exception as error:
+            if type(error).__name__ not in said:
+                said.add(type(error).__name__)
+                _error("boardclock", **_crash_fields(error))
+        try:
+            _idle_tick()
+        except Exception as error:
+            if "idle " + type(error).__name__ not in said:
+                said.add("idle " + type(error).__name__)
+                _error("idlestop", outcome="failed", **_crash_fields(error))
+        if _STOPPING.wait(BOARD_TICK):
+            return
+
+
+# ---- the idle stop ----------------------------------------------------------------
+# TEMPORARY. The three-day timer is a temporary fix for the Chrome-window
+# version and will not be in the native Mac app. Do not carry it into the
+# native Mac app (the feat/mac-app-electron branch): there, quitting the app
+# is how the board stops, and quitting stays the person's own choice.
+#
+# Why it is here: the board runs in a Chrome window, and closing that window
+# while Chrome stays open leaves the board running with nobody knowing. So a
+# board with no activity at all for IDLE_STOP_AFTER stops itself, the same way
+# `facilitator stop` stops it: the board starts that command in a session of
+# its own with the from-board mark, which then asks Chrome nothing (a board
+# window still open would have kept the board in use), sends this server one
+# SIGTERM, waits for both ports to be free and, with a phone password set,
+# takes the phone link off. Before it starts the stop, the board writes
+# IDLE_STOP_MARK, and the next `facilitator run` or `facilitator status`
+# says "The board stopped itself after three days unused." once and takes it
+# away. Every start of the board takes away one still there, so a board
+# started again by restart or update never has it said late.
+#
+# Activity, any of which starts the three days again: a save that lands (a
+# message, a reply, an agent taking a card, any card change; _save), a page
+# reading the board (GET /state or /m/state from the Mac board, the /page view
+# or the phone, never from an agent), and a page's live line (GET /events)
+# opening or still open. An agent that only listens is not activity: its
+# /wait coming back idle saves nothing, and its own reading of /state carries
+# the agent key, so a forgotten listener cannot keep the board up forever. A
+# start, a restart included, is a fresh start of the three days. The clock is
+# the wall clock, so three days with the Mac asleep count as three days. Chrome
+# closes every connection as the Mac goes to sleep, a board window's line
+# included, so the first pass after waking finds no line open even with the
+# window there: a pass that comes more than IDLE_WAKE_GAP after the one before
+# it (the Mac slept) puts the stop at least IDLE_WAKE_GRACE away, time for an
+# open window to open its line again or read the board.
+
+IDLE_STOP_AFTER = 3 * 86400.0   # seconds with no activity before the board stops itself
+IDLE_STOP_MARK = DATA / "idle-stop.json"
+IDLE_WAKE_GAP = 60.0            # a longer gap between the board clock's passes is the Mac asleep
+IDLE_WAKE_GRACE = 120.0         # after waking, the least time before the stop
+# when the last activity was; None until main starts the timer, so a copy of
+# this file that a test loads and never runs can never stop a board
+_last_active: float | None = None
+_idle_stopping = False          # the stop has been started and has not failed
+_idle_last_pass: float | None = None   # when the board clock last looked, by the wall clock
+
+
+def _active() -> None:
+    """Something real happened on the board: its three days start again."""
+    global _last_active
+    if _last_active is not None:
+        _last_active = time.time()
+
+
+def _idle_tick() -> None:
+    """The board clock's look at the idle stop, once a pass: a page's live
+    line still open is activity, the first pass after the Mac slept leaves
+    the stop at least IDLE_WAKE_GRACE away, and three days with none starts
+    the stop."""
+    global _last_active, _idle_last_pass
+    if _last_active is None:
+        return
+    now = time.time()
+    woke = _idle_last_pass is not None and now - _idle_last_pass > IDLE_WAKE_GAP
+    _idle_last_pass = now
+    if _idle_stopping:
+        return
+    if _streams_open:
+        _last_active = now
+        return
+    if woke:
+        _last_active = max(_last_active, now - IDLE_STOP_AFTER + IDLE_WAKE_GRACE)
+        return
+    if now - _last_active >= IDLE_STOP_AFTER:
+        _idle_stop()
+
+
+def _idle_stop() -> None:
+    """Start `facilitator stop` for a board left unused: a process of its own,
+    from this checkout's command, with the from-board mark, the way the board
+    starts `facilitator update`. One line says so; the marker the next run
+    reads is written before the stop starts."""
+    global _idle_stopping
+    _idle_stopping = True
+    days = IDLE_STOP_AFTER / 86400
+    _info("idlestop", days=int(days) if days.is_integer() else days)
+    try:
+        with open(IDLE_STOP_MARK, "w", opener=_private_opener) as f:
+            f.write(json.dumps({"ts": int(time.time()), "days": days}) + "\n")
+    except OSError as e:
+        # the stop goes ahead: the marker only lets the next run say why
+        _error("idlestop", outcome="nomark", reason=e.strerror or type(e).__name__)
+    try:
+        proc = subprocess.Popen(
+            [_update_python(), str(HERE / "facilitator"), "stop"], cwd=str(CLONE),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env={**os.environ, "FACILITATOR_UPDATE_FROM_BOARD": "1"})
+    except OSError as e:
+        _error("idlestop", outcome="notstarted", reason=e.strerror or type(e).__name__)
+        _idle_rearm()
+        return
+    threading.Thread(target=_idle_stop_ended, args=(proc,), name="idle-stop", daemon=True).start()
+
+
+def _idle_stop_ended(proc) -> None:
+    """Wait for the stop this board started. One that reached this server
+    has set the stop before it ends; one that ends with the board still
+    running failed, is written down, and the three days start again."""
+    code = proc.wait()
+    if _STOPPING.is_set():
+        return
+    _error("idlestop", outcome="failed", code=code)
+    _idle_rearm()
+
+
+def _idle_rearm() -> None:
+    """The stop did not happen: no marker is left for the next run, and the
+    three days start again rather than the stop being tried every second."""
+    global _last_active, _idle_stopping
+    try:
+        IDLE_STOP_MARK.unlink(missing_ok=True)
+    except OSError:
+        pass
+    _last_active = time.time()
+    _idle_stopping = False
+
+
 def _get_state(q: Query, _):
     with _lock:
-        # the board polls this about once a second, so the 90 second ack
-        # clock gets swept even when no /wait is running to sweep it,
-        # and an expired working flag drops out of green (handing over
-        # a deferred turn) within about that same second
+        # a page reading the board is activity for the idle stop; an agent's
+        # reading (its listen reads /state before each /wait) is not
+        if not q.agent:
+            _active()
+        # the board clock runs these every second; a reading runs them as
+        # well, so it never answers a hand-off or a green a moment past due
         _sweep_clocks()
         reading = _ui_state()
         # while no profile is kept, every reading says so: a page loaded before
@@ -5334,6 +6344,10 @@ def _get_phone_state(q: Query, _):
     except ValueError:
         return 400, {"error": "bad revision"}
     ops = [op for op in q.one("ops").split(",") if op][:OP_ASK_MAX]
+    # the phone reading the board is activity for the idle stop, as the Mac
+    # board's reading is
+    if not q.agent:
+        _active()
     # the reading is made under the lock as one transaction, as a stateful
     # route's always is; compressing it, the longest step on a whole board,
     # waits until the lock is let go
@@ -5379,13 +6393,28 @@ def _get_unread(q: Query, _):
         queued = sum(1 for b in _state["boxes"]
                      if b.get("owner", "facilitator") == owner
                      for m in b["pending"] if m["mid"] not in held)
-        return 200, {"queued": queued, "claimed": len(held)}
+        # and the same for what was typed in the lane's widgets
+        claimed = len(held)
+        busy = _state["busy"].get(owner)
+        for b in _state["boxes"]:
+            if b.get("owner", "facilitator") != owner or not b.get("widget_pending"):
+                continue
+            handed = set(b.get("widget_held") or []) if b["id"] == busy else set()
+            for m in b["widget_pending"]:
+                if m["wid"] in handed:
+                    claimed += 1
+                else:
+                    queued += 1
+        return 200, {"queued": queued, "claimed": claimed}
 
 
 def _get_fresh(q: Query, _):
     # mid-work delivery: while an agent holds a card, hand over anything
     # that landed on that card after the claim and fold it into the
-    # claim, so the one reply covers it and nothing arrives twice
+    # claim, so the one reply covers it and nothing arrives twice. A page is
+    # refused before anything is handed over (AGENT_ONLY)
+    if not q.agent:
+        return 403, {"error": AGENT_ONLY}
     owner = q.one("owner", "facilitator")
     if owner not in OWNERS:
         return 400, {"error": "unknown owner"}
@@ -5401,6 +6430,10 @@ def _get_fresh(q: Query, _):
         # a voice card is never held, so its new messages come at once
         typing = _typing_left(fbid, time.monotonic())
         fresh = [] if typing else [m for m in fbox["pending"] if m["mid"] not in have]
+        # what was typed in the card's widget since, on the same hold, folded
+        # into the claim's widget part the same way
+        handed = set(fbox.get("widget_held") or [])
+        typed = [] if typing else [m for m in fbox.get("widget_pending") or [] if m["wid"] not in handed]
         if fresh:
             _state["claimed"][owner].extend(m["mid"] for m in fresh)
             # handed over, so the reply that follows covers them: folded into
@@ -5408,6 +6441,10 @@ def _get_fresh(q: Query, _):
             # extended in, and written durably by the save below
             _hand_over_more(fbox, fresh)
             _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
+        if typed:
+            fbox["widget_held"] = [*handed, *(m["wid"] for m in typed)]
+            _log("fresh", fbid, f"{len(typed)} mid-work widget message(s) handed over")
+        if fresh or typed:
             _save()
         # the same marker /wait hands over, in the same shape and order:
         # "mini" for the small card, "voice" for a spoken message, null for
@@ -5416,10 +6453,12 @@ def _get_fresh(q: Query, _):
         # that never sees the marker gets its reply refused out of nowhere.
         # message_by and message_agent say which came from an agent sending
         # for the reader, as /wait says it
+        # and widget_messages beside them, as /wait has it, only when there are any
         return 200, *_snapshot({"box": fbid, "messages": [m["text"] for m in fresh],
                                 "message_via": [m.get("via") for m in fresh],
                                 "message_by": [_sender(m).get("by") for m in fresh],
-                                "message_agent": [_sender(m).get("agent") for m in fresh]})
+                                "message_agent": [_sender(m).get("agent") for m in fresh],
+                                **({"widget_messages": [_widget_entry(m) for m in typed]} if typed else {})})
 
 
 def _get_thread(q: Query, _):
@@ -6240,13 +7279,20 @@ def _get_laneimg(q: Query, _):
     return 404, {"error": "not found"}
 
 
-# the one sheet the phone page links that its first frame is drawn with. /m is
-# served with the sheet's own text in place of this link, so the startup
-# curtain is painted from the page's bytes alone instead of after a second
-# request. the file stays the one copy: the desktop page and the phone's worker
-# still ask for it by name, and a sheet that cannot be read leaves the link,
-# which asks for it the way the page always did
-PHONE_SHEET_LINK = b'<link rel="stylesheet" href="/card-tokens.css">'
+# the two sheets the phone page links in its head: the shared card sheet its
+# first frame is drawn with, and Home's panel sheet. /m is served with each
+# sheet's own text in place of its link, so the startup curtain is painted from
+# the page's bytes alone instead of after a second request. Home's sheet keeps
+# its id, which homeBundle looks for before it adds the link itself. the files
+# stay the one copy: the desktop page still asks for them by name, and a sheet
+# that cannot be read leaves its link, which asks for it the way the page
+# always did. each entry is the link, the file, and the tag it goes out in
+PHONE_SHEETS = (
+    (b'<link rel="stylesheet" href="/card-tokens.css">', "card-tokens.css",
+     b'<style data-sheet="/card-tokens.css">'),
+    (b'<link id="homesheet" rel="stylesheet" href="/home-widgets.css">', "home-widgets.css",
+     b'<style id="homesheet" data-sheet="/home-widgets.css">'),
+)
 
 
 def _get_phone_page(q: Query, _):
@@ -6254,14 +7300,15 @@ def _get_phone_page(q: Query, _):
     if not p.is_file():
         return 404, {"error": "not found"}
     page = p.read_bytes()
-    try:
-        sheet = (HERE / "card-tokens.css").read_bytes()
-    except OSError:
-        return _packed(q, page, ctype)
-    if b"</style" in sheet.lower():
-        return _packed(q, page, ctype)   # it would close the element it is put in
-    inline = b'<style data-sheet="/card-tokens.css">\n' + sheet + b"</style>"
-    return _packed(q, page.replace(PHONE_SHEET_LINK, inline, 1), ctype)
+    for link, name, tag in PHONE_SHEETS:
+        try:
+            sheet = (HERE / name).read_bytes()
+        except OSError:
+            continue
+        if b"</style" in sheet.lower():
+            continue   # it would close the element it is put in
+        page = page.replace(link, tag + b"\n" + sheet + b"</style>", 1)
+    return _packed(q, page, ctype)
 
 
 def _app_name(title: str) -> str:
@@ -6509,7 +7556,7 @@ def _wait_poll(owner: str):
             if stale is not None and time.time() - _state["busy_ts"].get(ow, 0) > 900:
                 _state["busy"][ow] = None
                 _state["claimed"][ow] = []
-                if _box(stale) and _box(stale)["pending"] and stale not in _state["inbox"]:
+                if _box(stale) and _waiting(_box(stale)) and stale not in _state["inbox"]:
                     _state["inbox"].insert(0, stale)
                 _save()
         if _state["busy"][owner] is None:
@@ -6524,6 +7571,13 @@ def _wait_poll(owner: str):
                 box = _box(bid)
                 _state["busy"][owner] = bid
                 _state["claimed"][owner] = [m["mid"] for m in box["pending"]]
+                # and the widget messages waiting on it, which the claim hands
+                # over beside them and never among them
+                typed = box.get("widget_pending") or []
+                if typed:
+                    box["widget_held"] = [m["wid"] for m in typed]
+                else:
+                    box.pop("widget_held", None)
                 # the hand-over itself, which is the one moment that can say
                 # what a reply was given: this claim's own messages are noted
                 # right here where the delivery happens. the claim is minted
@@ -6573,6 +7627,11 @@ def _wait_poll(owner: str):
                     # the receipt this hand-off has to come back with
                     "ack": token,
                 }
+                # what the person typed in the card's widget, in a list of its
+                # own, each marked as the widget's: only on a claim that has
+                # any, so every other claim reads exactly as it always did
+                if typed:
+                    payload["widget_messages"] = [_widget_entry(m) for m in typed]
                 return payload, None
             return None, min((_typing_left(i, now) for i in queued), default=None)
         return None, None
@@ -6597,7 +7656,6 @@ def _rollback_claim(owner: str, bid: str, token: str) -> bool:
             _state["inbox"].insert(0, bid)
         _log("dropped", bid, f"{owner} hand-off died on the wire, box re-queued")
         _save()
-        _notify()
         return True
 
 
@@ -6696,7 +7754,7 @@ def _svg_carries_script(path: Path) -> bool:
 # ---- the magic box -----------------------------------------------------------------
 # One box per card, beside it on the Mac board, that the card's agent fills with
 # text, markdown, a page of its own or a picture. The card carries magic =
-# {open, kind, rev, ts} and nothing more, since /state is read every second;
+# {open, kind, rev, ts} and nothing more, since /state is read so often;
 # what the box holds is one file in MAGIC_DIR named by the card and the
 # revision. A save that fails leaves the card naming the file it had, and the
 # files of older revisions go only once the save that replaced them has landed
@@ -6741,20 +7799,23 @@ def _magic_write(path: Path, data: bytes) -> None:
 
 def _magic_sweep(bid: str) -> None:
     """Every file of a card's box but the revision the card names now, and all
-    of them for a card the board no longer has. Callers hold _lock."""
+    of them for a card the board no longer has. A widget's own record is kept
+    across the box's revisions, whatever the box holds now, and goes only with
+    the card. Callers hold _lock."""
     box = _box(bid)
     if box is None:   # a card in the Bin keeps its box until it is deleted for good
         entry = _binned(bid)
         box = entry["card"] if entry else None
     keep = (box.get("magic") or {}).get("rev") if box else None
     mine = re.compile(re.escape(_magic_stem(bid)) + r"-([0-9]+)\.[a-z]+")
+    widgets = re.compile(re.escape(_magic_stem(bid)) + r"@[a-z0-9-]+\.widget\.json")
     try:
         names = os.listdir(MAGIC_DIR)
     except OSError:
         return
     for name in names:
         hit = mine.fullmatch(name)
-        if hit and int(hit.group(1)) != keep:
+        if (hit and int(hit.group(1)) != keep) or (box is None and widgets.fullmatch(name)):
             (MAGIC_DIR / name).unlink(missing_ok=True)
 
 
@@ -7019,16 +8080,21 @@ def _magic_one_address(body: bytes) -> str | None:
     return text if re.match(r"(?i)[a-z][a-z0-9+.-]*://", text) else None
 
 
-def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict):
+def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict,
+                 widget: str | None = None):
     """The box's new content written and the card naming it, saved as one
-    change. Run through _run_state_request, so a failure puts the board back."""
+    change. Run through _run_state_request, so a failure puts the board back.
+    widget: the name of the widget an html page is, whose record (messages,
+    answers, memory) the same name finds again on the page that replaces it."""
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
         rev = int((box.get("magic") or {}).get("rev", 0)) + 1
+        wrev = int((box.get("magic") or {}).get("wrev", 0))
         now = time.time()
-        record = {"box": bid, "kind": kind, "title": title, "rev": rev, "ts": now, **record}
+        record = {"box": bid, "kind": kind, "title": title, "rev": rev, "ts": now, **record,
+                  **({"widget": widget} if widget else {})}
         try:
             if picture is not None:
                 _magic_write(_magic_file(bid, rev, record["ext"]), picture)
@@ -7036,15 +8102,16 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
         except OSError as e:
             _error("magicfail", bid, reason=e.strerror or type(e).__name__)
             return 500, {"error": "the box could not be written"}
-        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
+        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now,
+                        **({"widget": widget, "wrev": wrev} if widget else {})}
         _magic_sweep_due.append(bid)
         # the transcript keeps that a box was opened and what kind, never what
         # it holds, the way a quick note is kept by its length. The log line
         # leaves out the host as well: which site someone opened is theirs
         _log("magic", bid, "", log_fields={k: v for k, v in note.items() if k != "host"}, **note)
         _save()
-        _notify()
-        answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline")}
+        answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline"),
+                  **({"widget": widget} if widget else {})}
         for key in ("reason", "url"):
             if record.get(key):
                 answer[key] = record[key]
@@ -7055,11 +8122,16 @@ def _post_magic(q: Query, body: bytes):
     """Fill a card's box and open it, in place of whatever it held."""
     bid, kind = q.one("box"), q.one("kind")
     title = " ".join(q.one("title").split())
+    widget = q.one("widget") or None
     with _lock:
         if _box(bid) is None:
             return 400, {"error": "bad box"}
     if kind not in MAGIC_KINDS:
         return 400, {"error": "kind must be one of " + ", ".join(MAGIC_KINDS)}
+    if widget is not None and kind != "html":
+        return 400, {"error": "only an html page can be a widget"}
+    if widget is not None and not WIDGET_NAME.fullmatch(widget):
+        return 400, {"error": "a widget's name is 1 to 40 lowercase letters, digits or -, starting with a letter or digit"}
     if len(title) > MAGIC_TITLE_MAX:
         return 400, {"error": f"title over {MAGIC_TITLE_MAX} characters"}
     if not body.strip():
@@ -7094,7 +8166,7 @@ def _post_magic(q: Query, body: bytes):
     # the host of a website or a web picture, never the rest of its address
     note = {"action": "open", "magic": kind, "bytes": len(body), "title_chars": len(title),
             **({"host": host} if host else {})}
-    return _run_state_request(_magic_store, bid, kind, title, record, picture, note)
+    return _run_state_request(_magic_store, bid, kind, title, record, picture, note, widget)
 
 
 def _magic_flag(q: Query, opened: bool):
@@ -7112,7 +8184,6 @@ def _magic_flag(q: Query, opened: bool):
             action = "reopen" if opened else "close"
             _log("magic", bid, "", log_fields={"action": action}, action=action)
             _save()
-            _notify()
         return 200, {"ok": True, "box": bid, "open": opened, "rev": magic["rev"]}
 
 
@@ -7152,7 +8223,7 @@ def _get_magic(q: Query, _):
         return _magic_missing(status)
     out = {"box": bid, "open": magic["open"], "kind": record["kind"], "title": record.get("title", ""),
            "rev": magic["rev"], "ts": record.get("ts", 0), "shown": record.get("shown", "inline")}
-    for key in ("reason", "url"):
+    for key in ("reason", "url", "widget"):
         if record.get(key):
             out[key] = record[key]
     return 200, out
@@ -7168,7 +8239,7 @@ def _get_magic_body(q: Query, _):
            "rev": magic["rev"]}
     if record["kind"] == "image":
         out["src"] = f"/magic/img?box={quote(bid, safe='')}&rev={magic['rev']}"
-    for key in ("text", "html", "url", "shown", "reason", "preview"):
+    for key in ("text", "html", "url", "shown", "reason", "preview", "widget"):
         if key in record:
             out[key] = record[key]
     return Response(json.dumps(out).encode(), media_type="application/json",
@@ -7192,6 +8263,290 @@ def _get_magic_img(q: Query, _):
     return Response(data, media_type=IMG_TYPES[ext],
                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                              "Content-Security-Policy": "sandbox"})
+
+
+# ---- a widget ----------------------------------------------------------------------
+# An html box filled with widget=NAME is a widget: its page may talk with the
+# board over the box's own message channel (MagicBox.pageDoc, magicView in
+# card-logic.js), and no other box's may. What the person types in it and sends
+# reaches the card's agent in /wait and /fresh as widget_messages, beside the
+# card's own messages and never among them, and the agent answers into the
+# widget with POST /magic/answer. Neither is put on the card: its messages, its
+# replies, its answered batches and /thread stay as they are. Both are kept in
+# the widget's own record, one file per card and widget name in MAGIC_DIR, with
+# the widget's own memory (its state, such as what it shows), and both are
+# written to the transcript as rows of their own kinds, widget and
+# widget_answer. The card carries magic.widget and magic.wrev, which moves with
+# every message and answer, so an open page reads the record again within one
+# reading of the board. The board's own page passes a message on only after a
+# click or key of the person's in the box, which no page can make (magicView);
+# here only the page's own routes take one, and no agent's request does. The
+# answer route is the agent's alone, and neither a page nor the phone reaches it.
+
+_widget_sends: dict[str, list] = {}   # card id -> time.monotonic() of the widget's recent sends, under _lock
+
+
+def _widget_of(box: dict) -> str | None:
+    """The name of the widget the card's box holds now, or None."""
+    magic = box.get("magic") or {}
+    name = magic.get("widget")
+    return name if magic.get("kind") == "html" and isinstance(name, str) and WIDGET_NAME.fullmatch(name) else None
+
+
+def _widget_file(bid: str, name: str) -> Path:
+    # an @ is never in a card's part of a name (_MAGIC_SAFE_ID), so no card's
+    # widget file can be taken for another card's
+    return MAGIC_DIR / f"{_magic_stem(bid)}@{name}.widget.json"
+
+
+def _widget_raw(bid: str, name: str) -> bytes | None:
+    try:
+        return _widget_file(bid, name).read_bytes()
+    except OSError:
+        return None
+
+
+def _widget_read(bid: str, name: str) -> dict:
+    """The widget's record: thread, the person's messages and the agent's
+    answers, oldest first; next, the next one's id; trev and srev, the
+    thread's and the state's revisions; state, the widget's own memory or
+    None. A record missing or unreadable reads empty."""
+    try:
+        rec = json.loads(_widget_raw(bid, name) or b"null")
+    except ValueError:
+        rec = None
+    rec = rec if isinstance(rec, dict) else {}
+    count = lambda v: v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+    thread = [m for m in rec.get("thread") or [] if isinstance(m, dict)] if isinstance(rec.get("thread"), list) else []
+    top = max((count(m.get("id")) for m in thread), default=0)
+    return {"thread": thread, "next": max(count(rec.get("next")), top + 1), "trev": count(rec.get("trev")),
+            "state": rec["state"] if isinstance(rec.get("state"), dict) else None, "srev": count(rec.get("srev"))}
+
+
+def _widget_write(bid: str, name: str, rec: dict) -> None:
+    _magic_write(_widget_file(bid, name), json.dumps({"box": bid, "widget": name, **rec}).encode())
+
+
+def _widget_saved(bid: str, name: str, before: bytes | None) -> None:
+    """The board saved after its widget's record was written: a save that
+    fails puts the record back as it was, so the two never disagree."""
+    try:
+        _save()
+    except BaseException:
+        try:
+            if before is None:
+                _widget_file(bid, name).unlink(missing_ok=True)
+            else:
+                _magic_write(_widget_file(bid, name), before)
+        except OSError:
+            pass
+        raise
+
+
+def _widget_entry(m: dict) -> dict:
+    """One message typed in a widget, as its agent is handed it, marked as
+    the widget's."""
+    return {"from": "widget", "widget": m.get("widget", ""), "about": m.get("about", ""),
+            "text": m.get("text", ""), "ts": m.get("ts", 0)}
+
+
+def _widget_card(q: Query):
+    """(status, error or None, the card, its widget's name) for a widget
+    route's box=, rev= checked against the page's revision when given.
+    Callers hold _lock."""
+    box = _box(q.one("box"))
+    if box is None:
+        return 400, {"error": "bad box"}, None, None
+    name = _widget_of(box)
+    if name is None:
+        return 404, {"error": "this card's box is not a widget"}, None, None
+    if "rev" in q and q.one("rev") != str(box["magic"]["rev"]):
+        return 409, {"error": "this page was replaced"}, None, None
+    return 200, None, box, name
+
+
+def _widget_body(text: str) -> dict | None:
+    try:
+        said = json.loads(text or "")
+    except ValueError:
+        return None
+    return said if isinstance(said, dict) else None
+
+
+def _get_magic_widget(q: Query, _):
+    """The widget's record, for the page showing it and for its agent."""
+    with _lock:
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        rec = _widget_read(box["id"], name)
+        out = {"box": box["id"], "widget": name, "rev": box["magic"]["rev"], "wrev": box["magic"].get("wrev", 0),
+               "thread": rec["thread"], "trev": rec["trev"], "state": rec["state"], "srev": rec["srev"]}
+    return Response(json.dumps(out).encode(), media_type="application/json",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _post_magic_send(q: Query, text: str):
+    """The person's message typed in a widget, about one of the agent's own ids
+    (about, which may be empty). The body is {text, about}; rev is the page's
+    revision and op the page's operation id, as /send takes one."""
+    if q.agent:
+        return 403, {"error": "a widget's messages come only from the board's own page"}
+    bid, op = q.one("box"), q.one("op")
+    if op and not _op_id_ok(op):
+        return 400, {"error": "bad operation id"}
+    said = _widget_body(text)
+    if said is None:
+        return 400, {"error": "a widget message is a JSON object"}
+    words, about = said.get("text"), said.get("about", "")
+    if not isinstance(words, str) or not words.strip():
+        return 400, {"error": "a widget message needs words"}
+    words = words.strip()
+    if len(words) > WIDGET_TEXT_MAX:
+        return 400, {"error": f"a widget message is at most {WIDGET_TEXT_MAX} characters"}
+    if not isinstance(about, str) or (about and not WIDGET_ABOUT.fullmatch(about)):
+        return 400, {"error": "about is one id of 1 to 64 letters, digits, ., - or _"}
+    # the words lose their curse words as a card's messages do (_curse_free);
+    # the receipt's fingerprint is over the words as sent
+    kept = _curse_free(words)
+    if kept is None:
+        return 503, {"error": EXPLETIVES_UNREADABLE}
+    now = time.monotonic()
+    with _lock:
+        fp = _fingerprint("widget", bid, about, words) if op else ""
+        if op:
+            found, rec = _op_lookup(op, fp)
+            if found == "mismatch":
+                return 409, {"error": "operation id reused with a different payload"}
+            if found == "same":
+                return 200, {**rec["result"], "replayed": True}
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        sent = [t for t in _widget_sends.get(bid, []) if now - t < 60]
+        if (sent and now - sent[-1] < WIDGET_SEND_GAP) or len(sent) >= WIDGET_SEND_MINUTE:
+            return 429, {"error": "too many messages from this widget; wait a moment"}
+        words = kept
+        before = _widget_raw(bid, name)
+        rec = _widget_read(bid, name)
+        wid, ts = rec["next"], time.time()
+        rec["next"] += 1
+        rec["trev"] += 1
+        rec["thread"].append({"id": wid, "by": "you", "about": about, "text": words, "ts": ts})
+        try:
+            _widget_write(bid, name, rec)
+        except OSError as e:
+            _error("widgetfail", bid, reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the widget could not be written"}
+        msg = {"wid": wid, "widget": name, "about": about, "text": words, "ts": ts, **({"op": op} if op else {})}
+        box.setdefault("widget_pending", []).append(msg)
+        box["magic"]["wrev"] = int(box["magic"].get("wrev", 0)) + 1
+        ow = box.get("owner", "facilitator")
+        if bid not in _state["inbox"] and _state["busy"].get(ow) != bid:
+            _state["inbox"].append(bid)
+        result = {"ok": True, "box": bid, "id": wid}
+        if op:
+            _op_commit(op, fp, "widget", bid, result)
+        _log("widget", bid, words, log_fields={"widget": name}, widget=name, about=about, wid=wid,
+             **({"op": op} if op else {}))
+        _widget_saved(bid, name, before)
+        _widget_sends[bid] = sent + [now]
+        # one more change on the card, so the typing hold covers a quick run
+        # of them as it covers messages typed on the card
+        _typing_change(bid, time.monotonic())
+        _notify()
+        return 200, result
+
+
+def _post_magic_state(q: Query, text: str):
+    """The widget's own memory, a JSON object, whole: {state}. It is the
+    page's to keep, wakes nobody and puts nothing in the transcript."""
+    if q.agent:
+        return 403, {"error": "a widget's memory is kept only by the board's own page"}
+    said = _widget_body(text)
+    state = said.get("state") if said is not None else None
+    if not isinstance(state, dict):
+        return 400, {"error": "a widget's state is a JSON object"}
+    if len(json.dumps(state).encode()) > WIDGET_STATE_MAX:
+        return 413, {"error": f"a widget's state is at most {WIDGET_STATE_MAX // 1024} KiB"}
+    with _lock:
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        rec = _widget_read(box["id"], name)
+        rec["state"] = state
+        rec["srev"] += 1
+        try:
+            _widget_write(box["id"], name, rec)
+        except OSError as e:
+            _error("widgetfail", box["id"], reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the widget could not be written"}
+        return 200, {"ok": True, "srev": rec["srev"]}
+
+
+def _post_magic_answer(q: Query, text: str):
+    """The card's agent answers in its widget, about one of its own ids
+    (about, which may be empty). The answer goes into the widget's record and
+    the open page, never onto the card. The widget messages about that id the
+    agent holds in its claim on the card are answered by it; once its claim
+    holds nothing else, neither the card's messages nor the widget's, the
+    claim is let go, and the card is left as it was."""
+    if not q.agent:
+        return 403, {"error": "only the card's agent answers in its widget"}
+    bid, about = q.one("box"), q.one("about")
+    agent = q.one("agent").strip()[:24]
+    if about and not WIDGET_ABOUT.fullmatch(about):
+        return 400, {"error": "about is one id of 1 to 64 letters, digits, ., - or _"}
+    if not text:
+        return 400, {"error": "the answer is empty"}
+    if len(text) > WIDGET_TEXT_MAX:
+        return 400, {"error": f"an answer is at most {WIDGET_TEXT_MAX} characters: this one is {len(text)}"}
+    with _lock:
+        status, error, box, name = _widget_card(q)
+        if error:
+            return status, error
+        before = _widget_raw(bid, name)
+        rec = _widget_read(bid, name)
+        wid = rec["next"]
+        rec["next"] += 1
+        rec["trev"] += 1
+        rec["thread"].append({"id": wid, "by": "agent", "about": about, "text": text, "ts": time.time(),
+                              **({"agent": agent} if agent else {})})
+        try:
+            _widget_write(bid, name, rec)
+        except OSError as e:
+            _error("widgetfail", bid, reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the widget could not be written"}
+        ow = box.get("owner", "facilitator")
+        answered, released = 0, False
+        if _state["busy"].get(ow) == bid:
+            handed = box.get("widget_held") or []
+            done = {m["wid"] for m in box.get("widget_pending") or []
+                    if m["wid"] in handed and m.get("about", "") == about}
+            if done:
+                answered = len(done)
+                box["widget_pending"] = [m for m in box["widget_pending"] if m["wid"] not in done]
+                box["widget_held"] = [w for w in handed if w not in done]
+                if not box["widget_pending"]:
+                    del box["widget_pending"]
+                if not box["widget_held"]:
+                    del box["widget_held"]
+                if not box.get("widget_held") and not _state["claimed"][ow]:
+                    _state["busy"][ow] = None
+                    _state["claimed"][ow] = []
+                    _state["ack"][ow] = None
+                    box.pop("claim_agent", None)
+                    released = True
+                    if _waiting(box) and bid not in _state["inbox"]:
+                        _state["inbox"].append(bid)
+                    elif not _waiting(box) and bid in _state["inbox"]:
+                        _state["inbox"].remove(bid)
+        _last_wait[ow] = time.time()   # an answer proves the lane's agent is alive, as a reply does
+        box["magic"]["wrev"] = int(box["magic"].get("wrev", 0)) + 1
+        _log("widget_answer", bid, text, log_fields={"widget": name, "answered": answered},
+             widget=name, about=about, wid=wid, answered=answered, **({"agent": agent} if agent else {}))
+        _widget_saved(bid, name, before)
+        return 200, {"ok": True, "box": bid, "id": wid, "answered": answered, "released": released}
 
 
 def _sweep_upload_parts() -> None:
@@ -7218,7 +8573,8 @@ PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.json
                  "usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp",
                  "usage-baseline.json", "usage-baseline.json.tmp", "profile.json", "profile.json.tmp",
                  "search-index.sqlite", "search-index.sqlite-wal", "search-index.sqlite-shm",
-                 "server.lock")
+                 "server.lock", "agent.key", "agent.key.tmp", "agent.curl", "agent.curl.tmp",
+                 "window-keys.json", "window-keys.json.tmp")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
 
@@ -7271,6 +8627,8 @@ def _post_clientlog(q: Query, raw: bytes):
         return 400, {"error": "bad incident history"}
     if any(r["kind"] in NOTICE_FIELDS and not _notice_valid(page, r) for r in reports):
         return 400, {"error": "bad notification report"}
+    if any(r["kind"] == "linereport" and not _line_report_valid(page, r) for r in reports):
+        return 400, {"error": "bad line report"}
     if (_usage_sender is not None and who.get("client") == "phone"
             and any(r["kind"] == "notifycheck" for r in reports)):
         # the phone app opened or came back: kept for the daily usage counts
@@ -7350,6 +8708,54 @@ def _post_navsave(q: Query, raw: bytes):
     return 200, {"ok": True, "mtime": _nav_stamp(p)}
 
 
+# ---- curse words saved as [expletive] ---------------------------------------------
+# With the board's expletives setting "1" (Settings, Editor, "Replace curse
+# words", on the Mac and the phone; off unless turned on), the words of each
+# message the reader sends, typed or spoken, on a card or in its widget, from
+# the Mac board or the phone, are saved with every curse word on
+# expletives.txt replaced by [expletive]; expletives.py says how a word is
+# matched. The swap happens here, before anything is kept, so state.json, the
+# transcript, the search index, every page and every agent route only ever
+# hold the masked words, and nothing swaps them back. An agent's own message
+# (by=agent) is kept as it came, and so are card titles typed as titles,
+# replies and attachments. A list that cannot be read refuses the message
+# (None) rather than keep the words unmasked.
+EXPLETIVES_SETTING = "expletives"
+EXPLETIVES_UNREADABLE = "the curse word list could not be read, so the message was not saved"
+
+
+def _curse_free(text: str) -> str | None:
+    """The reader's words as they are to be kept: with the switch off, as
+    sent; with it on, with their curse words replaced, or None when the word
+    list cannot be read. Takes _settings_lock, so callers do not hold _lock."""
+    with _settings_lock:
+        on = _settings_file()["values"].get(EXPLETIVES_SETTING) == "1"
+    if not on or not text:
+        return text
+    try:
+        import expletives
+        return expletives.mask(text)
+    except (ImportError, OSError, ValueError) as e:
+        _error("expletivesfail", reason=getattr(e, "strerror", None) or type(e).__name__)
+        return None
+
+
+def _get_expletives(q: Query, _):
+    """The switch and the board's own word list as its pages need them to work
+    out a message's saved words at the press (card-logic.js, curseWords), so a
+    sent bubble takes them in the air rather than when the board's copy comes
+    back: on, and the rules (expletives.page_rules), or null rules when the
+    list cannot be read, which leaves the page to wait for the board's words."""
+    with _settings_lock:
+        on = _settings_file()["values"].get(EXPLETIVES_SETTING) == "1"
+    try:
+        import expletives
+        rules = expletives.page_rules()
+    except (ImportError, OSError, ValueError):
+        rules = None
+    return 200, {"on": on, "rules": rules}
+
+
 # the via values /send keeps on a message: the small card, and the voice layer
 SEND_VIAS = ("mini", "voice")
 # the by values /send keeps on a message: an agent that sent it for the reader
@@ -7359,16 +8765,26 @@ SEND_BYS = ("agent",)
 def _post_send(q: Query, text: str):
     bid = q.one("box")
     via = q.one("via") if q.one("via") in SEND_VIAS else ""
-    by = q.one("by") if q.one("by") in SEND_BYS else ""
+    # an agent's send is an agent's whatever it says: only the board's own
+    # pages and the phone put the reader's own words on a card
+    by = "agent" if q.agent else q.one("by") if q.one("by") in SEND_BYS else ""
     # the sending agent's own name, cut as /wait cuts agent=, and kept only
     # beside by: a name alone says nothing about who sent the message
     agent = q.one("agent").strip()[:24] if by else ""
     op = q.one("op")
     if op and not _op_id_ok(op):
         return 400, {"error": "bad operation id"}
+    # the words to keep: the reader's lose their curse words while the switch
+    # is on (_curse_free), an agent's are kept as they came. Read before the
+    # board's lock, since the switch is behind the settings' own
+    kept = text if by else _curse_free(text)
+    if kept is None:
+        return 503, {"error": EXPLETIVES_UNREADABLE}
     with _lock:
         # the sender joins the payload only when there is one, so the reader's
-        # own sends keep the fingerprint their receipts were committed under
+        # own sends keep the fingerprint their receipts were committed under.
+        # it is taken over the words as sent, so a retry matches its first
+        # try whatever the switch says now
         fp = _fingerprint("send", bid, via, text, *((by, agent) if by else ())) if op else ""
         if op:
             # the receipt is read before the box is even looked at: a message
@@ -7381,6 +8797,7 @@ def _post_send(q: Query, text: str):
         box = _box(bid)
         if box is None or not text:
             return 400, {"error": "bad box or empty text"}
+        text = kept
         msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
         # where it was typed: via=mini means the small card in the corner,
         # via=voice that it was spoken through the voice layer. Only those
@@ -7389,9 +8806,10 @@ def _post_send(q: Query, text: str):
         if via:
             msg["via"] = via
         # who sent it, separate from where: by=agent is an agent that put the
-        # message on the card for the reader (a voice or text assistant), with
-        # its name in agent when it gave one. the reader's own messages carry
-        # neither, so every message stored before the field reads as theirs
+        # message on the card (every agent's send, and a page's that says
+        # by=agent), with its name in agent when it gave one. the reader's own
+        # messages carry neither, so every message stored before the field
+        # reads as theirs
         if by:
             msg["by"] = by
             if agent:
@@ -7558,7 +8976,6 @@ def _post_reply(q: Query, text: str):
              reply_id=box["reply_id"], reply_ts=now,
              answered=box["answered"], agent_kind=_agent_kind(answerer))
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -7591,7 +9008,6 @@ def _post_done(q: Query, text: str):
         _stamp_rest(box, time.time())
         _log("done" if box["done"] else "undone", bid, "")
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -7615,7 +9031,6 @@ def _post_working(q: Query, text: str):
         _sweep(persist=False)
         _log("working" if box["flag"] else "workdone", bid, "")
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -7658,7 +9073,6 @@ def _post_testing(q: Query, text: str):
         box["testing"] = want
         _log("testmark" if want else "testclear", bid, "")
         _save()
-        _notify()
         return 200, {"ok": True, "testing": want}
 
 
@@ -7806,7 +9220,6 @@ def _post_shelf(q: Query, flag: str, event: str):
         _stamp_rest(box, time.time())
         _log(event if want else "un" + event, bid, "")
         _save()
-        _notify()
         return 200, {"ok": True, **_section_fields(box)}
 
 
@@ -7834,7 +9247,6 @@ def _post_worktree(q: Query, text: str):
         box["worktree"] = name
         _log("worktree", bid, name)
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -7848,7 +9260,6 @@ def _post_context(q: Query, text: str):
             return 400, {"error": "context strip over 50 words"}
         box["context"] = text  # agent-maintained; refused over 50 words
         _save()
-        _notify()
         return 200, {"ok": True}
 
 
@@ -7874,7 +9285,6 @@ def _post_link(q: Query, text: str):
         _set_links(card, links + [made])
         _log("link", src, "", log_fields={"to": dst}, to=dst, agent=agent)
         _save()
-        _notify()
         return 200, {"ok": True, "added": True, "from": src, **made}
 
 
@@ -7895,7 +9305,6 @@ def _post_unlink(q: Query, text: str):
         _set_links(card, kept)
         _log("unlink", src, "", log_fields={"to": dst}, to=dst, agent=agent)
         _save()
-        _notify()
         return 200, {"ok": True, "removed": True}
 
 
@@ -8013,7 +9422,6 @@ def _post_props(q: Query, text: str):
             saved = True
         if saved:
             _save()
-            _notify()
         return 200, {"ok": True, "saved": saved, "id": bid,
                      **{name: _card_prop(card, name) for name in CARD_PROPS}}
 
@@ -8120,7 +9528,6 @@ def _post_title(q: Query, text: str):
             box["title"] = _entered_title(box.get("owner", "facilitator"), text)
         _log("title", bid, box["title"])
         _save()
-        _notify()
         return 200, {"ok": True, "title": box["title"]}
 
 
@@ -8154,7 +9561,6 @@ def _post_create(q: Query, text: str):
         _log("create", bid_new, title, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
              **({"op": op} if op else {}))
         _save()
-        _notify()
         # the card itself rides back, so a phone can draw it from this answer
         # instead of waiting for its next reading of the board
         return 200, {**result, "rev": _state["rev"], "card": _phone_box(made)}
@@ -8266,7 +9672,6 @@ def _post_project(q: Query, text: str, found: dict | None = None, sample: bool =
         # earlier would have left a lane the reads and waits index that the
         # state does not know, until a restart
         _register_owner(slug)
-        _notify()
         return 200, {"ok": True, "id": slug, "name": name, "dir": str(d),
                      **({"machine": found["server"]} if found is not None else {})}
 
@@ -8335,8 +9740,10 @@ def _get_remote_servers(q: Query, _):
 
 
 def _post_remote_pair_new(q: Query, _text: str):
-    """A pairing code for `facilitator remote pair`, with where the door
-    listens, which the command prints for the owner to run on the server.
+    """A pairing code for `facilitator remote pair --name NAME`, with where
+    the door listens, which the command prints for the owner to run on the
+    server. No name, no code: the server's name is the owner's, never the
+    server's own.
     The door opens with the first code, as a board that keeps no servers
     listens on no tailnet address, so this waits a moment for it. The answer
     goes to this Mac alone; neither the code nor an address is written to
@@ -8345,7 +9752,10 @@ def _post_remote_pair_new(q: Query, _text: str):
         return 404, {"error": "not found"}
     if _remote is None or _door is None:
         return 400, {"error": "this board has no agent door"}
-    code = _remote.new_code(q.one("name") or None)
+    try:
+        code = _remote.new_code(q.one("name") or "")
+    except ValueError as refused:
+        return 400, {"error": str(refused)}
     _door.poke()
     return 200, {"code": code, "minutes": round(remote_link.CODE_LIFE / 60),
                  "port": _door.port, "addresses": _door.wait_open(DOOR_OPEN_WAIT)}
@@ -8375,7 +9785,6 @@ def _post_close(q: Query, text: str):
             return 200, {"ok": False, "stale": "superseded", **_section_fields(box)}
         action = _close_box(box)
         _save()
-        _notify()
         return 200, {"ok": True, "action": action}
 
 
@@ -8389,7 +9798,6 @@ def _post_delete(q: Query, text: str):
         # the current persisted record decides, never their stale copy.
         action = _close_box(box)
         _save()
-        _notify()
         return 200, {"ok": True, "action": action}
 
 
@@ -8401,7 +9809,6 @@ def _post_bin(q: Query, text: str):
             return 400, {"error": "bad box"}
         _bin_box(box)
         _save()
-        _notify()
         return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
@@ -8434,7 +9841,6 @@ def _post_bin_restore(q: Query, text: str):
             return 400, {"error": "not in the bin"}
         _restore_binned(entry)
         _save()
-        _notify()
         return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
@@ -8520,7 +9926,6 @@ def _post_pages_new(q: Query, text: str):
         # event and there is nothing in it to keep out of the file
         _log("page+", pid, "", log_fields={"owner": _owner_word(ow)}, owner=ow)
         _save()
-        _notify()
         return 200, {"ok": True, "id": pid, "pages": pages, "rev": _state["rev"]}
 
 
@@ -8542,7 +9947,6 @@ def _post_pages_del(q: Query, text: str):
         pages.remove(page)
         _log("page-", pid, "", log_fields={"owner": _owner_word(ow)}, owner=ow)
         _save()
-        _notify()
         return 200, {"ok": True, "pages": pages, "rev": _state["rev"]}
 
 
@@ -8582,6 +9986,11 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
         if _state["busy"].get(ow) == bid:
             _state["busy"][ow] = None
             _state["claimed"][ow] = []
+        # what was typed in the card's widget is not the card's queue: it
+        # stays, and waits for its agent again
+        if box.get("widget_pending"):
+            box.pop("widget_held", None)
+            _state["inbox"].append(bid)
         # a live flag keeps its green through a dismissal; anything
         # else lands where the card rests, an unanswered reply beneath
         # the dropped queue showing again
@@ -8590,7 +9999,6 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
             box["state"] = _rest(box)
         _log("dismiss", bid, f"{n} queued dropped")
         _save()
-        _notify()
         return 200, {"ok": True, "dropped": n}
 
 
@@ -8669,7 +10077,6 @@ def _post_tabs(q: Query, text: str):
             _overwrite("tabs", "", field, stored.get(field), clean[field])
         _state["tabs"] = clean
         _save()
-        _notify()
         return 200, {"ok": True, "tabs": clean}
 
 
@@ -8699,7 +10106,6 @@ def _post_seen(q: Query, text: str):
             box["seen"] = n
             out[box["id"]] = n
         _save()
-        _notify()
         return 200, {"ok": True, "seen": out}
 
 
@@ -8726,7 +10132,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|home\.chart|folderview"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|newlayout|expletives|home\.chart|folderview"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096
@@ -9115,7 +10521,7 @@ _profile_seen: tuple = (None, False)   # (the file's stamp, complete) as last re
 
 def _profile_needed() -> bool:
     """Whether the onboarding is still to be done on this board: no complete
-    profile. Asked on every /state, about once a second for each open page, so
+    profile. Asked on every /state and by the board clock every second, so
     the file is read again only when its stamp has moved; a missing file is
     always a board that needs it."""
     global _profile_seen
@@ -9446,7 +10852,8 @@ def _post_startup_sound(q: Query, text: str):
 # going to update-output.txt beside state.json and never to a pipe back here.
 # Started this way, the update writes the stage it has reached on lines of
 # their own (@stage downloading, setting-up, restarting), restarts the board
-# only when the board's own code changed, and opens no window. GET /update
+# only when the board's own code changed, and opens one window only when no
+# open tab could be reached and no window key is kept. GET /update
 # reads those lines, and how the update ended when it ends under this server: a
 # page-only update ends with this server still running, and the page reloads;
 # one that restarts the board ends this server, and the page reloads once a
@@ -9857,9 +11264,9 @@ QUICK_NOTES_ON = False
 # the card field and drawn beside the card, and whoever keeps it current, the
 # owner or later an agent, writes it through the same save route.
 # the text is never written anywhere but state.json: no transcript row and no
-# log line carries it, only the note's id, its card and its length. and no
-# note route wakes the agents' long polls, since nothing they wait on is a note
-# and an autosave would otherwise wake every one of them as the owner types
+# log line carries it, only the note's id, its card and its length. a note's
+# save rings as every save does (_save), which wakes each agent's long poll for
+# one short pass and tells the pages' live line the revision moved
 def _quicknote(nid: str) -> dict | None:
     return next((n for n in _state.get("quicknotes", []) if n.get("id") == nid), None)
 
@@ -10372,6 +11779,10 @@ class WaitRoute:
         global _waits_open
         q = _query(scope)
         route = q.path
+        if not q.agent:
+            # a page: refused before a seat is taken or anything is claimed
+            await _answer(403, {"error": AGENT_ONLY}, route=route)(scope, receive, send)
+            return
         try:
             timeout = float(q.one("timeout", "570"))
         except ValueError:
@@ -10457,6 +11868,106 @@ class WaitRoute:
             _waits_open -= 1
 
 
+# ---- the pages' live line ---------------------------------------------------------
+# GET /events is one-way (Server-Sent Events): the board talks, the page
+# listens, and sends everything else with its ordinary requests. The line
+# carries one short line, data: {"rev": R, "quiet": "Q"}, the revision on disk
+# and the board clock's mark of what moves with no save. It is sent when the
+# line opens, the moment either moves (every save rings, and so does the board
+# clock when the mark moves), and again every STREAM_BEAT whether or not
+# anything moved, so a page that missed one finds out at the next and a line
+# with no beat for a while is known to be dead. The page reads the board as it
+# always has when what it holds differs; nothing about a reading changes.
+#
+# It is the pages' own: the Mac board's, the /page view's and the phone's. On
+# the board's port it is behind the lock as every route is (a page's
+# EventSource sends the window cookie); through the phone's door the gate
+# signs it in as every request, and the line checks that sign-in again at
+# every beat without counting as a use of it, so a sign-out elsewhere or the
+# 30 day expiry ends it within a beat. A line ends on the stop, when the peer
+# goes, and after STREAM_LIFE, when the browser opens another after the retry
+# time it was told, which lets the lock and the gate decide again. Lines hold
+# STREAM_SLOTS of their own and none of the readings' slots, and the line is
+# never compressed, since compression would hold a ring back. Agents wait on
+# /wait and never ask this; the agent door does not let it through.
+
+STREAM_BEAT = 15.0      # seconds between the line's repeats of the revision and mark
+STREAM_LIFE = 600.0     # seconds a line stays open before it ends and the browser opens another
+STREAM_RETRY = 3000     # milliseconds a browser waits before it opens the line again
+_streams_open = 0
+
+
+def _stream_line(rev: int, quiet: str) -> bytes:
+    return ("data: " + json.dumps({"rev": rev, "quiet": quiet}, separators=(",", ":")) + "\n\n").encode()
+
+
+def _stream_session() -> str:
+    """The digest of the sign-in a request through the phone's door came
+    with, or "" for none. In a worker thread: it reads the sign-in file."""
+    return _BRIDGE_AUTH.current_session_digest() if _BRIDGE_AUTH is not None else ""
+
+
+def _stream_signed_in(digest: str) -> bool:
+    """Whether that sign-in still stands. It is read and never stamped as a
+    use, so a line left open does not keep a sign-in alive. In a worker
+    thread, as above."""
+    return _BRIDGE_AUTH is not None and _BRIDGE_AUTH.has_session_digest(digest)
+
+
+class EventsRoute:
+    async def __call__(self, scope, receive, send) -> None:
+        global _streams_open
+        route = scope.get("path", "")
+        session = None
+        if _via_gate(scope):
+            # the gate signed it in; what it signed in with is kept, to be
+            # asked about again at every beat
+            session = await run_in_threadpool(_stream_session)
+            if not session:
+                await _answer(401, {"error": "sign in required"}, route=route)(scope, receive, send)
+                return
+        if _streams_open >= STREAM_SLOTS:
+            _overload("streams", route)
+            await _plain(503, {"error": "too many pages listening"}, retry_after=5)(scope, receive, send)
+            return
+        _streams_open += 1
+        # a page's line opening is activity for the idle stop, and the board
+        # clock counts it again every pass while it stays open (_idle_tick)
+        _active()
+        gone = asyncio.Event()
+        watcher = asyncio.ensure_future(_watch_disconnect(receive, gone))
+        try:
+            await send({"type": "http.response.start", "status": 200, "headers": [
+                (b"content-type", b"text/event-stream"), (b"cache-control", b"no-store"),
+                (b"x-content-type-options", b"nosniff")]})
+            if scope.get("method") == "HEAD":
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                return
+            ends = time.monotonic() + STREAM_LIFE
+            head = b"retry: %d\n\n" % STREAM_RETRY
+            sent, beat = None, 0.0
+            while not gone.is_set() and not _STOPPING.is_set():
+                seen = _change_version
+                now = time.monotonic()
+                if now >= ends:
+                    break
+                due = now >= beat
+                if due and session is not None and sent is not None:
+                    if not await run_in_threadpool(_stream_signed_in, session):
+                        break
+                line = (_committed_rev, _quiet)
+                if due or line != sent:
+                    await send({"type": "http.response.body", "body": head + _stream_line(*line),
+                                "more_body": True})
+                    head, sent, beat = b"", line, now + STREAM_BEAT
+                await _changed(seen, max(0.0, min(beat, ends) - time.monotonic()), gone)
+            if not gone.is_set():
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        finally:
+            watcher.cancel()
+            _streams_open -= 1
+
+
 # -- what the board does when too many ask at once ---------------------------------
 # The fences, from the outside in, and what each one truly bounds.
 #
@@ -10471,7 +11982,8 @@ class WaitRoute:
 # the lock plus the handover; once the bytes are in the transport buffer the
 # slot is released, so a peer that then stops reading holds no slot. That makes
 # READ_SLOTS a bound on concurrent serialization work, the expensive part, and
-# not a bound on stalled peers. Long polls have WAIT_SLOTS of their own above.
+# not a bound on stalled peers. Long polls have WAIT_SLOTS of their own above,
+# and the pages' live lines STREAM_SLOTS.
 # Commands, the ack, the unread count and the operation lookups are counted
 # against neither, so a phone that cannot read the board can still send and an
 # agent can still answer.
@@ -10488,8 +12000,9 @@ _reads_open = 0
 _waits_open = 0
 _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
-# answers that a command loop or a waking phone depends on
-UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
+# answers that a command loop or a waking phone depends on, and the two that
+# stay open, which hold seats of their own (WAIT_SLOTS, STREAM_SLOTS)
+UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/events", "/push/key", "/worktrees",
                             "/dirs", "/machines", "/upload",
                             "/remote/servers"})
 
@@ -10597,11 +12110,13 @@ class Transport:
                 except Exception:
                     pass   # diagnostics cannot turn a completed command into a failure
             if LOGGER.isEnabledFor(logging.DEBUG):
-                # The request line is DEBUG and not INFO on purpose: the two
-                # pages poll about 144,000 times a day between them, and a line
-                # for each of those is 22 MB a day of mostly nothing. Switched
-                # on, it is the line that says what the board was asked for,
-                # what it answered and how long it took
+                # The request line is DEBUG and not INFO on purpose: the phone
+                # reads the board every 1.2 s while it is on screen, up to
+                # 72,000 times a day, and so does a Mac page whose live line is
+                # down; a line for each of those readings is 11 MB a day a
+                # page, of mostly nothing. Switched on, it is the line that
+                # says what the board was asked for, what it answered and how
+                # long it took
                 _debug("request", q.one("box"), method=scope.get("method"), route=_route_name(route),
                        status=status, ms=round((time.monotonic() - started) * 1000))
 
@@ -10660,6 +12175,7 @@ ROUTES = [
     Route("/worktrees", _endpoint(_get_worktrees), methods=["GET"]),
     Route("/unread", _endpoint(_get_unread), methods=["GET"]),
     Route("/wait", WaitRoute(), methods=["GET"]),
+    Route("/events", EventsRoute(), methods=["GET"]),
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
@@ -10683,6 +12199,9 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/board-line.js", _static("board-line.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/board-line-worker.js", _static("board-line-worker.js", "application/javascript; charset=utf-8"),
+          methods=["GET"]),
     Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/hover-labels.js", _static("hover-labels.js", "application/javascript; charset=utf-8"), methods=["GET"]),
@@ -10730,6 +12249,14 @@ ROUTES = [
     Route("/magic/reopen", _state_endpoint(_post_magic_reopen, "text"), methods=["POST"]),
     Route("/magic/body", _endpoint(_get_magic_body), methods=["GET"]),
     Route("/magic/img", _endpoint(_get_magic_img), methods=["GET"]),
+    # a widget: its record, read by its page and its agent; the person's
+    # messages and the page's memory, from the board's own page; the agent's
+    # answers (the widget section above)
+    Route("/magic/widget", _endpoint(_get_magic_widget), methods=["GET"]),
+    Route("/magic/send", _state_endpoint(_post_magic_send, "text", 64 * 1024), methods=["POST"]),
+    Route("/magic/state", _endpoint(_post_magic_state, "text", WIDGET_STATE_MAX + 4096,
+                                    "a widget's state is at most 64 KiB"), methods=["POST"]),
+    Route("/magic/answer", _state_endpoint(_post_magic_answer, "text"), methods=["POST"]),
     Route("/upload", _post_upload, methods=["POST"]),
     Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
@@ -10781,6 +12308,8 @@ ROUTES = [
     Route("/board-settings.js", _endpoint(_get_board_settings_js), methods=["GET"]),
     Route("/settings", _endpoint(_get_settings), methods=["GET"]),
     Route("/settings", _endpoint(_post_settings, "text"), methods=["POST"]),
+    # the curse word switch and list, for the pages' own swap at the press
+    Route("/expletives", _endpoint(_get_expletives), methods=["GET"]),
     Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
     Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),
@@ -10824,7 +12353,8 @@ def build_app():
 # no fetch metadata. It refuses what a page on another website sent, and what
 # arrived under a name another website pointed at this machine. The phone's
 # socket and what Tailscale Serve forwards are the bridge gate's, and pass
-# through here untouched.
+# through here untouched. Under it, BoardLock asks each caller that passes for
+# the agent key or the window's cookie.
 
 SITE_HOST = re.compile(r"(?:127\.0\.0\.1|localhost)(?::([0-9]{1,5}))?")
 # the one thing another site may do to the board is open its page: that is how
@@ -10921,6 +12451,132 @@ class SiteGuard:
         await Response(json.dumps({"error": "request from another site refused"}).encode(),
                        status_code=403, media_type="application/json",
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
+
+
+class BoardLock(SiteGuard):
+    """Under the site guard, on the board's own port: a request that carries
+    neither the agent key nor a window cookie is answered here, and nothing
+    under it sees it. A page open of / or /m gets the page that says to open
+    the board with facilitator run, and anything else a 401 saying how an
+    agent gets the key. /unread alone answers without either: it reads two
+    counts and nothing else, which a Stop hook pasted into an agent's
+    settings asks for. The phone's door is the bridge gate's and passes
+    through untouched. Here too are the window's routes (see _lock_up), for
+    the key alone: POST /window/open opens the board's window in Chrome with
+    a launch code inside, POST /window/relaunch loads the board's tabs again,
+    with one each only while no window has been let in, and neither answer
+    holds a code. A page open of /?launch=CODE
+    spends one, sets the cookie and sends the window on to /. Refusals are
+    written down as SiteGuard writes its own."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or _via_gate(scope):
+            await self.app(scope, receive, send)
+            return
+        method, path = scope.get("method", ""), scope.get("path", "")
+        keyed, windowed = _keyed(scope), _windowed(scope)
+        if method == "POST" and path in WINDOW_ROUTES:
+            if not keyed:
+                await self._refuse(scope, receive, send, "no agent key")
+                return
+            status, answer = await self._window(path, receive)
+            await Response(json.dumps(answer).encode(), status_code=status, media_type="application/json",
+                           headers={"Cache-Control": "no-store"})(scope, receive, send)
+            return
+        if method in ("GET", "HEAD") and path == "/":
+            codes = parse_qs(scope.get("query_string", b"").decode("latin-1")).get("launch")
+            if codes and await self._launch(scope, receive, send, codes[0], windowed):
+                return
+        if keyed or windowed or not _board_lock or (method in ("GET", "HEAD") and path == "/unread"):
+            await self.app(scope, receive, send)
+            return
+        await self._refuse(scope, receive, send, "no key or window cookie")
+
+    async def _window(self, path: str, receive) -> tuple:
+        """(status, answer) for a window route. /window/open takes the page
+        to open as its body (empty for the board's own root) and opens the
+        address _own_page builds for it, /window/relaunch
+        {"tabs": [[window id, place, url], ...]}. POST /window/launch, which
+        once handed out a code, answers that it does not, and opens nothing:
+        a command from before this answer opens or reloads the page itself
+        when it gets no code, so opening one here would give two windows."""
+        if path == "/window/launch":
+            return 410, {"error": "the board no longer hands out launch codes: it opens its own window "
+                                  "(POST /window/open) and sends its tabs on (POST /window/relaunch)"}
+        raw = b""
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return 400, {"error": "the request body did not arrive"}
+            raw += message.get("body", b"")
+            if len(raw) > WINDOW_BODY_MAX:
+                return 413, {"error": "body too large"}
+            if not message.get("more_body"):
+                break
+        if path == "/window/open":
+            page = _own_page(raw.decode("utf-8", "replace").strip() or f"http://127.0.0.1:{PORT}/")
+            if page is None:
+                return 400, {"error": "the board opens only its own page on this Mac"}
+            return await run_in_threadpool(_open_window, page)
+        tabs = _window_tabs(raw)
+        if tabs is None:
+            return 400, {"error": 'send {"tabs": [[window id, place, url], ...]}'}
+        return 200, {"sent": await run_in_threadpool(_relaunch_tabs, tabs)}
+
+    async def _launch(self, scope, receive, send, code: str, windowed: bool) -> bool:
+        """A page open of /?launch=CODE, answered: a code still good, opened
+        as a page, sets a new window cookie (or keeps the one the window
+        already has) and sends the window on to /, with the rest of its
+        query (a pulled-out window's project) and without the code, and so
+        does any code opened by a window that has one. True when answered;
+        False passes a dead code on as a plain open of /."""
+        fetch = {key: _fetch_header(scope, key) for key in ("mode", "dest")}
+        opened = fetch["mode"] == "navigate" and fetch["dest"] in NAVIGATION_DESTS
+        good = opened and _spend_launch(code)
+        if not good and not windowed:
+            if not _board_lock or _keyed(scope):
+                return False
+            await self._refuse(scope, receive, send, "launch code not good")
+            return True
+        rest = "&".join(part for part in scope.get("query_string", b"").decode("latin-1").split("&")
+                        if part and unquote_plus(part.split("=", 1)[0]) != "launch")
+        headers = {"Cache-Control": "no-store", "Location": "/" + ("?" + rest if rest else "")}
+        if good and not windowed:
+            try:
+                value = _new_window_key()
+            except OSError as error:
+                _error("windowkeyfail", reason=error.strerror or type(error).__name__)
+                await Response(json.dumps({"error": "the board could not keep the window's cookie"}).encode(),
+                               status_code=500, media_type="application/json",
+                               headers={"Cache-Control": "no-store"})(scope, receive, send)
+                return True
+            headers["Set-Cookie"] = (f"{WINDOW_COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; "
+                                     f"Max-Age={WINDOW_COOKIE_LIFE}")
+        await Response(b"", status_code=303, headers=headers)(scope, receive, send)
+        return True
+
+    async def _refuse(self, scope, receive, send, reason: str) -> None:
+        self._note(scope, reason, code=401)
+        method, path = scope.get("method", ""), scope.get("path", "")
+        if method in ("GET", "HEAD") and path in NAVIGATION_PAGES:
+            again = (_fetch_header(scope, "site") == "cross-site"
+                     and _fetch_header(scope, "mode") == "navigate")
+            page = LOCKED_PAGE.replace("@AGAIN@", LOCKED_AGAIN if again else "")
+            answer = Response(page.encode(), status_code=401, media_type="text/html; charset=utf-8",
+                              headers={"Cache-Control": "no-store"})
+        else:
+            answer = Response(json.dumps({"error": LOCK_REFUSAL}).encode(), status_code=401,
+                              media_type="application/json", headers={"Cache-Control": "no-store"})
+        await answer(scope, receive, send)
+
+
+def _fetch_header(scope: dict, key: str) -> str:
+    """One Sec-Fetch- header's word, lowercased, or "" for none."""
+    wanted = b"sec-fetch-" + key.encode()
+    for name, value in scope.get("headers") or ():
+        if name.lower() == wanted:
+            return value.decode("latin-1").strip().lower()
+    return ""
 
 
 def _serve_marked(scope: dict) -> bool:
@@ -11395,7 +13051,7 @@ def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
     routes = build_app()
-    app = ServeHold(SiteGuard(bridge_gate(routes, BRIDGE_PORT, _info)))
+    app = ServeHold(SiteGuard(BoardLock(bridge_gate(routes, BRIDGE_PORT, _info))))
     if remote_link is not None:
         # outermost: a request through the agent door is the gate's alone,
         # answered there or handed straight to the routes, and never reaches
@@ -11426,7 +13082,7 @@ def _tailnet_status():
 
 
 def main() -> None:
-    global _remote, _door
+    global _remote, _door, _last_active
     _quiet_uvicorn()
     _warn_legacy_config()
 
@@ -11499,14 +13155,16 @@ def main() -> None:
         UPLOADS.mkdir(parents=True, exist_ok=True)
         _sweep_upload_parts()
         _tighten_private_files()
+        _lock_up()
         _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim
             _state["claimed"] = {ow: [] for ow in OWNERS}
             _state["ack"] = {ow: None for ow in OWNERS}   # and no token outlives it
-            # re-queue any box that still has unanswered messages
+            # re-queue any box that still has unanswered messages, its
+            # widget's included
             for b in _state["boxes"]:
-                if b["pending"] and b["id"] not in _state["inbox"]:
+                if _waiting(b) and b["id"] not in _state["inbox"]:
                     _state["inbox"].append(b["id"])
             _bin_expire()   # cards past their 30 days in the Bin go for good
             _save()
@@ -11517,6 +13175,15 @@ def main() -> None:
         threading.Thread(target=_update_clock, name="update-check", daemon=True).start()
         _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
+        # TEMPORARY, the Chrome-window version only (the idle stop): a start
+        # is a fresh three days, and the marker of an earlier idle stop goes,
+        # since `facilitator run` has read it before it starts the board
+        _last_active = time.time()
+        try:
+            IDLE_STOP_MARK.unlink(missing_ok=True)
+        except OSError:
+            pass
+        threading.Thread(target=_board_clock, name="board-clock", daemon=True).start()
         if _serve_hold is not None:
             threading.Thread(target=_serve_watch, name="serve-check", daemon=True).start()
         if _remote is not None:

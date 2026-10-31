@@ -319,7 +319,9 @@ test("the big card is flat only once lowered; the ticket on screen is lifted eit
   assert.doesNotMatch(rule("  .trow.on"), /font-weight|\.ttl/);
   // the large card stands raised, browsed or selected, and sits level with the
   // board only once a double click has lowered it, its edge line kept
-  assert.match(rule("body.focus main"), /box-shadow:0 2px 18px rgba\(60,45,20,\.18\), 0 1px 3px rgba\(60,45,20,\.10\)/);
+  // the raised shadow is the board's --shade-raised, the one its magic box wears too
+  assert.match(rule("body.focus main"), /box-shadow:var\(--shade-raised\);/);
+  assert.match(css, /body\.focus\{--shade-raised:0 2px 18px rgba\(60,45,20,\.18\), 0 1px 3px rgba\(60,45,20,\.10\);/);
   assert.match(rule("body.focus.lowered main"), /box-shadow:none/);
   assert.doesNotMatch(css, /\.browsing[^{\n]*\{[^}\n]*box-shadow/, "a rule still takes the shadow off a browsed card");
   assert.match(css, /body\.focus\.minifocus main\{box-shadow:0 2px 18px rgba\(60,45,20,\.06\)\}/);
@@ -765,15 +767,19 @@ test("a board reloaded onto the home page shows its card browsed and reads nothi
 
 test("the lowered look is drawn only on the board, which the home page hides", () => {
   const css = HTML.desktop;
-  // no rule draws a browsed card differently; the one lowered rule paints the
-  // card frame alone, and the ticket on screen draws the same either way
+  // no rule draws a browsed card differently; the lowered rules paint the card
+  // frame, and the magic box and piped response beside it with their lines,
+  // which sit level with a lowered card. the ticket on screen draws the same either way
   assert.deepEqual((css.match(/^[^\n{]*\.browsing[^\n{]*\{/gm) || []).map(r => r.trim()), []);
   const rules = css.match(/^[^\n{]*\.lowered[^\n{]*\{/gm) || [];
   assert.deepEqual(rules.map(r => r.trim()),
-    ["body.focus.lowered main{"]);
-  // it stands on the stage, and home hides the stage
+    ["body.focus.lowered main{", "body.lowered :is(#magicbox, #pipebox).on{",
+     "body.lowered #mbline.on > g{", "body.lowered #pipeline.on > g{"]);
+  // all of it stands on the stage, and home hides the stage
   const at = marker => { const i = css.indexOf(marker); assert.ok(i >= 0, marker); return i; };
   assert.ok(at('<div id="stage">') < at('<div id="tickets">') && at('<div id="tickets">') < at("\n<main>"));
+  for (const id of ["magicbox", "mbline", "pipebox", "pipeline"])
+    assert.ok(at('<div id="stage">') < at(` id="${id}"`) && at(` id="${id}"`) < at("\n<main>"), `#${id} is off the stage`);
   assert.ok(at("\n</main>\n</div>\n") < at('<section id="home"'), "the home page is inside the stage");
   assert.match(css, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
 });
@@ -1023,9 +1029,10 @@ test("on the board, a reply is read on the selected card and left on a browsed o
 
 // ---- each surface's wiring, as its page writes it -------------------------------------
 test("every composer is wired to the read rule after its formatter, on every surface", () => {
-  const desktopBox = between(HTML.desktop, "    const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });", "    ta.addEventListener(\"keydown\", e => composerEnter(e, b.id));");
+  // each card's composer is attached with its options, the placeholder among them
+  const desktopBox = between(HTML.desktop, "    const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey,", "    ta.addEventListener(\"keydown\", e => composerEnter(e, b.id));");
   assert.match(desktopBox, /\n    readOnCompose\(ta, b\.id, useCard\);\n/, "the large card's composer");
-  const mini = between(HTML.desktop, "      const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });", "      box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);");
+  const mini = between(HTML.desktop, "      const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey,", "      box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);");
   assert.match(mini, /\n      readOnCompose\(ta, b\.id\);\n/, "the small card's composer");
   const phone = between(HTML.phone, "  const field = ComposeFormat.attach(ta, {", "  ta.addEventListener(\"keydown\", e => {");
   assert.match(phone, /\n  readOnCompose\(ta, b\.id, useCard\);\n/, "the phone's composer");
@@ -1045,9 +1052,9 @@ test("every surface asks the arrival rule for the card it is using, after the co
   assert.match(mini, /\n    readOnArrival\(el, b, b\.id === miniId && ComposeFormat\.focused\(el\.ta\)\);\n/);
   assert.ok(apply.indexOf("renderMiniCards(state);") > apply.indexOf("readOnArrival("));
   // the phone: the selected card with no drawer over it, drawn by drawCard (which
-  // apply runs over each built card) after apply's own seenSync
+  // apply runs over each built card) after apply's own seenSync, inside its timed try block
   const phoneDraw = between(HTML.phone, "function drawCard(el, b, state){", "\n// a card taken down");
-  assert.match(phoneDraw, /\n  readOnArrival\(el, b, b\.id === selectedId && !browsing && !drawerOpen\(\)\);\n/);
+  assert.match(phoneDraw, /\n    readOnArrival\(el, b, b\.id === selectedId && !browsing && !drawerOpen\(\)\);\n/);
   assert.equal((HTML.phone.match(/readOnArrival\(el, b, /g) || []).length, 1, "the phone asks the rule in one place");
   const phone = between(HTML.phone, "function apply(state){", "\n  applySelection(state);");
   assert.ok(phone.indexOf("seenSync(state);") < phone.indexOf("drawCard(els[b.id], b, state);"),

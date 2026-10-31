@@ -78,6 +78,10 @@ function world() {
     // a card taken down and built again is handed its answer's scroll back
     seatScroll() {},
     MutationObserver: class { observe() {} disconnect() {} },
+    // the list's own fit and the drawer's keyboard pick share the cut; with no
+    // layout here there is no ResizeObserver, no list to fit and no slide to land
+    window: {}, fitList() {}, listLandings: [],
+    stopList() {},   // a pull takes the list from its own run; none is running here
   });
   for (const source of [DRAWER, RECORDER, SWIPE]) vm.runInContext(source, context);
   // a touch the way the page sees one: cancelable, and it says so if anyone

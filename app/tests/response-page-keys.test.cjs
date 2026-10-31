@@ -942,6 +942,8 @@ async function sectionPage(name) {
     poll() {},
     fetch: (url, init) => { requests.push([url, init && init.method]); return Promise.resolve({}); },
   }));
+  // the cross's close marks the card it closes at once (closeCardNow in card-logic.js)
+  for (const card of [f.a, f.b]) card.el.box.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
   return { ...f, moves, requests, hops };
 }
 const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };

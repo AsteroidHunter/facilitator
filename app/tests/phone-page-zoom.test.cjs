@@ -59,7 +59,8 @@ test("only the page under an open list blocks native panning and the covered rep
 function gestureWorld() {
   const script = HTML.match(/<script id="page-zoom-guard">([\s\S]*?)<\/script>/);
   assert.ok(script, "the PWA needs its iOS pinch gesture guard");
-  assert.ok(HTML.indexOf(script[0]) < HTML.indexOf("<body>"), "install the guard before the page becomes interactive");
+  // after the curtain, which no script may hold up, and before the page's markup
+  assert.ok(HTML.indexOf(script[0]) < HTML.indexOf('<div id="page">'), "install the guard before the page becomes interactive");
   const listeners = [];
   vm.runInNewContext(script[1], {
     document: { addEventListener: (type, fn, options) => listeners.push({ type, fn, options }) },
@@ -97,4 +98,20 @@ test("the guard leaves single-finger touches, two ticket clicks and other contro
     world.fire(type, event);
     assert.equal(event.defaultPrevented, false, type);
   }
+});
+
+// iOS zooms the page in when a text field set under 16px takes the caret, by
+// 16 over its size, capped by the page's own maximum-scale (WebKit's
+// _zoomToFocusRect reads maximumScaleFactorIgnoringAlwaysScalable, which a
+// pinch's override leaves alone). A field in a page in the magic box counts,
+// since the zoom is the phone page's and never the frame's, so the cap is on
+// the phone page itself. The rest of the line stays as it was
+test("the phone page caps iOS's zoom to a tapped field at its own size, the rest of its viewport line kept", () => {
+  const meta = /<meta name="viewport" content="([^"]*)">/.exec(HTML);
+  assert.ok(meta, "the phone page has no viewport line");
+  assert.ok(HTML.indexOf(meta[0]) < HTML.indexOf("</head>"), "the viewport line is in the head");
+  const parts = meta[1].split(",").map(part => part.trim());
+  assert.deepEqual(parts, ["width=device-width", "initial-scale=1", "maximum-scale=1", "viewport-fit=cover",
+    "interactive-widget=resizes-content"]);
+  assert.doesNotMatch(meta[1], /user-scalable|minimum-scale/);
 });

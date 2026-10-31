@@ -37,9 +37,9 @@ let cardAnswerOff = null;
 // foot is told per card instead (el.sentRoom), since its room is a measure
 // each card keeps for itself
 let answeredRoomChanged = null;
-// turnAgain: how a page draws its cards again from the board, once a new answer
-// it held back while the reader was busy can be shown. the desktop asks the
-// board; the phone draws the reading it already holds
+// turnAgain: how a page draws its cards again, once a new answer that waited
+// for a merge of the waiting bubbles can be shown. the desktop asks the board;
+// the phone draws the reading it already holds
 let turnAgain = null;
 // waitNewestFirst: whether the cards awaiting the reader are listed newest turn
 // first. a page answers from the board's waitnewest setting ("1" is newest
@@ -2185,6 +2185,7 @@ const TIK_EASE = "cubic-bezier(.42,.06,.38,1)";       // the board's --gentle
 let tikSheetAnim = null;
 let tikShownView = null;      // the section the sheet rests at or is travelling to
 let tikTravelIntent = null;   // set while a tab press commits, so a render does not jump the sheet
+let tikShownOnly = false;     // set while a close draws (closeCardNow): the sections off screen wait
 
 // the sheet's live translateX in sections (1 == one section to the left), read
 // off the composited transform so a redirect begins where the eye sees it
@@ -3559,9 +3560,11 @@ const ANSWERED_TAIL = new RegExp("[\\s" + ANSWERED_JOINERS + "]+$");
 const ANSWERED_SEEN = new Set(["IMG", "VIDEO", "AUDIO", "CANVAS", "IFRAME", "HR"]);
 
 // a message as the panel shows it: its words with any blank tail taken off, so
-// a message that ends on empty lines ends on its last line with text
+// a message that ends on empty lines ends on its last line with text. a send
+// of this page's whose saved words it has worked out (sentCurseFree) shows
+// those, as the board's copy of it will
 function answeredText(m){
-  return ((m && m.text) || "").replace(ANSWERED_TAIL, "");
+  return ((m && (typeof m.saved === "string" ? m.saved : m.text)) || "").replace(ANSWERED_TAIL, "");
 }
 
 // where the batch has ink: one box per line of text that has something on it,
@@ -3776,6 +3779,12 @@ function sentStills(msg){
     }, { once: true });
   }
 }
+// a row's words drawn into it, a sent bubble's with its files first and its
+// videos' stills (sentOrder, sentStills)
+function answeredFill(msg, text, sent){
+  msg.innerHTML = fmt(sent ? sentOrder(text) : text);
+  if (sent) sentStills(msg);
+}
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   const want = batch.filter(m => !ANSWERED_BLANK.test(answeredText(m)));
@@ -3790,8 +3799,7 @@ function stackAnswered(panel, batch){
       const sent = panel.classList.contains("sent");
       msg = h("div", "answmsg cardmd");
       msg.dataset.text = text;
-      msg.innerHTML = fmt(sent ? sentOrder(text) : text);
-      if (sent) sentStills(msg);
+      answeredFill(msg, text, sent);
       stack.appendChild(msg);
     }
     for (const state of ANSWERED_STATES) msg.classList.toggle(state, m.state === state);
@@ -3952,8 +3960,34 @@ const SENT_GLIDE_MS = 340;
 const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 const SENT_GLIDE = [.24, .1, .15, 1];   // the same curve, for a flight whose seat glides
 
+// A send whose saved words are not the ones typed (the board's "Replace curse
+// words" switch: _curse_free in server.py) changes its words in the air. The
+// page works the saved words out at the press (sentCurseFree), so the bubble
+// stands for them from the start and the flight goes to it, the width of the
+// sentence with the tag, while the typed words change to the saved ones on
+// the way (armSentMotion, SENT_SWAP_AT_MS): each word that goes rolls up out
+// of its line while the saved word rolls up into it from below, like a
+// flip-board letter, and the words the two share slide to their places on the
+// same curve, never two words drawn over each other and never a word's place
+// left empty (sentRoll), so nothing jumps and nothing is swapped in the typing
+// row. A bubble whose saved words the page could not work out changes once
+// the board's copy says them, in the air or after it has landed (sentReword),
+// the same way, with its box easing from the one it had to the one it has now
+// on the swap's curve: a fifth of a second, longer for a box that changes by
+// more than about 25px, so no edge moves more than SENT_SWAP_STEP between two
+// frames, and never longer than the flight
+const SENT_SWAP_MS = 200;
+const SENT_SWAP = [.3, 0, .7, 1];
+const SENT_SWAP_EASE = "cubic-bezier(.3,0,.7,1)";
+const SENT_SWAP_SLOPE = 1.43;   // the curve at its steepest: its way over its time
+const SENT_SWAP_STEP = 3;       // px between two frames, at most
+function sentSwapMs(change){
+  return Math.min(SENT_FLIGHT_MS, Math.max(SENT_SWAP_MS, Math.abs(change) * SENT_SWAP_SLOPE * SENT_FRAME_MS / SENT_SWAP_STEP));
+}
+
 const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
 const sentCompressCurve = sentCurve(SENT_COMPRESS), sentGlideCurve = sentCurve(SENT_GLIDE);
+const sentSwapCurve = sentCurve(SENT_SWAP);
 // the track at ms from the tap: how far the box has come across and risen and
 // how far its size has gone (0 the typing box's, 1 the seat's)
 function sentTrack(ms){
@@ -4038,6 +4072,356 @@ function sentScale(node, rect){
   return { x:node.offsetWidth ? rect.width / node.offsetWidth : 1,
     y:node.offsetHeight ? rect.height / node.offsetHeight : 1 };
 }
+// The box a bubble's motion is cut out by: four clips nested one in the next,
+// each as large as the box ever is and rounding one corner of it, each riding
+// its own corner, so the four cut out the box at its width and height while
+// each only moves, and inside them a ground held at the origin of whatever
+// holds the first clip, on which the face and the words are placed. fit sizes
+// the clips; layers is where each layer stands for a box: the first clip at
+// the box's top left, the next three by how far their corners stand from the
+// one before (the top right, the foot's right, the foot's left), and the
+// ground back at the origin; place stands them there, and round gives each
+// corner its radius (armSentMotion, sentReword)
+const SENT_CORNERS = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
+const sentShift = ([x, y]) => "translate(" + x + "px," + y + "px)";
+function sentClips(){
+  const clips = SENT_CORNERS.map(() => {
+    const clip = document.createElement("div");
+    clip.className = "sentmorph-clip";
+    return clip;
+  });
+  const ground = document.createElement("div");
+  ground.className = "sentmorph-ground";
+  clips.reduce((outer, inner) => outer.appendChild(inner)).appendChild(ground);
+  const room = { width:0, height:0 };
+  const fit = (width, height) => {
+    Object.assign(room, { width, height });
+    for (const clip of clips) Object.assign(clip.style, { width:width + "px", height:height + "px" });
+  };
+  const layers = box => [[box.left, box.top], [box.width - room.width, 0], [0, box.height - room.height],
+    [room.width - box.width, 0], [-box.left, room.height - box.height - box.top]];
+  const place = box => layers(box).forEach((at, i) => { (clips[i] || ground).style.transform = sentShift(at); });
+  const round = radii => clips.forEach((clip, i) => { clip.style[SENT_CORNERS[i]] = radii[i] + "px"; });
+  return { clips, ground, room, fit, layers, place, round };
+}
+// a node's scale on screen, read off its own laid-out size rather than the
+// whole px offsetWidth rounds it to, for a layer that has to stand on it to
+// the hair (sentReword)
+function sentExactScale(node, rect){
+  const style = getComputedStyle(node), w = parseFloat(style.width), h = parseFloat(style.height);
+  return { x:w > 0 ? rect.width / w : 1, y:h > 0 ? rect.height / h : 1 };
+}
+// The words of a bubble giving way to the same bubble's saved words, in one
+// layer holding both copies at one origin (sentReword, and the flight's own):
+// was, the copy as it stood, and now, a copy as it stands, laid over it. Each
+// copy's words are read where it lays them out, in order, before anything in
+// it is touched, and each is then set in a span of its own with the copy's
+// lines held where they stood: a break before every word a line wrapped to,
+// and no wrapping of the copy's own. Set apart, a word measures a hair wider
+// than in its run of text, and the last word of a line that fit to the pixel,
+// as every one-line bubble's does, went down to the next line. The two runs of
+// words are paired from their heads and from their feet, and one for one
+// between when as many changed as came in, since the board swaps a word for
+// another where it stands and keeps the text around it exactly as it was.
+// Everything moves over the same length ms on the swap's curve, which is the
+// box's own easing where the box changes with the words, all from the change's
+// start. A word both hold that stands where it stood is drawn by now alone,
+// and one that has moved along its own line slides there on now from where it
+// stood, on its own offset (position:relative, which lays nothing out again).
+// A word that goes and the one in its place roll, as a flip-board letter
+// does: the one going slides up out of its line while the one coming slides
+// up into it from below, each cut off at the line's top and foot, so the two
+// stand one over the other, never on top of each other, and the place is
+// never empty: halfway, the foot of the one going and the head of the one
+// coming show together. The cut rides with the place as it slides, and ends
+// a space before the next word on the line, so where the words after it are
+// still sliding to make room the word coming shows only behind them. A word
+// both hold that the change sends to another line rolls too: out of its old
+// line, riding along with the words in front of it, and into its new one,
+// where it stands. A word that goes with nothing in its place rolls out the
+// same way, and one that comes with nothing before it rolls in. Each roll is
+// a box of its own (.sentroll) set in now beside the word coming, whose own
+// span stays laid out unseen under it, or for a word going alone beside its
+// own word in now or the word before it, so the bubble's cut and its dissolve
+// cut it as they cut the word (in was only when now holds nothing before it,
+// since was is cut where its own lines ended). Was is drawn only in such a
+// box, and words below both copies' cuts are not moved. Copies with no words
+// to read, or with a word
+// broken over two lines, which no break before it can hold, roll whole: the
+// messages of each copy, inside its own cut, was up and out and now up and
+// in, by the taller of the two. Answers the animations, each named "reword",
+// every one on one clock from the change's start, and how long the change
+// runs (total)
+// a send whose saved words the page worked out at the press changes in the
+// air from this moment of its flight, its typed words already off the typing
+// row, over SENT_SWAP_MS, so the change is in by 280ms, well before the
+// bubble is on its seat at SENT_UP_MS
+const SENT_SWAP_AT_MS = 80;
+// the change's animations on the flight's own clock, from ms of the flight
+function sentInkClock(runs, clock, ms, held){
+  for (const run of runs){
+    if (clock && typeof clock.startTime === "number") run.startTime = clock.startTime + ms;
+    else run.currentTime = (clock && typeof clock.currentTime === "number" ? clock.currentTime : held) - ms;
+  }
+}
+// the bubble as it would stand with the words typed rather than the saved ones
+// the page worked out for them (sentCurseFree), for its flight to start on:
+// its rows laid out with the typed words for as long as it takes to read its
+// box and copy it, and then given their own nodes back, all before anything
+// is drawn. {rect, copy}, or null for a bubble that shows the words typed
+function sentTyped(panel){
+  const swaps = [];
+  for (const row of sentRows(panel)){
+    const m = (panel.sentMsgs || []).find(one => one.op && one.op === row.dataset.op);
+    if (!m || typeof m.saved !== "string") continue;
+    const typed = answeredText({ text:m.text });
+    if (typed === row.dataset.text) continue;
+    swaps.push({ row, typed, kept:[...row.childNodes] });
+  }
+  if (!swaps.length) return null;
+  for (const { row, typed } of swaps){
+    row.replaceChildren();
+    answeredFill(row, typed, panel.classList.contains("sent"));
+  }
+  const rect = panel.getBoundingClientRect(), copy = sentSnapshot(panel);
+  for (const { row, kept } of swaps) row.replaceChildren(...kept);
+  return { rect, copy };
+}
+function sentRoll(was, now, length){
+  const runs = [];
+  const go = (node, keys) => {
+    if (typeof node.animate !== "function") return;
+    const run = node.animate(keys, { duration:length, easing:SENT_SWAP_EASE, fill:"both" });
+    run.id = "reword";
+    runs.push(run);
+  };
+  const px = v => v + "px";
+  // a page that cannot measure words in their text reads none
+  const range = typeof document.createRange === "function" ? document.createRange() : null;
+  const measures = !!range && typeof range.setStart === "function" && typeof document.createDocumentFragment === "function";
+  const blockOf = node => {
+    for (let at = node.parentElement; at; at = at.parentElement)
+      if (!getComputedStyle(at).display.startsWith("inline")) return at;
+    return null;
+  };
+  // a copy's words where it lays them out, and whether each starts a line it
+  // wrapped to: below the word before it in the same block, with no line
+  // break of the text's own between them. an earlier roll's boxes are not words
+  const read = copy => {
+    const out = [];
+    const walk = node => {
+      for (const child of [...(node.childNodes || [])]){
+        if (child.nodeType === 3){
+          const re = /\S+/g;
+          let m;
+          while ((m = re.exec(child.nodeValue))){
+            range.setStart(child, m.index);
+            range.setEnd(child, m.index + m[0].length);
+            const rects = range.getClientRects();
+            out.push({ node:child, at:m.index, text:m[0], lines:rects.length, block:blockOf(child),
+              top:rects.length ? rects[0].top : 0, bottom:rects.length ? rects[0].bottom : 0 });
+          }
+        } else if (child.nodeType === 1 && !child.matches(".answmark, svg, .sentroll")) walk(child);
+      }
+    };
+    if (measures) for (const row of copy.querySelectorAll(".answmsg")) walk(row);
+    out.forEach((one, i) => {
+      const prev = out[i - 1];
+      if (!prev || prev.block !== one.block || !one.lines || !prev.lines || one.top < prev.bottom - .5) return;
+      range.setStart(prev.node, prev.at + prev.text.length);
+      range.setEnd(one.node, one.at);
+      one.wrapped = !range.toString().includes("\n") && !range.cloneContents().querySelector("br");
+    });
+    return out;
+  };
+  const a = read(was), b = read(now);
+  if (!a.length || !b.length || a.some(one => one.lines > 1) || b.some(one => one.lines > 1)){
+    const tall = copy => {
+      const cut = copy.querySelector(".answclip");
+      const h = cut ? cut.getBoundingClientRect().height / sentExactScale(copy, copy.getBoundingClientRect()).y : 0;
+      return h > 0 ? h : parseFloat(copy.style.height) || 0;
+    };
+    const way = Math.max(tall(was), tall(now));
+    const stackOf = copy => copy.querySelector(".answstack") || copy;
+    go(stackOf(was), [{ transform:"translateY(0px)" }, { transform:"translateY(" + -way + "px)" }]);
+    go(stackOf(now), [{ transform:"translateY(" + way + "px)" }, { transform:"translateY(0px)" }]);
+    return { runs, total:length };
+  }
+  const pin = (copy, words) => {
+    for (const node of [copy, ...copy.querySelectorAll("*")]){
+      const wrap = getComputedStyle(node).whiteSpace;
+      if (wrap === "normal") node.style.whiteSpace = "nowrap";
+      else if (wrap === "pre-wrap" || wrap === "break-spaces") node.style.whiteSpace = "pre";
+    }
+    const byNode = new Map();
+    for (const one of words) byNode.set(one.node, [...(byNode.get(one.node) || []), one]);
+    for (const [node, list] of byNode){
+      const text = node.nodeValue, parts = document.createDocumentFragment();
+      let from = 0;
+      for (const one of list){
+        if (one.at > from) parts.appendChild(document.createTextNode(text.slice(from, one.at)));
+        if (one.wrapped) parts.appendChild(document.createElement("br"));
+        const word = one.word = document.createElement("span");
+        word.textContent = one.text;
+        parts.appendChild(word);
+        from = one.at + one.text.length;
+      }
+      if (from < text.length) parts.appendChild(document.createTextNode(text.slice(from)));
+      node.parentNode.replaceChild(parts, node);
+    }
+  };
+  pin(was, a);
+  pin(now, b);
+  // the pairs in the order the words are read: the heads, the words between,
+  // the feet
+  const n = a.length, m = b.length;
+  let head = 0, foot = 0;
+  while (head < n && head < m && a[head].text === b[head].text) head++;
+  while (foot < n - head && foot < m - head && a[n - 1 - foot].text === b[m - 1 - foot].text) foot++;
+  const pairs = [];
+  for (let i = 0; i < head; i++) pairs.push([a[i], b[i]]);
+  const changedA = a.slice(head, n - foot), changedB = b.slice(head, m - foot);
+  if (changedA.length === changedB.length) changedA.forEach((one, i) => pairs.push([one, changedB[i]]));
+  else pairs.push(...changedA.map(one => [one, null]), ...changedB.map(one => [null, one]));
+  for (let i = foot - 1; i >= 0; i--) pairs.push([a[n - 1 - i], b[m - 1 - i]]);
+  // where a node stands in its copy and how big it is, in the copy's own px,
+  // and the copy's cut
+  const placer = copy => {
+    const r = copy.getBoundingClientRect(), s = sentExactScale(copy, r);
+    const cut = copy.querySelector(".answclip");
+    const at = node => {
+      const w = node.getBoundingClientRect();
+      return { x:(w.left - r.left) / s.x, y:(w.top - r.top) / s.y, w:w.width / s.x, h:w.height / s.y };
+    };
+    return { at, s, cut:cut ? at(cut).y + at(cut).h : Infinity };
+  };
+  const inA = placer(was), inB = placer(now);
+  // the room the words have: the rows' text, in either copy, and a space
+  const right = Math.max(...[[was, inA], [now, inB]].flatMap(([copy, place]) => [...copy.querySelectorAll(".answmsg")].map(row =>
+    place.at(row).x + place.at(row).w - (parseFloat(getComputedStyle(row).paddingRight) || 0)))) + 2;
+  let space = 0;
+  for (const [list, place] of [[b, inB], [a, inA]]){
+    for (let i = 1; i < list.length && !space; i++){
+      const p = place.at(list[i - 1].word), q = place.at(list[i].word);
+      if (list[i - 1].block === list[i].block && Math.abs(p.y - q.y) < .5 && q.x > p.x + p.w) space = q.x - p.x - p.w;
+    }
+    if (space) break;
+  }
+  if (!space) space = (parseFloat(getComputedStyle(b[0].word).fontSize) || 15) * .27;
+  const lead = Math.min(2, space / 2);
+  // the lines, each by its middle and its height, and what stands on each:
+  // still words, sliding ones and rolls, each from x0 to x1
+  const lines = [];
+  const lineOf = (word, box) => {
+    const height = parseFloat(getComputedStyle(word).lineHeight) || box.h * 1.25, mid = box.y + box.h / 2;
+    let line = lines.find(one => Math.abs(one.mid - mid) < Math.min(one.height, height) / 3);
+    if (!line) lines.push(line = { mid, height, top:mid - height / 2, items:[] });
+    return line;
+  };
+  const below = (box, cut) => !box || box.y >= cut;
+  const ends = new Map();   // where the words of a line end once moved, read so far
+  const items = [];
+  let last = null;          // the last word of now read so far
+  const put = (line, item) => {
+    item.n = items.length;
+    items.push(item);
+    line.items.push(item);
+    item.line = line;
+    return item;
+  };
+  for (const [one, two] of pairs){
+    const from = one && inA.at(one.word), to = two && inB.at(two.word);
+    if (below(from, inA.cut) && below(to, inB.cut)) continue;
+    const here = two && lineOf(two.word, to), there = one && lineOf(one.word, from);
+    const kept = one && two && one.text === two.text;
+    if (one && two && here === there){
+      if (kept && Math.abs(from.x - to.x) <= .25 && Math.abs(from.y - to.y) <= .25) put(here, { x0:to.x, x1:to.x });
+      else if (kept) put(here, { x0:from.x, x1:to.x, slide:{ word:two.word, dx:from.x - to.x, dy:from.y - to.y } });
+      else put(here, { x0:from.x, x1:to.x, out:{ one, box:from }, in:{ one:two, box:to } });
+      ends.set(here, to.x + to.w);
+      last = two.word;
+      continue;
+    }
+    // a word going alone rides along with the words in front of it on its
+    // line. its box is set in now too, beside the word in its place or the
+    // last word before it, since was is cut where its own lines ended
+    if (one){
+      const end = ends.get(there), x1 = end === undefined ? from.x : end + space;
+      put(there, { x0:from.x, x1, out:{ one, box:from }, host:two ? two.word : last });
+      ends.set(there, x1 + from.w);
+    }
+    if (two){
+      put(here, { x0:to.x, x1:to.x, in:{ one:two, box:to } });
+      ends.set(here, to.x + to.w);
+      last = two.word;
+    }
+  }
+  // each roll's box beside its word, and in it the word going and the word
+  // coming, drawn as the word is: the decoration an inline above it gives the
+  // word, which nothing out of the flow takes on its own
+  const rolls = items.filter(item => item.out || item.in);
+  const decorated = word => {
+    for (let at = word.parentElement; at && !at.classList.contains("answmsg"); at = at.parentElement){
+      const style = getComputedStyle(at);
+      if (style.textDecorationLine && style.textDecorationLine !== "none") return style;
+    }
+    return null;
+  };
+  for (const item of rolls){
+    const host = item.in ? item.in.one.word : item.host || item.out.one.word, inWas = item.inWas = !item.in && !item.host;
+    const box = item.box = document.createElement("span");
+    box.className = "sentroll";
+    Object.assign(box.style, { left:"0px", top:"0px", visibility:inWas ? "visible" : "" });
+    host.parentNode.insertBefore(box, host.nextSibling);
+    const style = decorated(host);
+    item.spans = [];
+    for (const side of ["out", "in"]){
+      if (!item[side]) continue;
+      const span = document.createElement("span");
+      span.className = "sentroll-" + side;
+      span.textContent = item[side].one.text;
+      if (style) Object.assign(span.style, { textDecorationLine:style.textDecorationLine, textDecorationStyle:style.textDecorationStyle,
+        textDecorationColor:style.textDecorationColor, textDecorationThickness:style.textDecorationThickness, textUnderlineOffset:style.textUnderlineOffset });
+      box.appendChild(span);
+      item.spans.push({ side, span, word:item[side] });
+    }
+    if (item.in) item.in.one.word.style.visibility = "hidden";
+  }
+  // where each box and each word in it stands as set down, read all at once
+  for (const item of rolls){
+    const place = item.inWas ? inA : inB, r = item.box.getBoundingClientRect();
+    item.set = place.at(item.box);
+    for (const one of item.spans){
+      range.selectNodeContents(one.span.firstChild);
+      const glyph = range.getBoundingClientRect();
+      one.dx = (glyph.left - r.left) / place.s.x;
+      one.dy = (glyph.top - r.top) / place.s.y;
+    }
+  }
+  // the moves: a box rides its place and ends a space before the next word on
+  // its line; the words in it roll by the line's height
+  for (const line of lines) line.items.sort((p, q) => (p.x0 + p.x1) - (q.x0 + q.x1) || p.n - q.n);
+  for (const item of rolls){
+    const { line } = item, next = line.items[line.items.indexOf(item) + 1];
+    const edge = f => next ? next.x0 + (next.x1 - next.x0) * f - space + .5 : right;
+    const left = f => item.x0 + (item.x1 - item.x0) * f - lead;
+    const box = item.box;
+    Object.assign(box.style, { top:px(line.top - item.set.y), height:px(line.height) });
+    go(box, [0, 1].map(f => ({ left:px(left(f) - item.set.x), width:px(Math.max(0, edge(f) - left(f))) })));
+    for (const one of item.spans){
+      const y = one.word.box.y - line.top - one.dy;
+      one.span.style.left = px(lead - one.dx);
+      go(one.span, one.side === "out" ? [{ top:px(y) }, { top:px(y - line.height) }] : [{ top:px(y + line.height) }, { top:px(y) }]);
+    }
+  }
+  was.style.visibility = "hidden";
+  for (const { slide } of items){
+    if (!slide) continue;
+    slide.word.style.position = "relative";
+    go(slide.word, [{ left:px(slide.dx), top:px(slide.dy) }, { left:"0px", top:"0px" }]);
+  }
+  return { runs, total:length };
+}
 function sentMotionVisible(node){
   if (!node || !node.isConnected) return false;
   const rect = node.getBoundingClientRect();
@@ -4111,8 +4495,7 @@ function armSentMotion(el){
   const rows = new Set(standing.flatMap(sentRows));
   const start = source.getBoundingClientRect(), sourceScale = sentScale(source, start);
   const sourceStyle = getComputedStyle(source);
-  const corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
-  const startCorners = corners.map(name => (parseFloat(sourceStyle[name]) || 0) * sourceScale.x);
+  const startCorners = SENT_CORNERS.map(name => (parseFloat(sourceStyle[name]) || 0) * sourceScale.x);
   // where the typed words start and how big they are, in viewport px
   const typedSize = (parseFloat(sourceStyle.fontSize) || 17) * sourceScale.y;
   const typed = {
@@ -4121,10 +4504,8 @@ function armSentMotion(el){
     size:typedSize,
     line:(parseFloat(sourceStyle.lineHeight) * sourceScale.y) || typedSize * 1.5,
   };
-  // The box is cut out of a grey face by four clips nested one in the next, each
-  // as large as the box ever is and rounding one corner of it: each clip rides
-  // its own corner, so the four cut out the box at its width and height while
-  // each only moves. Inside them the ground the face and the words stand on is
+  // The box is cut out of a grey face by four clips nested one in the next
+  // (sentClips). Inside them the ground the face and the words stand on is
   // held at the viewport's origin, so everything in it is placed in viewport px.
   // The shell itself is cut where the card shows its foot (sentView), and the
   // four stand in a frame held at the viewport's origin inside that cut, so the
@@ -4134,14 +4515,7 @@ function armSentMotion(el){
   shell.setAttribute("aria-hidden", "true");
   const view = document.createElement("div");
   view.className = "sentmorph-view";
-  const clips = corners.map(() => {
-    const clip = document.createElement("div");
-    clip.className = "sentmorph-clip";
-    return clip;
-  });
-  const ground = document.createElement("div");
-  ground.className = "sentmorph-ground";
-  clips.reduce((outer, inner) => outer.appendChild(inner)).appendChild(ground);
+  const { clips, ground, fit, layers, place, round } = sentClips();
   view.appendChild(clips[0]);
   shell.appendChild(view);
   // the cut, written again whenever the flight is handed over again, since
@@ -4167,20 +4541,6 @@ function armSentMotion(el){
   const incoming = document.createElement("div");
   incoming.className = "sentmorph-target";
   ground.append(face, outgoing, incoming);
-  // the clips' own size, and where each layer stands for a box: the first clip
-  // at the box's top left, the next three by how far their corners stand from
-  // the one before (the top right, the foot's right, the foot's left), and the
-  // ground back at the origin
-  const room = { width:0, height:0 };
-  const fit = (width, height) => {
-    Object.assign(room, { width, height });
-    for (const clip of clips) Object.assign(clip.style, { width:width + "px", height:height + "px" });
-  };
-  const layers = box => [[box.left, box.top], [box.width - room.width, 0], [0, box.height - room.height],
-    [room.width - box.width, 0], [-box.left, room.height - box.height - box.top]];
-  const move = ([x, y]) => "translate(" + x + "px," + y + "px)";
-  const place = box => layers(box).forEach((at, i) => { (clips[i] || ground).style.transform = move(at); });
-  const round = radii => clips.forEach((clip, i) => { clip.style[corners[i]] = radii[i] + "px"; });
   const cover = boxes => {
     const left = Math.min(...boxes.map(b => b.left)), top = Math.min(...boxes.map(b => b.top));
     Object.assign(face.style, { left:left + "px", top:top + "px",
@@ -4194,7 +4554,7 @@ function armSentMotion(el){
   document.body.appendChild(shell);
   sourceCopy.scrollTop = source.scrollTop;
   sourceCopy.scrollLeft = source.scrollLeft;
-  let raf = 0, done = false, played = false, target = null, panel = null, flying = [];
+  let raf = 0, done = false, played = false, target = null, panel = null, flying = [], inked = [];
   const shifts = [];
   const stopShifts = () => {
     for (const shift of shifts.splice(0)) shift.cancel();
@@ -4205,7 +4565,7 @@ function armSentMotion(el){
     done = true;
     if (raf) cancelAnimationFrame(raf);
     stopShifts();
-    for (const anim of flying.splice(0)) anim.cancel();
+    for (const anim of [...flying.splice(0), ...inked.splice(0)]) anim.cancel();
     if (target){
       if (previousOpacity) target.style.setProperty("opacity", previousOpacity, previousPriority);
       else target.style.removeProperty("opacity");
@@ -4255,19 +4615,36 @@ function armSentMotion(el){
         // whole, from the glide's first frame (follow, below)
         node.sentGlide = { shift, x:rect.left - after.left, y:rect.top - after.top };
       }
+      // A send whose saved words the page worked out at the press
+      // (sentCurseFree) stands in its bubble with them already, so the flight
+      // goes to that bubble, the width of the sentence with the tag, from the
+      // first frame, and starts on the typed words: a copy of the bubble as it
+      // would stand with them (sentTyped), under the saved words' copy, which
+      // is hidden until the words change, in the air (below)
+      const asTyped = sentTyped(target);
       const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
       const targetCopy = sentSnapshot(target);
       targetCopy.style.width = (targetRect.width / targetScale.x) + "px";
       targetCopy.style.height = (targetRect.height / targetScale.y) + "px";
       targetCopy.style.background = "transparent";
+      const copies = [targetCopy];
+      if (asTyped){
+        Object.assign(asTyped.copy.style, { width:asTyped.rect.width / targetScale.x + "px",
+          height:asTyped.rect.height / targetScale.y + "px", background:"transparent" });
+        Object.assign(targetCopy.style, { position:"absolute", left:"0", top:"0" });
+        incoming.appendChild(asTyped.copy);
+        copies.unshift(asTyped.copy);
+      }
       incoming.appendChild(targetCopy);
       // One copy of the words from here on, at full strength the whole way: the
       // typed copy goes in the same task, and the strength a message not yet
       // saved is drawn at is the landed bubble's own, not the flight's, for the
       // words and the grey alike.
       outgoing.remove();
-      targetCopy.style.opacity = "1";
-      for (const pair of targetCopy.sentInk) pair.copy.style.opacity = "1";
+      for (const copy of copies){
+        copy.style.opacity = "1";
+        for (const pair of copy.sentInk) pair.copy.style.opacity = "1";
+      }
       incoming.style.opacity = "1";
       // the row holding the new words, where its first line starts inside the
       // copy, and the size and line it is set in, in viewport px
@@ -4285,7 +4662,7 @@ function armSentMotion(el){
       // they stand inside the start box
       const from = { x:typed.left - start.left, y:typed.top + typed.line / 2 - start.top };
       const panelStyle = getComputedStyle(panel);
-      const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
+      const endCorners = SENT_CORNERS.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
       // the bubble's face and corners, written before the first frame and kept
       // for the whole flight: the grey a saved message stands on, whole, and
       // the dissolve at a long message's cut in that same grey
@@ -4293,8 +4670,10 @@ function armSentMotion(el){
       const grey = panelStyle.getPropertyValue("--bubble-fill").trim() || panelStyle.backgroundColor;
       face.style.background = grey;
       face.style.opacity = "1";
-      const copiedCut = targetCopy.querySelector(".answclip");
-      if (copiedCut) copiedCut.style.setProperty("--answ-fill", grey);
+      for (const copy of copies){
+        const copiedCut = copy.querySelector(".answclip");
+        if (copiedCut) copiedCut.style.setProperty("--answ-fill", grey);
+      }
       // one moment of the flight, ms from the tap, on a seat: the travelling
       // box, and the words riding its left edge and top: their first line's
       // left goes from the typed words' place in it to the bubble's as the box
@@ -4327,13 +4706,25 @@ function armSentMotion(el){
       // the glide a later send gives it, whose offset goes to nothing on the
       // glide's own curve from the flight's ms it set off at; as the page reads
       // it, or as the flight lands on it, on whole pixels
-      const seat = { base:targetRect, glide:null, since:0, seen:target.sentGlide || null };
+      const seat = { base:targetRect, glide:null, since:0, seen:target.sentGlide || null, swap:null };
       const held = sentHeldMs();
-      const seatAt = (ms, drawn) => {
+      const laidAt = (ms, drawn) => {
         const { glide, since } = seat, base = drawn ? onPixels(seat.base) : seat.base;
         const left = glide ? 1 - sentGlideCurve((ms - since) / SENT_GLIDE_MS) : 0;
         return left ? { left:base.left + glide.x * left, top:base.top + glide.y * left, width:base.width, height:base.height } : base;
       };
+      // and the seat the flight goes to: the one laid out, or, once the saved
+      // words have been read in the air (reword, below), the seat it was
+      // heading for, easing over to the one laid out on the swap's curve
+      const seatAt = (ms, drawn) => {
+        const laid = laidAt(ms, drawn), swap = seat.swap;
+        const left = swap ? 1 - sentSwapCurve((ms - swap.since) / swap.length) : 0;
+        return left ? { left:laid.left + swap.left * left, top:laid.top + swap.top * left,
+          width:laid.width + swap.width * left, height:laid.height + swap.height * left } : laid;
+      };
+      // how long the flight runs: its own length, or until a swap begun late
+      // in it has eased in
+      let end = SENT_FLIGHT_MS;
       // the whole flight handed to the browser on that seat: each layer's
       // transform at as few moments as keep every edge, the words' place and
       // their reach within SENT_TRUE_PX of where the curves put them on every
@@ -4341,7 +4732,7 @@ function armSentMotion(el){
       // start, so the clock carries on through the change
       const hand = () => {
         const all = [];
-        for (let ms = 0; ms <= SENT_FLIGHT_MS; ms++) all.push(at(ms, seatAt(ms, true)));
+        for (let ms = 0; ms <= end; ms++) all.push(at(ms, seatAt(ms, true)));
         const marks = all.map(({ box, x, y, k }) => [box.left, box.top, box.left + box.width, box.top + box.height, x, y, k * reach]);
         const straight = (i, j) => {
           for (let n = i + 1; n < j; n++) for (let v = 0; v < marks[n].length; v++)
@@ -4350,9 +4741,10 @@ function armSentMotion(el){
         };
         // each curve's landing is a keyframe of its own, so nothing creeps on
         // once its move is in
-        const lands = [SENT_SIDE_MS, SENT_COMPRESS_MS, SENT_UP_MS, SENT_FLIGHT_MS];
+        const lands = [SENT_SIDE_MS, SENT_COMPRESS_MS, SENT_UP_MS, SENT_FLIGHT_MS, end,
+          ...(seat.swap ? [Math.min(end, Math.ceil(seat.swap.since + seat.swap.length))] : [])].sort((p, q) => p - q);
         const moments = [0];
-        for (let i = 0; i < SENT_FLIGHT_MS;){
+        for (let i = 0; i < end;){
           const stop = lands.find(ms => ms > i);
           let j = i + 1;
           while (j < stop && straight(i, j + 1)) j++;
@@ -4363,10 +4755,10 @@ function armSentMotion(el){
         fit(Math.max(...all.map(one => one.box.width)) + 1, Math.max(...all.map(one => one.box.height)) + 1);
         cover(all.map(one => one.box));
         cut();
-        const keys = transform => moments.map((ms, i) => ({ offset:ms / SENT_FLIGHT_MS, transform:transform(i) }));
-        const timing = { duration:SENT_FLIGHT_MS, fill:"both", easing:"linear" };
+        const keys = transform => moments.map((ms, i) => ({ offset:ms / end, transform:transform(i) }));
+        const timing = { duration:end, fill:"both", easing:"linear" };
         const before = flying;
-        flying = [...clips, ground].map((node, n) => node.animate(keys(i => move(layers(boxes[i])[n])), timing));
+        flying = [...clips, ground].map((node, n) => node.animate(keys(i => sentShift(layers(boxes[i])[n])), timing));
         flying.push(incoming.animate(keys(i => words(frames[i])), timing));
         const clock = before[0];
         for (const anim of flying){
@@ -4387,11 +4779,48 @@ function armSentMotion(el){
           seat.glide = glide && glide.shift.playState !== "idle" ? glide : null;
           seat.since = ms - (seat.glide && typeof glide.shift.currentTime === "number" ? glide.shift.currentTime : 0);
         }
-        const want = seatAt(ms);
+        const want = laidAt(ms);
         if (!fresh && ["left", "top", "width", "height"].every(key => Math.abs(now[key] - want[key]) <= .5)) return;
         if (seat.glide && seat.glide.shift.playState === "idle") seat.glide = null;
-        const off = seatAt(ms);
+        const off = laidAt(ms);
         seat.base = { left:now.left - (off.left - seat.base.left), top:now.top - (off.top - seat.base.top), width:now.width, height:now.height };
+        hand();
+      };
+      // other saved words, read while the flight is in the air (sentReword),
+      // where the page worked none out at the press or the board saved others
+      // after all: the seat is the bubble as it is laid out now, and the
+      // flight eases over to it from the seat it was heading for, from this
+      // moment of its own clock, while a copy of the bubble as it stands now
+      // is laid over the one it flies with and the words roll over from one
+      // to the other on the same curve and length (sentRoll). a change still
+      // going when another comes lands first
+      let shown = asTyped ? asTyped.copy : targetCopy;
+      motion.reword = () => {
+        if (done) return;
+        const clock = flying[0];
+        const ms = clock && typeof clock.currentTime === "number" ? Math.max(0, clock.currentTime) : held;
+        const was = seatAt(ms, true);
+        const now = target.getBoundingClientRect(), off = laidAt(ms);
+        seat.base = { left:now.left - (off.left - seat.base.left), top:now.top - (off.top - seat.base.top), width:now.width, height:now.height };
+        const laid = laidAt(ms, true);
+        const swap = { left:was.left - laid.left, top:was.top - laid.top, width:was.width - laid.width, height:was.height - laid.height, since:ms };
+        swap.length = sentSwapMs(Math.max(Math.abs(swap.left), Math.abs(swap.top),
+          Math.abs(swap.left + swap.width), Math.abs(swap.top + swap.height)));
+        for (const run of inked.splice(0)) run.finish();
+        for (const old of [...incoming.children]) if (old !== shown) old.remove();
+        const copy = sentSnapshot(target);
+        Object.assign(copy.style, { position:"absolute", left:"0", top:"0", background:"transparent", opacity:"1",
+          width:now.width / targetScale.x + "px", height:now.height / targetScale.y + "px" });
+        for (const pair of copy.sentInk) pair.copy.style.opacity = "1";
+        const copyCut = copy.querySelector(".answclip");
+        if (copyCut) copyCut.style.setProperty("--answ-fill", grey);
+        incoming.appendChild(copy);
+        const ink = sentRoll(shown, copy, swap.length);
+        seat.swap = swap;
+        end = Math.max(SENT_FLIGHT_MS, Math.ceil(ms + ink.total));
+        inked = ink.runs;
+        sentInkClock(inked, clock, ms, held);
+        shown = copy;
         hand();
       };
       previousOpacity = target.style.getPropertyValue("opacity");
@@ -4407,6 +4836,17 @@ function armSentMotion(el){
       const first = at(0, seatAt(0, true));
       place(first.box);
       incoming.style.transform = words(first);
+      // the typed words change to the saved ones in the air, on the flight's
+      // own clock: from SENT_SWAP_AT_MS, each typed word that goes rolls up
+      // out of its line as its saved word rolls in from below, while the
+      // words after it slide to their places in the bubble, which already has
+      // its width (sentRoll), all in by SENT_SWAP_AT_MS plus a fifth of a
+      // second, well before the bubble is on its seat (SENT_UP_MS)
+      if (asTyped){
+        inked = sentRoll(asTyped.copy, targetCopy, SENT_SWAP_MS).runs;
+        sentInkClock(inked, flying[0], SENT_SWAP_AT_MS, held);
+        shown = targetCopy;
+      }
       // the page's own frames only watch: whether the flight should stop, and
       // where the seat stands. they write nothing while the seat stays put, so
       // a frame the page is too busy to run holds nothing still. their clock
@@ -4418,9 +4858,9 @@ function armSentMotion(el){
         if (done) return;
         if (!target.isConnected || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
         if (t0 === null) t0 = now - held;
-        const ms = Math.max(0, Math.min(SENT_FLIGHT_MS, now - t0));
+        const ms = Math.max(0, Math.min(end, now - t0));
         follow(ms);
-        if (ms < SENT_FLIGHT_MS) raf = requestAnimationFrame(step);
+        if (ms < end) raf = requestAnimationFrame(step);
         else raf = requestAnimationFrame(finish);
       };
       raf = requestAnimationFrame(step);
@@ -4460,14 +4900,168 @@ function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 // (a board too old to say) is drawn as it always was and marks nothing
 const SENT_TAGS = { sent: "Delivered", delivered: "Read", read: "Read" };
 function sentUndelivered(m){ return m.stage === "local"; }
+
+// ---- the saved words, worked out at the press ----------------------------------------
+// With the board's "Replace curse words" switch on, the board saves each curse
+// word of the reader's as [expletive] (_curse_free in server.py, expletives.py).
+// The page learned those words only when the board's copy of the message came
+// back in a reading, which on the phone, a reading every 1.2s over the
+// network, was after the bubble had landed. So the page now works them out
+// itself at the press, from the board's own list (GET /expletives, read when
+// the page starts, when the switch is flipped on it and after every send
+// lands; the page's files hold no copy of it) and on the same rules, and the
+// send's bubble stands for them from the press (sentLaunch, the phone's own
+// operations), its flight changing the typed words to them in the air
+// (armSentMotion). Where the board saves other words after all (a list changed
+// since it was read), its words win when they come, as they always did
+// (sentReword). The rules are expletives.py's, which curse-words-page.test.cjs
+// holds this copy to by running both on the same words:
+//  - a letter is what Python's [^\W\d_] is: \p{L}, \p{Nl} and \p{No};
+//  - the letters a to z match as Python's IGNORECASE matches them, which takes
+//    the dotted and dotless i for i, the Kelvin sign for k and the long s for
+//    s, and the pattern is built without the i flag, which would make a
+//    combining mark (U+0345) a letter;
+//  - white space is what Python's \s and str.strip() take.
+// A browser that cannot build the pattern (no lookbehind) works nothing out,
+// and its bubbles take the board's words when they come, as before.
+const CURSE_LETTER = "[\\p{L}\\p{Nl}\\p{No}]";
+const CURSE_SPACE = "\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const CURSE_FOLD = { i:"\\u0130\\u0131", k:"\\u212a", s:"\\u017f" };
+// what the page knows: the switch and the board's list made into one pattern
+// (curseWords), and the switch as the page reads it, which the Mac board
+// answers from its live settings store (index.html sets it) and the phone from
+// its last reading
+const SENT_CURSES = { on:false, words:null, switch:null, asked:0 };
+// one character of the board's rules as a pattern: a letter as Python's
+// IGNORECASE matches it, anything else as itself
+function curseChar(c){
+  const low = c.toLowerCase();
+  if (low >= "a" && low <= "z" && low.length === 1) return "[" + low + low.toUpperCase() + (CURSE_FOLD[low] || "") + "]";
+  return /[\\^$.*+?()[\]{}|/]/.test(c) ? "\\" + c : c;
+}
+// the board's list as WordList in expletives.py makes it: a [never] word kept as
+// it is, tried first at each place, then an [alone] word on its own, then an
+// [anywhere] root, every letter of a root free to repeat and each taking the
+// endings; null for an empty list or a browser that cannot build it
+function curseWords(rules){
+  if (!rules || !Array.isArray(rules.anywhere) || !Array.isArray(rules.alone) || !Array.isArray(rules.never)) return null;
+  const lit = word => [...word].map(curseChar).join("");
+  const stretch = word => [...word].map(c => curseChar(c) + "+").join("");
+  const L = CURSE_LETTER, ends = (rules.endings || []).map(lit).join("|"), infix = (rules.infixes || []).map(lit).join("|");
+  const hit = [];
+  if (rules.alone.length) hit.push("(?<!" + L + ")(?:" + rules.alone.map(stretch).join("|") + ")(?:" + ends + ")?(?!" + L + ")");
+  if (rules.anywhere.length)
+    hit.push("(?:" + rules.anywhere.map(stretch).join("|") + ")(?:(?:" + ends + ")(?!" + L + ")|(?:" + infix + "))?");
+  if (!hit.length) return null;
+  const keep = rules.never.length ? "(?<keep>(?<!" + L + ")(?:" + rules.never.map(lit).join("|") + ")(?!" + L + "))|" : "";
+  try {
+    return { pattern:new RegExp(keep + "(?<hit>" + hit.join("|") + ")", "gu"), tag:String(rules.tag), linkTag:String(rules.linkTag),
+      address:new RegExp("(?:" + lit("http") + curseChar("s") + "?:\\/\\/|\\/" + lit("uploads") + "\\/)[^" + CURSE_SPACE + "<>]*", "gu") };
+  } catch (e) { return null; }
+}
+const CURSE_EDGES = new RegExp("^[" + CURSE_SPACE + "]+|[" + CURSE_SPACE + "]+$", "gu");
+const CURSE_ANY_SPACE = new RegExp("[" + CURSE_SPACE + "]", "u");
+// the text as the board reads a message's body: stripped as Python strips
+const curseStrip = text => text.replace(CURSE_EDGES, "");
+// each [words](target) in the text as _markdown_links reads one: the words' span
+// and the target's
+function curseMarkdownLinks(text){
+  if (!text.includes("](")) return [];
+  const n = text.length, escaped = new Array(n).fill(false);
+  for (let k = 0, run = 0; k < n; k++){
+    escaped[k] = run % 2 === 1;
+    run = text[k] === "\\" ? run + 1 : 0;
+  }
+  const nextClose = new Array(n + 1).fill(-1);
+  for (let k = n - 1; k >= 0; k--) nextClose[k] = text[k] === "]" && !escaped[k] ? k : nextClose[k + 1];
+  const closes = new Map(), opened = [];
+  for (let k = 0; k < n; k++){
+    if (escaped[k]) continue;
+    if (text[k] === "(") opened.push(k);
+    else if (text[k] === ")" && opened.length) closes.set(opened.pop(), k);
+  }
+  const found = [];
+  let at = text.indexOf("[");
+  while (at >= 0){
+    const close = !escaped[at] ? nextClose[at + 1] : -1;
+    const end = close >= 0 && closes.has(close + 1) ? closes.get(close + 1) : -1;
+    if (end < 0){ at = text.indexOf("[", at + 1); continue; }
+    found.push([[at + 1, close], [close + 2, end]]);
+    at = text.indexOf("[", end + 1);
+  }
+  return found;
+}
+// spans in order, with the ones that overlap joined (_merged)
+function curseMerged(spans){
+  const out = [];
+  for (const [s, e] of [...spans].sort((a, b) => a[0] - b[0] || a[1] - b[1])){
+    if (out.length && s <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+// whether s to e overlaps one of the spans (_inside)
+function curseInside(spans, s, e){
+  let lo = 0, hi = spans.length;
+  while (lo < hi){ const mid = (lo + hi) >> 1; if (spans[mid][0] < e) lo = mid + 1; else hi = mid; }
+  return lo > 0 && spans[lo - 1][1] > s;
+}
+// the text with every curse word replaced by its tag, as WordList.mask does:
+// a link or address left alone, the words of a markdown link taking the
+// escaped tag
+function curseMask(words, text){
+  if (!words || !text) return text;
+  const kept = [...text.matchAll(words.address)].map(m => [m.index, m.index + m[0].length]);
+  const labels = [];
+  for (const [label, [s, e]] of curseMarkdownLinks(text)){
+    labels.push(label);
+    const target = curseStrip(text.slice(s, e));
+    if ((target.startsWith("<") && target.endsWith(">")) || !CURSE_ANY_SPACE.test(target)) kept.push([s, e]);
+  }
+  const keep = curseMerged(kept), inLabel = curseMerged(labels);
+  let out = "", at = 0, any = false;
+  for (const m of text.matchAll(words.pattern)){
+    if (m.groups.hit === undefined) continue;
+    const s = m.index, e = s + m[0].length;
+    if (curseInside(keep, s, e)) continue;
+    out += text.slice(at, s) + (curseInside(inLabel, s, e) ? words.linkTag : words.tag);
+    at = e;
+    any = true;
+  }
+  return any ? out + text.slice(at) : text;
+}
+// the words the board will keep of a send of text, when the switch is on and
+// they are not the words typed; null when nothing changes or the page cannot
+// tell, and the bubble shows the typed words until the board's come
+function sentCurseFree(text){
+  const on = typeof SENT_CURSES.switch === "function" ? SENT_CURSES.switch() : SENT_CURSES.on;
+  if (!on || !SENT_CURSES.words || typeof text !== "string") return null;
+  const body = curseStrip(text), kept = curseMask(SENT_CURSES.words, body);
+  return kept !== body ? kept : null;
+}
+// the board's switch and list, read again; the newest answer stands
+function sentCursesRead(){
+  if (typeof fetch !== "function") return;
+  const mine = ++SENT_CURSES.asked;
+  fetch("/expletives").then(r => r.ok ? r.json() : null).then(answer => {
+    if (mine !== SENT_CURSES.asked || !answer) return;
+    SENT_CURSES.on = answer.on === true;
+    SENT_CURSES.words = curseWords(answer.rules);
+  }, () => {});
+}
+
 // a send on its way to the board, drawn faded from the press: el is the card's
 // page object, which holds its sentItems and its guard. the board's readings
 // are kept from replacing the list for as long as any send is out, since one
 // asked before the board had the words knows nothing of them. every send is an
 // operation, its id minted here before the first try and kept for every try
-// after it; route is the path it is posted to, without the id
+// after it; route is the path it is posted to, without the id. saved is the
+// words the board will keep, when they are not the ones typed (sentCurseFree):
+// the bubble shows them, and the typed words are what is sent, kept in the
+// draft and given back
 function sentLaunch(el, text, route){
-  const item = { text, stage: "local", op: newOpId(), ts: Date.now(), route };
+  const saved = route ? sentCurseFree(text) : null;
+  const item = { text, stage: "local", op: newOpId(), ts: Date.now(), route, ...(saved !== null ? { saved } : {}) };
   el.sentItems = [...el.sentItems, item];
   el.sendsOut = (el.sendsOut || 0) + 1;
   el.sendGuard = Infinity;
@@ -4487,6 +5081,8 @@ function sentLanded(el, item){
   sentSettled(el);
   syncSent(el, el.sentItems);
   draftSave(draftCardOf(el));
+  // the next send's saved words are worked out on the board's list as it is now
+  if (item.route) sentCursesRead();
 }
 // one try of a send, under the id it was minted with. the board keeps a receipt
 // beside the message, so a try asked again after a lost answer is answered from
@@ -4605,12 +5201,15 @@ function newOpId(){
 // the panel's list, out of the board's reading of a card: what a note has
 // already taken toward the answer to come, which is read, then the queued
 // messages, each where it stands and, for one an agent sent for the reader,
-// by whom (pendingBy)
+// by whom (pendingBy), and the operation id it was sent under (pendingOps),
+// which keeps a page's own send in its bubble when the words saved are not
+// the words typed (sentGroups)
 function sentFrom(b){
   const noted = ((b && b.notedTexts) || []).map(text => ({ text, stage: "read" }));
   const texts = (b && b.pendingTexts) || [], states = (b && b.pendingStates) || [];
-  const by = (b && b.pendingBy) || [];
-  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "", ...(by[i] ? { by: by[i] } : {}) })));
+  const by = (b && b.pendingBy) || [], ops = (b && b.pendingOps) || [];
+  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "", ...(by[i] ? { by: by[i] } : {}),
+    ...(ops[i] ? { op: ops[i] } : {}) })));
 }
 // the mark's own motion, which the sheet draws (card-tokens.css): a word comes
 // in over the send's run (--answ-come), and one giving way to another goes out
@@ -4738,25 +5337,30 @@ function sentStands(shown){ return shown && shown.length ? sentState(shown[shown
 
 // the messages shown, shared out into bubbles. before is the messages of each
 // bubble standing, oldest first; own is the message this page has just sent,
-// or null for a reading. what stood keeps its bubble, matched by its words in
-// order; a new message that lands between two messages of one bubble joins it;
-// own starts a bubble of its own; any other new message joins the bubble
-// before it when it stands where the message before it stands, and starts one
-// of its own when it does not. answers each group's id, which names the
-// standing bubble it is when it is under before.length
+// or null for a reading. what stood keeps its bubble, matched in order by the
+// operation id it was sent under where both sides know it, and by its words
+// where either does not: the board can save other words than the ones typed
+// (_curse_free in server.py), so a send is the same message under its id
+// whatever words it comes back with. a new message that lands between two
+// messages of one bubble joins it; own starts a bubble of its own; any other
+// new message joins the bubble before it when it stands where the message
+// before it stands, and starts one of its own when it does not. answers each
+// group's id, which names the standing bubble it is when it is under
+// before.length
 function sentGroups(before, shown, own){
   const old = [];
-  before.forEach((msgs, id) => { for (const m of msgs) old.push({ text:answeredText(m), id }); });
-  const now = shown.map(answeredText);
-  // the longest run of words the two lists share, in order
+  before.forEach((msgs, id) => { for (const m of msgs) old.push({ text:answeredText(m), op:m.op || "", id }); });
+  const now = shown.map(m => ({ text:answeredText(m), op:m.op || "" }));
+  const same = (a, b) => a.op && b.op ? a.op === b.op : a.text === b.text;
+  // the longest run of messages the two lists share, in order
   const n = old.length, k = now.length;
   const table = Array.from({ length:n + 1 }, () => new Array(k + 1).fill(0));
   for (let i = n - 1; i >= 0; i--)
     for (let j = k - 1; j >= 0; j--)
-      table[i][j] = old[i].text === now[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+      table[i][j] = same(old[i], now[j]) ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
   const matched = new Array(k).fill(-1);
   for (let i = 0, j = 0; i < n && j < k;){
-    if (old[i].text === now[j]){ matched[j] = old[i].id; i++; j++; }
+    if (same(old[i], now[j])){ matched[j] = old[i].id; i++; j++; }
     else if (table[i + 1][j] >= table[i][j + 1]) i++;
     else j++;
   }
@@ -4861,6 +5465,10 @@ function syncSent(el, batch, arrive){
   el.sent = drawn[drawn.length - 1].panel;
   const merging = el.sentMerge;
   drawn.forEach(({ panel, born }, i) => {
+    // a bubble whose message comes back under its own id with other words
+    // than the ones it shows changes to them gently (sentReword), from the
+    // bubble as it stands before its rows are drawn again
+    const was = born ? null : sentRewording(el, panel);
     stackAnswered(panel, panel.sentMsgs);
     // a bubble standing where the one above it stands waits to join it, and its
     // word with it; a merge under way holds its bubbles' words itself
@@ -4868,6 +5476,7 @@ function syncSent(el, batch, arrive){
       panel.markHeld = i > 0 && sentStands(drawn[i - 1].panel.sentMsgs) === sentStands(panel.sentMsgs);
     sentMarks(panel, panel.sentMsgs, !born);
     fitAnswered(panel);
+    if (was) sentReword(el, panel, was);
   });
   if (fresh && !el.sentMotion) arriveSent(fresh);
   // a send cuts back a bubble standing open on the fold's own run, so what has
@@ -4876,6 +5485,109 @@ function syncSent(el, batch, arrive){
   if (own) for (const { panel } of drawn) if (panel !== fresh && panel.classList.contains("open")) openAnswered(panel, false);
   if (room) room();
   sentCoalesce(el);
+}
+
+// the saved words, when they are not the words a bubble shows: the board saves
+// a curse word as [expletive] (_curse_free in server.py). a send's bubble shows
+// the saved words the page worked out at the press (sentCurseFree), and the
+// typed words from the press until the board's copy says otherwise where it
+// could work none out, or where the board saved other words after all.
+// was is the bubble before its rows change: the flight still carrying it, which
+// keeps its own copy, or the bubble's box and a copy of it, for a bubble on
+// screen that nothing else is moving; null for no change, or one shown at once
+// (no motion, a bubble off screen, open, or folding)
+function sentRewording(el, panel){
+  const rows = sentRows(panel);
+  if (!(panel.sentMsgs || []).some(m => m.op && rows.some(row => row.dataset.op === m.op && row.dataset.text !== answeredText(m))))
+    return null;
+  if (panel.sentReword) panel.sentReword.land(true);
+  const flight = [...(el.sentMotions || [])].find(one => one.panel === panel && one.reword);
+  if (flight) return { flight };
+  if (stillMotion() || typeof requestAnimationFrame !== "function" || typeof panel.animate !== "function" ||
+      !sentMotionVisible(panel) || panel.classList.contains("open") || panel.classList.contains("motion")) return null;
+  return { rect:panel.getBoundingClientRect(), copy:sentSnapshot(panel, true) };
+}
+// the change itself. in the air the flight takes it (armSentMotion's reword).
+// once landed, a layer inside the bubble, in its own px so whatever moves the
+// bubble moves it too (a later send's glide), draws it over the bubble, whose
+// own grey and words are hidden under it while its word under its foot stays:
+// the bubble's grey cut out by the four clips (sentClips) easing from the box
+// it had to the box it has now, and over it the copy of the bubble as it stood
+// and one as it stands, riding the box's top left, their words rolling over
+// from one to the other (sentRoll) on the box's own curve and length. the
+// bubble counts as busy until it is itself again (sentBusy), the frame after
+// the change's last, or at once when something lands it first (sentRewording)
+function sentReword(el, panel, was){
+  if (was.flight){ was.flight.reword(); return; }
+  const now = panel.getBoundingClientRect(), s = sentExactScale(panel, now);
+  const from = { left:(was.rect.left - now.left) / s.x, top:(was.rect.top - now.top) / s.y,
+    width:was.rect.width / s.x, height:was.rect.height / s.y };
+  const to = { left:0, top:0, width:now.width / s.x, height:now.height / s.y };
+  const length = sentSwapMs(Math.max(Math.abs(from.left), Math.abs(from.top), Math.abs(from.left + from.width - to.width),
+    Math.abs(from.top + from.height - to.height)) * Math.max(s.x, s.y));
+  const look = getComputedStyle(panel);
+  const layer = document.createElement("div");
+  layer.className = "sentreword";
+  layer.setAttribute("aria-hidden", "true");
+  const box = sentClips();
+  box.fit(Math.max(from.width, to.width) + 1, Math.max(from.height, to.height) + 1);
+  box.round(SENT_CORNERS.map(name => parseFloat(look[name]) || 0));
+  box.place(from);
+  const face = document.createElement("div");
+  face.className = "sentmorph-face";
+  const left = Math.min(from.left, 0), top = Math.min(from.top, 0);
+  Object.assign(face.style, { left:left + "px", top:top + "px", background:look.backgroundColor,
+    width:Math.max(from.left + from.width, to.width) - left + "px", height:Math.max(from.top + from.height, to.height) - top + "px" });
+  const words = document.createElement("div");
+  words.className = "sentmorph-target";
+  words.style.transform = sentShift([from.left, from.top]);
+  const copy = sentSnapshot(panel, true);
+  Object.assign(was.copy.style, { background:"transparent", width:from.width + "px", height:from.height + "px" });
+  Object.assign(copy.style, { position:"absolute", left:"0", top:"0", background:"transparent",
+    width:to.width + "px", height:to.height + "px" });
+  words.append(was.copy, copy);
+  box.ground.append(face, words);
+  layer.appendChild(box.clips[0]);
+  // the bubble's own grey and words, hidden under the layer, as they stood
+  const hid = [...panel.children].map(part => [part, part.style.getPropertyValue("visibility")]);
+  const fill = panel.style.getPropertyValue("background");
+  for (const [part] of hid) part.style.visibility = "hidden";
+  panel.style.setProperty("background", "transparent");
+  panel.appendChild(layer);
+  const ink = sentRoll(was.copy, copy, length);
+  const timing = { duration:length, easing:SENT_SWAP_EASE, fill:"both" };
+  const runs = [...box.clips, box.ground].map((node, n) =>
+    node.animate([{ transform:sentShift(box.layers(from)[n]) }, { transform:sentShift(box.layers(to)[n]) }], timing));
+  runs.push(words.animate([{ transform:sentShift([from.left, from.top]) }, { transform:"translate(0px,0px)" }], timing));
+  runs.push(...ink.runs);
+  const run = panel.sentReword = { land:null };
+  let raf = 0, over = false;
+  // quiet: landed by a redraw, which asks for the next merge itself
+  const land = run.land = quiet => {
+    if (over) return;
+    over = true;
+    if (raf) cancelAnimationFrame(raf);
+    for (const one of runs) one.cancel();
+    layer.remove();
+    for (const [part, visibility] of hid){
+      if (visibility) part.style.visibility = visibility;
+      else part.style.removeProperty("visibility");
+    }
+    if (fill) panel.style.setProperty("background", fill);
+    else panel.style.removeProperty("background");
+    if (panel.sentReword === run) panel.sentReword = null;
+    if (quiet !== true) sentCoalesce(el);
+  };
+  // the bubble is itself again the frame after the run's last one is drawn
+  const clock = runs[0];
+  const step = () => {
+    raf = 0;
+    if (over) return;
+    if (!panel.isConnected || stillMotion()){ land(); return; }
+    const t = typeof clock.currentTime === "number" ? clock.currentTime : 0;
+    raf = requestAnimationFrame(t >= ink.total ? land : step);
+  };
+  raf = requestAnimationFrame(step);
 }
 
 // the arrival's dress, taken off again by the clock rather than by the end of
@@ -4949,7 +5661,7 @@ const MERGE_EASE = [.6, 0, .3, 1];
 // asks again
 function sentBusy(panel){
   return panel.classList.contains("sentflight") || panel.classList.contains("motion") ||
-    panel.classList.contains("markout");
+    panel.classList.contains("markout") || !!panel.sentReword;
 }
 // the next two bubbles that may become one, if any, and if nothing else is
 // moving them: the move of the word and then the merge, or both at once with
@@ -5020,11 +5732,10 @@ function sentMove(el, a, b){
     one.classList.remove("markin");
     one.classList.add("markout", "markmove");
   }
-  later(MERGE_OUT_MS, () => {
-    for (const one of going){
-      one.classList.remove("markout", "markmove");
-      showMark(one, "", false);
-    }
+  // a bubble taking its saved words as its word goes (sentReword) is let
+  // finish first, its word already gone
+  const fall = () => {
+    if ([a, b].some(one => one.sentReword && one.isConnected)){ later(2 * SENT_FRAME_MS, fall); return; }
     const panels = sentPanels(el);
     if (panels.indexOf(b) !== panels.indexOf(a) + 1 || panels.indexOf(a) < 0 ||
         sentStands(a.sentMsgs) !== sentStands(b.sentMsgs) || sentBusy(a) || sentBusy(b)){
@@ -5040,6 +5751,13 @@ function sentMove(el, a, b){
     }
     if (sentColumnGrown(el, run)) return;
     sentMerge(el, run);
+  };
+  later(MERGE_OUT_MS, () => {
+    for (const one of going){
+      one.classList.remove("markout", "markmove");
+      showMark(one, "", false);
+    }
+    fall();
   });
 }
 // a move whose bubbles no longer match, or that something else has taken: each
@@ -5398,11 +6116,10 @@ function sentColumnMove(el, panels){
     one.classList.remove("markin");
     one.classList.add("markout", "markmove");
   }
-  later(MERGE_OUT_MS, () => {
-    for (const one of going){
-      one.classList.remove("markout", "markmove");
-      showMark(one, "", false);
-    }
+  // a bubble taking its saved words as the words go (sentReword) is let
+  // finish first, as in sentMove
+  const fall = () => {
+    if (panels.some(one => one.sentReword && one.isConnected)){ later(2 * SENT_FRAME_MS, fall); return; }
     const now = sentPanels(el), at = now.indexOf(a), stands = sentStands(a.sentMsgs);
     if (at < 0 || panels.some((one, i) => now[at + i] !== one || sentStands(one.sentMsgs) !== stands || sentBusy(one))){
       sentMoveBack(el);
@@ -5417,6 +6134,13 @@ function sentColumnMove(el, panels){
     }
     if (sentColumnGrown(el, run)) return;
     sentColumnMerge(el, run);
+  };
+  later(MERGE_OUT_MS, () => {
+    for (const one of going){
+      one.classList.remove("markout", "markmove");
+      showMark(one, "", false);
+    }
+    fall();
   });
 }
 // the column's fall, drawn as a pair's merge is drawn (sentMerge): the joined
@@ -5884,15 +6608,16 @@ function sentKeepScroll(el, band){
 
 // ---- the board's refresh and the card's own motion ------------------------------------
 // a panel's run and the glide of a page turn are the card's own motion, and the
-// board's timed refresh waits them out. a refresh is a whole pass over every
-// card on the page's one thread, and one landing inside a third of a second of
-// motion costs that motion frames it never gets back. only the timed refresh
-// waits, and only until the motion is over; a refresh asked for by something the
-// reader did goes at once.
-// the timer asks this on every tick, so it asks two queries of one selector
-// each, which the browser answers in a quick pass over the page; one query of
-// seven selectors matched each of them against every element on the page, 3.5
-// to 15 ms on a board of a thousand cards, all of it on the thread that draws
+// board's timed refresh, and a reading the board's live line rings for, wait
+// them out. a refresh is a whole pass over every card on the page's one thread,
+// and one landing inside a third of a second of motion costs that motion frames
+// it never gets back. only those wait, and only until the motion is over; a
+// refresh asked for by something the reader did goes at once.
+// it is asked before every one of those readings, so it asks two queries of one
+// selector each, which the browser answers in a quick pass over the page; one
+// query of seven selectors matched each of them against every element on the
+// page, 3.5 to 15 ms on a board of a thousand cards, all of it on the thread
+// that draws
 const CARD_MOTION = ".answered:is(.motion, .sentflight, .coalesce, .markin, .markout, .markgone)";
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
@@ -5908,12 +6633,43 @@ function cardsMoving(){
 // page (settle). a framed page is left out, since a copy would load and run
 // it a second time, and a player is told not to fetch or play anything. the
 // copy takes no click, no key and no focus. noIds takes every id off it, for
-// a copy that stands somewhere the page's own ids could find it
-function stillCopy(el, { noIds = false } = {}){
-  const copy = el.cloneNode(true);
+// a copy that stands somewhere the page's own ids could find it.
+// leave names elements inside it that are not drawn, which the copy leaves
+// out with all they hold. the board passes its hidden cards: on a board of a
+// thousand cards they are nearly every element of the stage, and copying them
+// and reading each one's scroll was most of a switch's time. only the boxes on
+// the way down to a left-out element are copied one level at a time; every
+// other part is copied whole in one call, as before
+function stillCopy(el, { noIds = false, leave = null } = {}){
+  const out = new Set(leave || []), open = new Set();
+  for (const n of out){
+    const way = [];
+    let p = n.parentNode;
+    while (p && p !== el && !open.has(p)){ way.push(p); p = p.parentNode; }
+    if (!p) continue;   // not inside el: nothing of it is in the copy anyway
+    open.add(el);
+    for (const w of way) open.add(w);
+  }
+  // live and dup are the copied elements and their copies, in the same order
+  const live = [], dup = [], scrolls = [];
+  const copyOf = node => {
+    if (!open.has(node)){
+      const b = node.cloneNode(true);
+      if (node.nodeType === 1){
+        live.push(node); dup.push(b);
+        for (const x of node.querySelectorAll("*")) live.push(x);
+        for (const x of b.querySelectorAll("*")) dup.push(x);
+      }
+      return b;
+    }
+    const b = node.cloneNode(false);
+    live.push(node); dup.push(b);
+    for (let c = node.firstChild; c; c = c.nextSibling) if (!out.has(c)) b.appendChild(copyOf(c));
+    return b;
+  };
+  const copy = copyOf(el);
   copy.inert = true;
   copy.setAttribute("aria-hidden", "true");
-  const live = [el, ...el.querySelectorAll("*")], dup = [copy, ...copy.querySelectorAll("*")], scrolls = [];
   for (let i = 0; i < live.length; i++){
     const a = live[i], b = dup[i];
     if (a.scrollTop || a.scrollLeft) scrolls.push([b, a.scrollTop, a.scrollLeft]);
@@ -5967,33 +6723,25 @@ function stillCopy(el, { noIds = false } = {}){
 // as they stood, and nothing that glides is drawn over them: only the bubbles
 // the answer was given rise, and the new answer comes up under them.
 //
-// the reader is never moved while busy with the card. a new answer is held
-// back, the page left exactly as it was, while the reader is reading (the answer
-// was scrolled in the last three seconds, words in it are picked out, or an older
-// page of its history is on show) or typing (a key went into the row in the last
-// two seconds), and the card looks again every half second; the page turns
-// once the card has been left still. a card that is not on show has nothing to
-// turn and simply shows the new page, and so does a card whose reader asked for
-// no motion. a new answer with no sent panel standing has nothing to glide and
-// is printed in place instead (printReply). a progress note is not an answer and
-// turns nothing
+// a new answer turns the page the moment the page has it, whatever the reader
+// is doing with the card: typing, scrolling, picking words out or reading an
+// older page of its history, which the new answer takes the card back from.
+// the row they type in is no part of the turn, so its words, its caret and its
+// focus stay as they are and the typing goes on through the glide. a card that
+// is not on show has nothing to turn and simply shows the new page, and so does
+// a card whose reader asked for no motion. a new answer with no sent panel
+// standing has nothing to glide and is printed in place instead (printReply).
+// a progress note is not an answer and turns nothing.
+//
+// the one thing a new answer waits for is a merge of two waiting bubbles that
+// is running as it lands: the turn would land the merge at once (turnSheet),
+// and the bubbles would jump to where it ends. it waits for that merge alone,
+// and the page draws its cards again on the frame the merge ends
 const TURN_GLIDE_MS = 560;    // the sheet's --turn-glide
 const PRINT_MS = 780;         // the sheet's print: the last blocks start at 400ms and take 380
-const READ_QUIET_MS = 3000;   // this long after the reader last scrolled the answer
-const TYPE_QUIET_MS = 2000;   // this long after the last key into the row
-const HOLD_LOOK_MS = 500;     // how often a held card looks again
-const TURN_HELD = "held";
+const TURN_WAIT = "wait";
 
-// the reader's own scrolling of the answer, which is what says they are reading
-// it. the page's own moves of the scroll, a history step or a turn, are marked
-// quiet as they are made, so they are not taken for the reader's
-function watchReading(el){
-  (el.replyview || el.reply).addEventListener("scroll", () => {
-    if (Date.now() - (el.quietScroll || 0) > 200) el.readAt = Date.now();
-  }, { passive: true });
-}
 function scrollCardTop(el){
-  el.quietScroll = Date.now();
   (el.replyview || el.reply).scrollTop = 0;
 }
 function cardLaidOut(el){
@@ -6011,15 +6759,6 @@ function openAtHead(el){
   el.headDue = false;
   scrollCardTop(el);
 }
-// and a key into a row, which is what says the reader is typing. each page calls
-// it from its rows' input: the card's own bar and the phone's row. the
-// formatter also says input when it puts its editor on or takes it off, to
-// every card on load, and that is nobody typing, so only a row holding the
-// caret counts, the way readOnCompose counts it
-function noteTyping(ta){
-  if (typeof ComposeFormat === "object" && ComposeFormat && ComposeFormat.focused(ta)) ta.typedAt = Date.now();
-}
-
 // the typing hold: the board does not hand a card to an agent while the reader is
 // still typing on it, and keeps the one clock for that itself (TYPING_HOLD in
 // server.py). the page only says "a change on this card" each time the reader makes
@@ -6061,46 +6800,33 @@ function cardOnShow(el){
   return getComputedStyle(el.box).visibility !== "hidden";
 }
 
-// whether the reader is busy with the card on show
-function turnHolding(el, id){
-  if (!cardOnShow(el)) return false;
-  if (hist && hist.id === id) return true;
-  const now = Date.now();
-  if (now - (el.readAt || 0) < READ_QUIET_MS) return true;
-  if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
-  if (typeof boxHasSelection === "function" && boxHasSelection(el.replyview || el.reply)) return true;
-  // and the reader's caret standing in the answer (replyCaret), as a selection there does
-  if (el.reply && typeof document === "object" && document.activeElement === el.reply) return true;
-  // and a sent bubble part way through its own run, its flight or a merge is let finish it
-  if (el.sentMerge) return true;
-  if (sentPanels(el).some(one => one.classList.contains("motion") || one.classList.contains("sentflight"))) return true;
-  return false;
-}
-
-// a held card looks again on its own clock, since a page that reads the board by
-// its revision is handed nothing new to draw while the board stands still. once
-// the reader has let the card be, the page draws its cards again and the turn runs
-function turnHold(el, id){
-  if (el.turnHeld) return;
+// whether a new answer waits for the merge running as it lands. a merge that
+// starts after that one has ended is not waited for: the turn takes it on
+function turnWaits(el){
+  const wait = el.turnWait;
+  if (wait && wait.run === el.sentMerge) return true;
+  el.turnWait = null;
+  if (wait || !el.sentMerge) return false;
+  const mine = el.turnWait = { run: el.sentMerge };
   const look = () => {
-    if (turnHolding(el, id)){ el.turnHeld = setTimeout(look, HOLD_LOOK_MS); return; }
-    el.turnHeld = null;
+    if (el.turnWait !== mine) return;
+    if (el.sentMerge === mine.run){ requestAnimationFrame(look); return; }
     if (turnAgain) turnAgain();
   };
-  el.turnHeld = setTimeout(look, HOLD_LOOK_MS);
+  requestAnimationFrame(look);
+  return true;
 }
 
 // called by the page's pass over a card whose answer has changed, before it
-// draws anything of the new one. it answers TURN_HELD when the new answer is to
-// wait, and the page then leaves the answer and both panels as they stand; a
-// turn, which the page hands to turnGo once it has drawn the new page; or
-// nothing, for the plain swap the card always had
+// draws anything of the new one. it answers TURN_WAIT while a merge runs, and
+// the page then leaves the answer and both panels as they stand; a turn, which
+// the page hands to turnGo once it has drawn the new page; or nothing, for the
+// plain swap the card always had
 function turnBegin(el, b){
   if (el.turning) turnEnd(el);   // a turn still going lands at once
   if (!b || b.replyKind !== "agent" || !cardOnShow(el)) return null;
   if (stillMotion()) return null;
-  if (turnHolding(el, b.id)){ turnHold(el, b.id); return TURN_HELD; }
-  if (el.turnHeld){ clearTimeout(el.turnHeld); el.turnHeld = null; }
+  if (turnWaits(el)) return TURN_WAIT;
   const turn = { mode: "print" };
   if (el.sent && el.sentwrap && el.sentwrap.getBoundingClientRect().height) turnSheet(el, turn, b);
   // the new page opens at its head
@@ -6224,7 +6950,7 @@ function turnSheet(el, turn, b){
 // called once the page has drawn the new page under the sheet: the glide, which
 // brings the new answer up with it, or the print alone where nothing glides
 function turnGo(el, turn){
-  if (!turn || turn === TURN_HELD) return;
+  if (!turn || turn === TURN_WAIT) return;
   if (turn.mode !== "glide"){ printReply(el); return; }
   // where the new page's own panel stands: the panel the sent messages have
   // just become. a new page with no panel at its head has nowhere to glide to,
@@ -6843,6 +7569,46 @@ function holdFlagsPass(state, asked){
 function closeCardUrl(id){
   for (const kind of Object.keys(FLAG_KINDS)) dropFlag(flagKey(id, kind));
   return "/close?box=" + encodeURIComponent(id) + "&sid=" + encodeURIComponent(flagStreamOf()) + "&seq=" + (++flagTaps);
+}
+
+// the cross on the card on screen, and the done keys that stand for it: the card
+// leaves the screen and its ticket leaves the list in the same turn, the way the
+// moon moves a card, and the board is told after. Waiting for the board first
+// moved the card once the close had answered and the ticket only once the
+// reading after it was drawn, a whole reading behind the card on a full board.
+// The close is held as a tap on done is held: no reading asked before the board
+// answers may bring the ticket back, and the answer is judged by flagAnswered,
+// so a close the board refuses puts the ticket back in its section with the
+// reason on the card, and one with no answer is held as unconfirmed until a
+// reading settles it or the window ends it. send is the page's own one POST to
+// /close (closeCardUrl), handed in so each page's close stays one request
+// through the authoritative route. It is made before the hold, since
+// closeCardUrl ends whatever this card was holding and takes the next place.
+// The draw in the press leaves the ticket sections off screen to the board's
+// reading after the close, or a tab press, which draw them whole: a full Done
+// section is most of a draw on a board used a while, and drawing it in the
+// press held the card and its ticket on screen while it ran
+async function closeCardNow(id, send){
+  const { order, section } = cardDeparture(lastState, id);   // the list as it stands, before the close
+  const going = send(id);
+  const tap = flagTaps, key = flagKey(id, "done"), spec = flagSpec("done");
+  flagHolds[key] = { id, kind: "done", want: true, owed: true, sending: tap, guard: Infinity,
+                     until: Date.now() + FLAG_HOLD_MS, basis: 0, settled: false, truth: null, boxRef: null, timer: null };
+  flagNote(id, "");
+  paintFlag(id, spec, true, true);
+  tikShownOnly = true;
+  try { flagRepaint(); } finally { tikShownOnly = false; }   // the ticket leaves the list
+  selectNextCard(id, order, section);                        // and the card the screen
+  let status = 0, body = null, lost = "", late = null;
+  try {
+    const r = await Promise.race([going, new Promise(done => { late = setTimeout(done, FLAG_DEADLINE_MS, null); })]);
+    if (!r) lost = "timeout";
+    else { status = r.status; body = await r.json().catch(() => null); }
+  } catch (err){
+    lost = "network";
+  }
+  clearTimeout(late);
+  flagAnswered(key, tap, true, status, body, lost);
 }
 
 // what the page draws from, drawn again now. The tapped card has already
@@ -7553,10 +8319,8 @@ function histExit(id){
     // back on the live reply, so the panel over it is the live reply's own batch
     // again. the card is read out of the state the page is holding rather than
     // remembered from the step away, so a reply that landed while an older page
-    // was being read is the one that comes back. while a new answer is held back
-    // for the reader, the live page is still the one the card last drew, and so
-    // is its batch, until the page turn brings the new one
-    syncAnswered(el, el.turnHeld && el.liveMeta !== undefined ? el.liveMeta : liveAnswered(stateBoxOf(id)));
+    // was being read is the one that comes back
+    syncAnswered(el, liveAnswered(stateBoxOf(id)));
   }
 }
 
@@ -8304,9 +9068,10 @@ function settingsOverlay(host, source, opts){
     if (downOutside && e.target === veil) close();
     downOutside = false;
   });
-  // and focus cannot wander onto the board behind it
+  // and focus cannot wander onto the board behind it. a pop-up standing over
+  // the page (.up-veil: the update's) keeps its own
   document.addEventListener("focusin", e => {
-    if (open && !seat.contains(e.target)) page.focus();
+    if (open && !seat.contains(e.target) && !(e.target.closest && e.target.closest(".up-veil.open"))) page.focus();
   });
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
@@ -8779,15 +9544,105 @@ function magicView(el, hooks = {}){
   };
   zoomTouch("touchend", zoomLift);
   zoomTouch("touchcancel", zoomLift);
-  // everything in it gone, so a frame that was showing stops running
+  // everything in it gone, so a frame that was showing stops running. an
+  // agent's page is kept instead where the board asks (hooks.keep, below):
+  // hidden and drawing nothing, and shown again as it was when its card comes
+  // back
   view.clear = () => {
     zoomOff(false);
+    if (view.page) keep(view.page);
     view.url = ""; view.page = null; view.natural = null; view.fade = null; view.lead = null; view.known = false;
+    view.widget = null;
     if (view.alone){ view.alone = null; view.body.classList.remove("alone"); }
     delete view.body.dataset.kind;
-    view.body.textContent = "";
+    empty();
     bands();
   };
+  // hooks.keep: how many agents' pages stay loaded, hidden, while their cards
+  // are not on screen, so going back to a card shows its page in the same
+  // frame as the card, as a picture or words are shown. a page made afresh
+  // on each visit starts a frame (in Chrome a process of its own), loads and
+  // runs the page and, for a widget, reads its record again, all after the
+  // click, and the box waits on it. none are kept without the hook. kept:
+  // "card:revision" -> the page's run, oldest first; a kept page's frame and
+  // cover stay where they are in the body (a frame moved in the page loads
+  // again), out of sight and out of every .mbframe and .mbcover rule
+  const kept = new Map();
+  const keyOf = box => box && box.box != null && box.rev != null ? box.box + ":" + box.rev : null;
+  // a page hidden while it has the keys lets go of them first, so the next
+  // key is the board's, as it was when a page left was taken off the page: a
+  // frame out of sight keeps them otherwise, and every key typed goes into a
+  // page no one can see. hidden, the page is told to go quiet, and shown, to
+  // carry on (MagicBox.pageDoc's hush)
+  const hide = (run, on) => {
+    if (on && document.activeElement === run.frame) run.frame.blur();
+    for (const [el, cls] of [[run.frame, "mbframe"], [run.cover, "mbcover"]]){
+      if (!el.style) continue;
+      el.className = on ? "mbkept" : cls;
+      el.style.display = on ? "none" : "";
+    }
+    hush(run, on);
+  };
+  const hush = (run, on) => {
+    try { run.frame.contentWindow.postMessage(run.word + (on ? " hush" : " sound"), "*"); } catch (_) {}
+  };
+  // a page that has made frames of its own, which its hush does not reach and
+  // a click of the person's in one could have set sounding: the holder's one
+  // frame is the page, and how many the page holds is read across origins
+  const deep = run => {
+    try { const w = run.frame.contentWindow; return !!(w && w[0] && w[0].length > 0); } catch (_) { return false; }
+  };
+  const drop = run => {
+    if (kept.get(run.key) === run) kept.delete(run.key);
+    if (run.frame.remove) run.frame.remove();
+    if (run.cover.remove) run.cover.remove();
+  };
+  // the page shown, as its card goes: kept, still loading or loaded, with
+  // the oldest let go past hooks.keep, and another revision of the same
+  // card's let go at once. one with frames of its own goes, as every page
+  // went before, since it could not be made quiet
+  function keep(run){
+    if (!(hooks.keep > 0) || !run.key || deep(run)){ drop(run); return; }
+    for (const other of [...kept.values()]) if (other !== run && other.box === run.box) drop(other);
+    hide(run, true);
+    kept.delete(run.key);
+    kept.set(run.key, run);
+    while (kept.size > hooks.keep) drop(kept.values().next().value);
+  }
+  // the body emptied of everything but the kept pages
+  const empty = () => {
+    if (!kept.size){ view.body.textContent = ""; return; }
+    const stay = new Set();
+    for (const run of kept.values()) stay.add(run.frame).add(run.cover);
+    for (const node of [...view.body.childNodes]) if (!stay.has(node)) node.remove();
+  };
+  // a page made ahead, before its card is shown, and kept as a page shown
+  // and left is: the board makes the ones its owner is likely to go to
+  // (wanted, a set of card:revision). at hooks.keep, the oldest kept page
+  // that is not wanted makes room, and with none nothing is made
+  view.prepare = (box, wanted) => {
+    const key = keyOf(box);
+    if (!(hooks.keep > 0) || !box || box.kind !== "html" || !key || kept.has(key) || (view.page && view.page.key === key)) return false;
+    if (kept.size >= hooks.keep){
+      const spare = [...kept.values()].find(run => !(wanted && wanted.has(run.key)));
+      if (!spare) return false;
+      drop(spare);
+    }
+    for (const other of [...kept.values()]) if (other.box === box.box) drop(other);
+    const run = build(box.html || "", 0, box);
+    hide(run, true);
+    kept.set(key, run);
+    view.body.append(run.frame, run.cover);
+    return true;
+  };
+  // the kept pages whose card:revision is not in keys let go: a card whose
+  // box was closed or filled again, a card done or gone
+  view.keepOnly = keys => {
+    for (const run of [...kept.values()]) if (!keys.has(run.key)) drop(run);
+  };
+  // what is kept, oldest first: whether each has loaded (said its word), and
+  // how long ago it was made or last shown, in ms
+  view.kept = () => [...kept.values()].map(run => ({ key: run.key, said: run.said >= run.loads && run.said > 0, age: Date.now() - run.since }));
   // seen: a picture the page has already fetched and read, {src, natural}, so
   // the box is sized and shown at once rather than when the picture arrives
   view.draw = (box, seen) => {
@@ -8822,7 +9677,16 @@ function magicView(el, hooks = {}){
       };
       own.src = box.src;
     } else if (box.kind === "html"){
-      page(box.html || "", 0);
+      // a page its agent named a widget talks with the board, for this card alone
+      view.widget = box.widget ? { box: box.box, rev: box.rev, name: box.widget } : null;
+      // the card's page kept from its last showing, or made ahead, is shown
+      // as it is: no new frame, no new load and no new reading of its record
+      const was = kept.get(keyOf(box));
+      if (was) show(was);
+      else {
+        for (const other of [...kept.values()]) if (other.box === box.box) drop(other);
+        page(box.html || "", 0, box);
+      }
     } else if (box.kind === "url" && box.shown === "frame"){
       const frame = h("iframe", "mbframe");
       frame.setAttribute("credentialless", "");
@@ -8845,37 +9709,70 @@ function magicView(el, hooks = {}){
       view.body.appendChild(away);
     }
   };
-  // an agent's page in its sealed frame. each time the page finishes loading it
-  // says so with a word only it and the board know (MagicBox.pageDoc). a load
-  // the word does not follow is the page sending its frame somewhere else,
+  // an agent's page in its sealed frame, inside the holder that keeps the
+  // frame from being sent anywhere (MagicBox.holderDoc). each time the page
+  // finishes loading it says so with a word only it and the board know
+  // (MagicBox.pageDoc), and the holder says the load itself. a load the word
+  // does not follow is the page trying to send its frame somewhere else,
   // which it may not: a fresh frame with the page takes its place, and a page
-  // that keeps leaving is taken down after three tries. the frame cannot be
-  // looked into, so the word is how the board knows what is in it
-  const page = (html, tries) => {
-    view.body.textContent = "";
-    view.body.style.removeProperty("--mb-page");
-    view.page = null;
-    if (tries > 3) return;
+  // that keeps trying is taken down after three tries. the frame cannot be
+  // looked into, so the word is how the board knows what is in it. a kept
+  // page that loads without its word is let go, and made afresh if its card
+  // comes back. box: the card's box the page is ({box, rev, widget}), whose
+  // card:revision it is kept under
+  const build = (html, tries, box) => {
     const frame = h("iframe", "mbframe");
     frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
     frame.setAttribute("referrerpolicy", "no-referrer");
-    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0,
-      seen: { top: 0, whole: 0, client: 0 }, sent: 0 };
+    const widget = box && box.widget ? { box: box.box, rev: box.rev, name: box.widget } : null;
+    const run = { frame, cover: h("div", "mbcover"), box: box ? box.box : null, key: keyOf(box), widget,
+      word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0,
+      seen: { top: 0, whole: 0, client: 0 }, sent: 0, ready: false, wrev: null, sends: [], save: null };
+    run.loaded = () => {
+      run.loads++;
+      // the word is posted from the page's own load, so it lands about when
+      // the holder's does; half a second is long past it on a page that stayed
+      setTimeout(() => {
+        if (!frame.isConnected || run.said >= run.loads) return;
+        if (view.page === run) page(html, tries + 1, box);
+        else drop(run);
+      }, 500);
+    };
+    frame.srcdoc = MagicBox.holderDoc(MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall, !!widget));
+    run.since = Date.now();
+    return run;
+  };
+  const page = (html, tries, box) => {
+    empty();
+    view.body.style.removeProperty("--mb-page");
+    view.page = null;
+    if (tries > 3) return;
+    const run = view.page = build(html, tries, box);
     // a board that sizes the box to the page waits a moment for its height
     // (view.waiting), then shows it at whatever size it has
     if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
-    frame.addEventListener("load", () => {
-      run.loads++;
-      // the word is posted from the page's own load, so it lands a moment
-      // after the frame's; half a second is long past it on a page that stayed
-      setTimeout(() => {
-        if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
-      }, 500);
-    });
-    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall);
-    run.since = Date.now();
-    view.body.append(frame, h("div", "mbcover"));
+    view.body.append(run.frame, run.cover);
   };
+  // a kept page shown again, as the page in the box. the height it last said
+  // at the box's width is the box's again (on the phone, laid out that tall),
+  // and it says another if the width has changed meanwhile; a page made ahead
+  // has said none yet and is waited for as a new one is
+  const show = run => {
+    kept.delete(run.key);
+    hide(run, false);
+    view.page = run;
+    view.body.style.removeProperty("--mb-page");
+    if (hooks.tall && run.height) view.body.style.setProperty("--mb-page", run.height + "px");
+    run.since = Date.now();
+    if (hooks.sized && !run.height) setTimeout(placed, PAGE_WAIT + 50);
+  };
+  // the page a message came from: the one shown, or a kept one
+  const runOf = source => {
+    if (view.page && source === view.page.frame.contentWindow) return view.page;
+    for (const run of kept.values()) if (source === run.frame.contentWindow) return run;
+    return null;
+  };
+  const live = run => view.page === run || kept.get(run.key) === run;
   // hooks.sized: the page also says its own height, the word, a space and the
   // height in its pixels (MagicBox.pageDoc), and the box is sized to it.
   // hooks.heard(height, width) is told each height it says and the width it
@@ -8895,9 +9792,27 @@ function magicView(el, hooks = {}){
     if (run.same < 2) view.body.style.setProperty("--mb-page", run.height + "px");
   };
   addEventListener("message", e => {
-    const run = view.page;
-    if (!run || e.source !== run.frame.contentWindow || typeof e.data !== "string") return;
-    if (e.data === run.word) run.said++;
+    const run = runOf(e.source);
+    if (!run) return;
+    // the page has loaded in its holder, which alone says true (MagicBox.holderDoc)
+    if (e.data === true) return run.loaded();
+    // a widget's request, heard only once the page has said its word since it
+    // last loaded (widgetNote, below)
+    if (e.data && typeof e.data === "object"){
+      if (run.said && run.said >= run.loads) widgetNote(run, e.data);
+      return;
+    }
+    if (typeof e.data !== "string") return;
+    // a kept page that has loaded is told to go quiet, which it could not hear
+    // before it had loaded, and is said to the board, which makes the next one
+    // ahead (hooks.made)
+    if (e.data === run.word){
+      run.said++;
+      if (run !== view.page){ hush(run, true); if (hooks.made) hooks.made(); }
+    }
+    // a kept page is out of sight: it has no keys, nothing to scroll and no
+    // height the box could take, since it is laid out at none
+    else if (run !== view.page) return;
     // control+option+left typed inside the page, which the board never hears
     // from a sealed frame: the page relays it (MagicBox.pageDoc)
     else if (hooks.back && e.data === run.word + " back") hooks.back();
@@ -8942,6 +9857,133 @@ function magicView(el, hooks = {}){
       }
     }
   });
+  // a widget: a page its agent named one (box.widget) asks the board in plain
+  // JSON objects (MagicBox.WIDGET) and is answered here, for its own card and
+  // nothing else: its record (widget/ready), the person's message about one of
+  // the page's own ids (widget/send) and its own memory (widget/state); later
+  // answers and messages reach it as widget/data with no reload (widgetSync).
+  // A message is passed on only while the board's own window shows the
+  // person's fresh activation, which a click, tap or key of theirs in the
+  // frame gives every window above it and no script can make, and only while
+  // they are at the box (hooks.atBox), never more than one a second or 30 a
+  // minute, and only from the page shown. Nothing is heard from a website's
+  // frame or the Mac's measuring copy, which are never the box's pages, and
+  // nothing is told a page before it has asked widget/ready. A kept page
+  // (hooks.keep) is answered its record and keeps its memory as the page
+  // shown does. The routes take a page's messages and memory only from
+  // the board's own pages, and the agent's answers only from an agent
+  const WIDGET_ID = /^[A-Za-z0-9_-]{8,64}$/, WIDGET_NOTE_MOST = 80 * 1024;
+  const widgetPost = (run, m) => {
+    if (!live(run)) return;
+    try { run.frame.contentWindow.postMessage({ jsonrpc: "2.0", ...m }, "*"); } catch (_) {}
+  };
+  const widgetFail = (run, id, code, message) => widgetPost(run, { id, error: { code, message } });
+  const widgetAsk = async (route, init) => {
+    const r = await fetch(route, { cache: "no-store", credentials: "same-origin", ...init });
+    let body = null;
+    try { body = await r.json(); } catch (_) {}
+    return { status: r.status, body };
+  };
+  const widgetRead = w => widgetAsk("/magic/widget?box=" + encodeURIComponent(w.box));
+  const widgetAt = (route, w) => route + "?box=" + encodeURIComponent(w.box) + "&rev=" + encodeURIComponent(w.rev);
+  // a refusal in the page's terms: the page replaced, too fast, wrong, or try again
+  const widgetRefused = (run, id, status, body, again) => widgetFail(run, id,
+    status === 409 ? -32003 : status === 429 ? -32002 : status === 400 || status === 413 ? -32602 : -32005,
+    status === 409 ? "this page was replaced" : status === 429 ? "too many sends" :
+      (status === 400 || status === 413) && body && body.error ? body.error : again);
+  function widgetNote(run, m){
+    const w = run.widget;
+    if (!w || m.jsonrpc !== "2.0" || typeof m.id !== "string") return;
+    if (!WIDGET_ID.test(m.id) || typeof m.method !== "string") return m.id.length <= 64 && widgetFail(run, m.id, -32600, "invalid request");
+    let size = Infinity;
+    try { size = JSON.stringify(m).length; } catch (_) {}
+    if (size > WIDGET_NOTE_MOST) return widgetFail(run, m.id, -32602, "too large");
+    const p = m.params && typeof m.params === "object" ? m.params : {};
+    if (m.method === "widget/ready"){
+      // asks a quarter second apart or closer share one reading, so a page that
+      // keeps asking cannot keep the board reading
+      const now = Date.now();
+      if (!run.reads || now - run.readAt > 250){ run.readAt = now; run.reads = widgetRead(w); }
+      run.reads.then(({ status, body }) => {
+        if (status !== 200 || !body) return widgetRefused(run, m.id, status, body, "not read, try again");
+        if (body.rev !== w.rev) return widgetFail(run, m.id, -32003, "this page was replaced");
+        run.ready = true;
+        run.wrev = body.wrev;
+        widgetPost(run, { id: m.id, result: { thread: body.thread, trev: body.trev, state: body.state, srev: body.srev } });
+      }).catch(() => widgetFail(run, m.id, -32005, "not read, try again"));
+    } else if (m.method === "widget/send"){
+      const ua = navigator.userActivation;
+      if (run !== view.page || !ua || !ua.isActive || !hooks.atBox || !hooks.atBox()) return widgetFail(run, m.id, -32001, "needs a click or key in the box");
+      if (typeof p.text !== "string" || !p.text.trim() || (p.about != null && typeof p.about !== "string"))
+        return widgetFail(run, m.id, -32602, "a message is words, about one id");
+      const now = Date.now();
+      run.sends = run.sends.filter(t => now - t < 60000);
+      if ((run.sends.length && now - run.sends[run.sends.length - 1] < 1000) || run.sends.length >= 30)
+        return widgetFail(run, m.id, -32002, "too many sends");
+      run.sends.push(now);
+      widgetAsk(widgetAt("/magic/send", w) + "&op=" + encodeURIComponent(m.id),
+        { method: "POST", body: JSON.stringify({ text: p.text, about: p.about || "" }) }).then(({ status, body }) => {
+        if (status !== 200 || !body) return widgetRefused(run, m.id, status, body, "not sent, try again");
+        widgetPost(run, { id: m.id, result: { id: body.id } });
+        widgetFresh(run, w);
+      }).catch(() => widgetFail(run, m.id, -32005, "not sent, try again"));
+    } else if (m.method === "widget/state"){
+      if (!p.state || typeof p.state !== "object" || Array.isArray(p.state)) return widgetFail(run, m.id, -32602, "state is an object");
+      // at most four saves a second: a save asked while one is on its way, or
+      // sooner, waits, and only the latest goes; one it replaces is answered
+      // that it was replaced
+      const save = run.save || (run.save = { busy: false, next: null, at: 0, timer: 0 });
+      if (save.next) widgetPost(run, { id: save.next.id, result: { srev: null, replaced: true } });
+      save.next = { id: m.id, state: p.state };
+      widgetSave(run, w);
+    } else widgetFail(run, m.id, -32601, "method not found");
+  }
+  function widgetSave(run, w){
+    const save = run.save;
+    if (!save || save.busy || !save.next || !live(run)) return;
+    const wait = save.at + 250 - Date.now();
+    if (wait > 0){
+      if (!save.timer) save.timer = setTimeout(() => { save.timer = 0; widgetSave(run, w); }, wait);
+      return;
+    }
+    const { id, state } = save.next;
+    save.next = null; save.busy = true; save.at = Date.now();
+    widgetAsk(widgetAt("/magic/state", w), { method: "POST", body: JSON.stringify({ state }) })
+      .then(({ status, body }) => status === 200 && body ? widgetPost(run, { id, result: { srev: body.srev } })
+        : widgetRefused(run, id, status, body, "not saved, try again"))
+      .catch(() => widgetFail(run, id, -32005, "not saved, try again"))
+      .finally(() => { save.busy = false; widgetSave(run, w); });
+  }
+  // the record read again and told the page, once it has asked widget/ready
+  function widgetFresh(run, w){
+    if (!run.ready || run.reading) return;
+    run.reading = true;
+    widgetRead(w).then(({ status, body }) => {
+      if (status !== 200 || !body || body.rev !== w.rev) return;
+      run.wrev = body.wrev;
+      widgetPost(run, { method: "widget/data", params: { thread: body.thread, trev: body.trev } });
+    }).catch(() => {}).finally(() => { run.reading = false; });
+  }
+  // at every reading of the board, with the card's magic field: a widget's
+  // record that has moved (wrev, by a message or an answer) is read and told
+  // its open page
+  view.widgetSync = magic => {
+    const run = view.page, w = view.widget;
+    if (!run || !w || !run.ready || !magic || magic.rev !== w.rev || magic.wrev === run.wrev) return;
+    widgetFresh(run, w);
+  };
+  // a key typed on the board, handed to the widget's page as it was typed
+  // (widget/key), which the page types into itself (MagicBox.WIDGET): the
+  // board's way to give the page control+shift+left and right while the box
+  // is expanded. true once handed to a widget's page that has said its word
+  // since it last loaded, false with no such page
+  view.widgetKey = e => {
+    const run = view.page;
+    if (!run || !view.widget || !run.said || run.said < run.loads) return false;
+    widgetPost(run, { method: "widget/key", params: { key: e.key, code: e.code, ctrlKey: !!e.ctrlKey, shiftKey: !!e.shiftKey,
+      altKey: !!e.altKey, metaKey: !!e.metaKey, repeat: !!e.repeat } });
+    return true;
+  };
   // an agent's page as something control+S can scroll, in the shape the board's
   // hold-to-scroll motion (responseScrollKey) takes of a response: what it
   // reads and writes is the page's, through the words it and the board

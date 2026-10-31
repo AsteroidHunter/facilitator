@@ -32,6 +32,8 @@ puts on the wire:
   key       each key held is tried by reading the box first, and the body
             goes only with the key the door let through
   proxy     a proxy in the account's settings is never used
+  blocked   a call the operating system or a sandbox blocks is said so,
+            never as a board that cannot be reached
   setup     off a server, or with no lane key yet, it says so
 
     python3 -B -m unittest tests/test_remote_magic.py
@@ -373,6 +375,35 @@ class MagicFromAServer(unittest.TestCase):
                 said = here.stderr.replace("magic.py CARD", "facilitator magic CARD")
                 self.assertEqual(said.split("\n\n")[0], mac.stderr.split("\n\n")[0])
 
+    def test_g_a_widget_answered_from_a_server(self):
+        box = self.demo_box
+        made = self.filled(box, "html", "-", "--widget", "issues",
+                           stdin="<!doctype html><p>a widget</p><script>facilitator.ready()</script>")
+        self.assertEqual((made["kind"], made["widget"]), ("html", "issues"))
+        # the person's message, from the board's own page on the Mac
+        rev = made["rev"]
+        page = urllib.request.Request(f"http://127.0.0.1:{self.port}/magic/send?box={box}&rev={rev}&op=fromthepage1",
+                                      method="POST", data=json.dumps({"text": "Is t4 still needed?", "about": "t4"}).encode(),
+                                      headers={"Origin": f"http://127.0.0.1:{self.port}", "Sec-Fetch-Site": "same-origin"})
+        with NO_PROXY.open(page, timeout=30) as r:
+            self.assertEqual(r.status, 200)
+        claim = self.helper("wait", "--owner", "demo", "--agent", "opus", "--timeout", "20")
+        self.assertEqual((claim["status"], claim["box"], claim["messages"]), ("claim", box, []))
+        self.assertEqual([(m["from"], m["about"], m["text"]) for m in claim["widget_messages"]],
+                         [("widget", "t4", "Is t4 still needed?")])
+        # the server's agent answers in it, reads it back, and may not send or keep its memory
+        answered = self.filled(box, "answer", "t4", "Yes, still needed.", "--agent", "opus")
+        self.assertEqual((answered["answered"], answered["released"]), (1, True))
+        record = self.filled(box, "widget")
+        self.assertEqual([(m["by"], m["text"]) for m in record["thread"]],
+                         [("you", "Is t4 still needed?"), ("agent", "Yes, still needed.")])
+        for route in (f"/magic/send?box={box}&rev={rev}", f"/magic/state?box={box}&rev={rev}"):
+            with self.subTest(route=route):
+                self.assertEqual(self.curl("POST", route, json.dumps({"text": "x", "state": {}})),
+                                 (403, {"error": "an agent on a server may not use this"}))
+        self.refused("this key is for another project", self.mac_box, "answer", "t4", "not yours")
+        self.refused("this key is for another project", self.mac_box, "widget")
+
 
 class Door:
     """A stand-in for the board's agent door on a raw socket, so what the
@@ -541,10 +572,28 @@ class TheCommand(unittest.TestCase):
                        HTTPS_PROXY=dead, all_proxy=dead, ALL_PROXY=dead)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_a_call_the_sandbox_blocks_is_said_as_blocked(self):
+        self.serve()
+        # every connect refused with EPERM, as a sandbox refuses one it does not allow
+        blocked = ("import errno, runpy, socket, sys\n"
+                   "def refuse(self, *args):\n"
+                   "    raise PermissionError(errno.EPERM, 'Operation not permitted')\n"
+                   "socket.socket.connect = refuse\n"
+                   "sys.argv = sys.argv[1:]\n"
+                   "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        r = subprocess.run([sys.executable, "-B", "-c", blocked, str(self.script), "m1", "text", "words"],
+                           cwd=self.home, capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "HOME": str(self.home)})
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertEqual(r.stderr.strip(), "magic: the operating system or a sandbox blocked this call to the board; "
+                         "that does not mean the board is down. Run the command again through the host's "
+                         "permission retry, as the facilitator skill says")
+        self.assertEqual(self.door.seen, [])
+
     def test_off_a_server_or_with_no_key_it_says_so(self):
         r = self.magic("m1", "text", "words")
         self.assertEqual((r.returncode, r.stderr.strip()),
-                         (1, "magic: this is not one of the owner's servers; on the Mac run facilitator magic"))
+                         (1, "magic: this is not one of the person's servers; on the Mac run facilitator magic"))
         self.serve()
         for held in (self.top / "agents").glob("*.key"):
             held.unlink()

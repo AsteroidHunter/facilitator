@@ -1,0 +1,12 @@
+# Release signing keys for facilitator update, in git's allowed signers format
+# (see ALLOWED SIGNERS in man ssh-keygen). An update moves a checkout only to a
+# commit on main signed by a key listed here, as this file stands in the
+# version already installed, and a change to this file counts only from a
+# commit signed by a key already listed.
+#
+# One line per key: a name, namespaces="git", then the public key, such as
+#   release namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... name@mac
+#
+# Main must never be pushed with no key here: every update after it would stop
+# with "No release signing key is listed yet".
+release namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFcvLKk55CIsAg+SvehW8YM9eThGv+/NtEfoF8/E6c4 facilitator-release
